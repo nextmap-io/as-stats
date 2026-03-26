@@ -32,8 +32,6 @@ interface StackedLinkChartProps {
 export function StackedLinkChart({ series, height = 300, direction = "in" }: StackedLinkChartProps) {
   if (series.length === 0) return null
 
-  const dataKey = direction === "in" ? "bytes_in" : "bytes_out"
-
   // Build merged time series: each timestamp has one key per link
   const timeMap = new Map<string, Record<string, number>>()
 

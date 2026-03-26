@@ -4,7 +4,7 @@ import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { StackedLinkChart } from "@/components/charts/StackedLinkChart"
 import { ErrorDisplay } from "@/components/ui/error"
-import { TableSkeleton, ChartSkeleton } from "@/components/ui/skeleton"
+import { TableSkeleton } from "@/components/ui/skeleton"
 import { formatBytes } from "@/lib/utils"
 import type { LinkGroup } from "@/lib/types"
 
