@@ -1,7 +1,6 @@
 import { Link, useSearchParams } from "react-router-dom"
 import { useSearch } from "@/hooks/useApi"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import type { ASInfo } from "@/lib/types"
 
 export function SearchPage() {
   const [searchParams] = useSearchParams()
@@ -25,7 +24,7 @@ export function SearchPage() {
 
           {data?.data && (
             <>
-              {(data.data as ASInfo[]).length === 0 ? (
+              {data.data.length === 0 ? (
                 <p className="text-muted-foreground">No results found</p>
               ) : (
                 <table className="w-full text-sm">
@@ -37,7 +36,7 @@ export function SearchPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(data.data as ASInfo[]).map(as => (
+                    {data.data.map(as => (
                       <tr key={as.number} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
                         <td className="py-2">
                           <Link to={`/as/${as.number}`} className="text-primary hover:underline font-mono">

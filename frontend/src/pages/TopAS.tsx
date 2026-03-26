@@ -3,7 +3,6 @@ import { useTopAS } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatBytes, formatNumber, formatPercent } from "@/lib/utils"
-import type { ASTraffic } from "@/lib/types"
 
 export function TopAS() {
   const { filters, setFilter } = useFilters()
@@ -37,7 +36,7 @@ export function TopAS() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(data.data as ASTraffic[]).map((as, i) => (
+                  {data.data.map((as, i) => (
                     <tr key={as.as_number} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
                       <td className="py-2 text-muted-foreground">{(filters.offset || 0) + i + 1}</td>
                       <td className="py-2">
@@ -75,10 +74,10 @@ export function TopAS() {
                   Previous
                 </button>
                 <span className="text-sm text-muted-foreground">
-                  Showing {(filters.offset || 0) + 1} - {(filters.offset || 0) + (data.data as ASTraffic[]).length}
+                  Showing {(filters.offset || 0) + 1} - {(filters.offset || 0) + data.data.length}
                 </span>
                 <button
-                  disabled={(data.data as ASTraffic[]).length < 50}
+                  disabled={data.data.length < 50}
                   onClick={() => setFilter("offset", String((filters.offset || 0) + 50))}
                   className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent disabled:opacity-50"
                 >

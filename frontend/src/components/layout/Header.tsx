@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { useTheme } from "@/providers/ThemeProvider"
+import { useTheme } from "@/hooks/useTheme"
 import { Search, Sun, Moon, Monitor, Activity } from "lucide-react"
 
 export function Header() {

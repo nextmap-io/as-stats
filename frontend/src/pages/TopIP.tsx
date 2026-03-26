@@ -3,7 +3,6 @@ import { useTopIP } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatBytes, formatNumber } from "@/lib/utils"
-import type { IPTraffic } from "@/lib/types"
 
 export function TopIP() {
   const { filters, setFilter } = useFilters()
@@ -34,7 +33,7 @@ export function TopIP() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(data.data as IPTraffic[]).map((ip, i) => (
+                  {data.data.map((ip, i) => (
                     <tr key={ip.ip} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
                       <td className="py-2 text-muted-foreground">{(filters.offset || 0) + i + 1}</td>
                       <td className="py-2">
@@ -67,7 +66,7 @@ export function TopIP() {
                   Previous
                 </button>
                 <button
-                  disabled={(data.data as IPTraffic[]).length < 50}
+                  disabled={data.data.length < 50}
                   onClick={() => setFilter("offset", String((filters.offset || 0) + 50))}
                   className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent disabled:opacity-50"
                 >

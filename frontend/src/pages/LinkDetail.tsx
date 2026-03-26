@@ -4,7 +4,6 @@ import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TrafficChart } from "@/components/charts/TrafficChart"
 import { formatBytes, formatNumber } from "@/lib/utils"
-import type { ASTraffic } from "@/lib/types"
 
 export function LinkDetail() {
   const { tag } = useParams<{ tag: string }>()
@@ -50,7 +49,7 @@ export function LinkDetail() {
                 </tr>
               </thead>
               <tbody>
-                {(detail.top_as as ASTraffic[]).map((as: ASTraffic) => (
+                {detail.top_as.map((as) => (
                   <tr key={as.as_number} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
                     <td className="py-1.5">
                       <Link to={`/as/${as.as_number}`} className="text-primary hover:underline font-mono">

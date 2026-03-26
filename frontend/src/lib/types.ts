@@ -77,4 +77,29 @@ export interface QueryFilters {
   direction?: string
   limit?: number
   offset?: number
+  q?: string
+}
+
+export interface ASDetailData {
+  as_number: number
+  as_name: string
+  time_series: TrafficPoint[]
+}
+
+export interface IPDetailData {
+  ip: string
+  time_series: TrafficPoint[]
+}
+
+export interface LinkDetailData {
+  tag: string
+  time_series: TrafficPoint[]
+  top_as: ASTraffic[]
+}
+
+export interface UserInfo {
+  sub: string
+  name: string
+  email: string
+  role: string
 }

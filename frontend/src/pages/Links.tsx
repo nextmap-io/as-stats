@@ -3,7 +3,6 @@ import { useLinks } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatBytes } from "@/lib/utils"
-import type { LinkTraffic } from "@/lib/types"
 
 export function Links() {
   const { filters } = useFilters()
@@ -33,7 +32,7 @@ export function Links() {
                 </tr>
               </thead>
               <tbody>
-                {(data.data as LinkTraffic[]).map(l => (
+                {data.data.map(l => (
                   <tr key={l.tag} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
                     <td className="py-2">
                       <Link to={`/link/${l.tag}`} className="text-primary hover:underline font-medium">

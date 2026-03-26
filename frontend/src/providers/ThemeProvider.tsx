@@ -1,13 +1,7 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
+import { ThemeCtx } from "@/hooks/useTheme"
 
 type Theme = "light" | "dark" | "system"
-
-interface ThemeContext {
-  theme: Theme
-  setTheme: (t: Theme) => void
-}
-
-const ThemeCtx = createContext<ThemeContext>({ theme: "system", setTheme: () => {} })
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
@@ -34,5 +28,3 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     </ThemeCtx.Provider>
   )
 }
-
-export const useTheme = () => useContext(ThemeCtx)

@@ -4,7 +4,6 @@ import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TrafficChart } from "@/components/charts/TrafficChart"
 import { formatBytes, formatNumber } from "@/lib/utils"
-import type { ASTraffic } from "@/lib/types"
 
 export function ASDetail() {
   const { asn } = useParams<{ asn: string }>()
@@ -46,7 +45,7 @@ export function ASDetail() {
       </Card>
 
       {/* Peers */}
-      {peersData?.data && (peersData.data as ASTraffic[]).length > 0 && (
+      {peersData?.data && peersData.data.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Peers</CardTitle>
@@ -62,7 +61,7 @@ export function ASDetail() {
                 </tr>
               </thead>
               <tbody>
-                {(peersData.data as ASTraffic[]).map(peer => (
+                {peersData.data.map(peer => (
                   <tr key={peer.as_number} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
                     <td className="py-1.5">
                       <Link to={`/as/${peer.as_number}`} className="text-primary hover:underline font-mono">

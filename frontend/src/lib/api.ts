@@ -1,4 +1,17 @@
-import type { ApiResponse, QueryFilters } from "./types"
+import type {
+  ApiResponse,
+  ASDetailData,
+  ASInfo,
+  ASTraffic,
+  IPDetailData,
+  IPTraffic,
+  LinkDetailData,
+  LinkTraffic,
+  Overview,
+  PrefixTraffic,
+  QueryFilters,
+  UserInfo,
+} from "./types"
 
 const BASE = "/api/v1"
 
@@ -33,21 +46,21 @@ async function fetchAPI<T>(path: string, params?: QueryFilters): Promise<ApiResp
 }
 
 export const api = {
-  overview: (filters?: QueryFilters) => fetchAPI<any>("/overview", filters),
+  overview: (filters?: QueryFilters) => fetchAPI<Overview>("/overview", filters),
 
-  topAS: (filters?: QueryFilters) => fetchAPI<any>("/top/as", filters),
-  topIP: (filters?: QueryFilters) => fetchAPI<any>("/top/ip", filters),
-  topPrefix: (filters?: QueryFilters) => fetchAPI<any>("/top/prefix", filters),
+  topAS: (filters?: QueryFilters) => fetchAPI<ASTraffic[]>("/top/as", filters),
+  topIP: (filters?: QueryFilters) => fetchAPI<IPTraffic[]>("/top/ip", filters),
+  topPrefix: (filters?: QueryFilters) => fetchAPI<PrefixTraffic[]>("/top/prefix", filters),
 
-  asDetail: (asn: number, filters?: QueryFilters) => fetchAPI<any>(`/as/${asn}`, filters),
-  asPeers: (asn: number, filters?: QueryFilters) => fetchAPI<any>(`/as/${asn}/peers`, filters),
+  asDetail: (asn: number, filters?: QueryFilters) => fetchAPI<ASDetailData>(`/as/${asn}`, filters),
+  asPeers: (asn: number, filters?: QueryFilters) => fetchAPI<ASTraffic[]>(`/as/${asn}/peers`, filters),
 
-  ipDetail: (ip: string, filters?: QueryFilters) => fetchAPI<any>(`/ip/${ip}`, filters),
+  ipDetail: (ip: string, filters?: QueryFilters) => fetchAPI<IPDetailData>(`/ip/${ip}`, filters),
 
-  links: (filters?: QueryFilters) => fetchAPI<any>("/links", filters),
-  linkDetail: (tag: string, filters?: QueryFilters) => fetchAPI<any>(`/link/${tag}`, filters),
+  links: (filters?: QueryFilters) => fetchAPI<LinkTraffic[]>("/links", filters),
+  linkDetail: (tag: string, filters?: QueryFilters) => fetchAPI<LinkDetailData>(`/link/${tag}`, filters),
 
-  search: (q: string) => fetchAPI<any>("/search", { q } as any),
+  search: (q: string) => fetchAPI<ASInfo[]>("/search", { q }),
 
-  me: () => fetchAPI<any>("/auth/me"),
+  me: () => fetchAPI<UserInfo>("/auth/me"),
 }
