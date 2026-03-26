@@ -83,6 +83,7 @@ export const api = {
 
   asDetail: (asn: number, filters?: QueryFilters) => fetchAPI<ASDetailData>(`/as/${asn}`, filters),
   asPeers: (asn: number, filters?: QueryFilters) => fetchAPI<ASTraffic[]>(`/as/${asn}/peers`, filters),
+  asTopIPs: (asn: number, filters?: QueryFilters) => fetchAPI<IPTraffic[]>(`/as/${asn}/ips`, filters),
 
   ipDetail: (ip: string, filters?: QueryFilters) => fetchAPI<IPDetailData>(`/ip/${ip}`, filters),
 

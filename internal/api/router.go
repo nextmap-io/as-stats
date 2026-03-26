@@ -85,6 +85,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig) http.Handler {
 		// AS detail
 		r.Get("/as/{asn}", h.ASDetail)
 		r.Get("/as/{asn}/peers", h.ASPeers)
+		r.Get("/as/{asn}/ips", h.ASTopIPs)
 
 		// IP detail
 		r.Get("/ip/{ip}", h.IPDetail)

@@ -264,3 +264,54 @@ SELECT
 FROM asstats.flows_raw
 WHERE dst_as > 0
 GROUP BY ts, link_tag, as_number;
+
+
+-- ============================================================================
+-- Cross-reference: traffic by internal IP per AS (30 day retention)
+-- Answers: "which IPs talk to AS13335?" and "which ASes does 10.1.2.3 talk to?"
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS asstats.traffic_by_ip_as (
+    ts             DateTime('UTC'),
+    link_tag       LowCardinality(String),
+    direction      LowCardinality(String),
+    ip_address     IPv6,
+    as_number      UInt32,
+    bytes          UInt64,
+    packets        UInt64,
+    flow_count     UInt64
+) ENGINE = SummingMergeTree((bytes, packets, flow_count))
+PARTITION BY toYYYYMMDD(ts)
+ORDER BY (ts, as_number, ip_address, link_tag, direction)
+TTL ts + INTERVAL 30 DAY;
+
+-- Inbound: external AS (src_as) -> internal IP (dst_ip)
+CREATE MATERIALIZED VIEW IF NOT EXISTS asstats.traffic_by_ip_as_in_mv
+TO asstats.traffic_by_ip_as AS
+SELECT
+    toStartOfFiveMinutes(timestamp) AS ts,
+    link_tag,
+    'in' AS direction,
+    dst_ip AS ip_address,
+    src_as AS as_number,
+    sum(bytes * sampling_rate) AS bytes,
+    sum(packets * sampling_rate) AS packets,
+    count() AS flow_count
+FROM asstats.flows_raw
+WHERE src_as > 0
+GROUP BY ts, link_tag, ip_address, as_number;
+
+-- Outbound: internal IP (src_ip) -> external AS (dst_as)
+CREATE MATERIALIZED VIEW IF NOT EXISTS asstats.traffic_by_ip_as_out_mv
+TO asstats.traffic_by_ip_as AS
+SELECT
+    toStartOfFiveMinutes(timestamp) AS ts,
+    link_tag,
+    'out' AS direction,
+    src_ip AS ip_address,
+    dst_as AS as_number,
+    sum(bytes * sampling_rate) AS bytes,
+    sum(packets * sampling_rate) AS packets,
+    count() AS flow_count
+FROM asstats.flows_raw
+WHERE dst_as > 0
+GROUP BY ts, link_tag, ip_address, as_number;

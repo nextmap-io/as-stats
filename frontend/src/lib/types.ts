@@ -89,6 +89,7 @@ export interface ASDetailData {
 export interface IPDetailData {
   ip: string
   time_series: TrafficPoint[]
+  top_as: ASTraffic[]
 }
 
 export interface LinkDetailData {

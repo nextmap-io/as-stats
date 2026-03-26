@@ -247,6 +247,101 @@ func (s *ClickHouseStore) ASPeers(ctx context.Context, asn uint32, p QueryParams
 	return results, nil
 }
 
+// ASTopIPs returns the top internal IPs communicating with a given AS.
+func (s *ClickHouseStore) ASTopIPs(ctx context.Context, asn uint32, p QueryParams) ([]model.IPTraffic, error) {
+	dirFilter, dirArgs := buildDirectionFilter(p.Direction)
+	linkFilter, linkArgs := buildLinkFilter(p.LinkTags)
+
+	query := fmt.Sprintf(`
+		SELECT
+			toString(ip_address) AS ip,
+			sum(bytes) AS total_bytes,
+			sum(packets) AS total_packets,
+			sum(flow_count) AS total_flows
+		FROM traffic_by_ip_as
+		WHERE as_number = @asn
+		  AND ts >= @from AND ts < @to
+		  %s %s
+		GROUP BY ip
+		ORDER BY total_bytes DESC
+		LIMIT @limit
+	`, dirFilter, linkFilter)
+
+	args := append([]any{
+		clickhouse.Named("asn", asn),
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+		clickhouse.Named("limit", p.Limit),
+	}, dirArgs...)
+	args = append(args, linkArgs...)
+
+	rows, err := s.conn.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query AS top IPs: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []model.IPTraffic
+	for rows.Next() {
+		var r model.IPTraffic
+		if err := rows.Scan(&r.IP, &r.Bytes, &r.Packets, &r.Flows); err != nil {
+			return nil, err
+		}
+		r.ASNumber = asn
+		results = append(results, r)
+	}
+
+	return results, nil
+}
+
+// IPTopAS returns the top ASes communicating with a given internal IP.
+func (s *ClickHouseStore) IPTopAS(ctx context.Context, ip string, p QueryParams) ([]model.ASTraffic, error) {
+	dirFilter, dirArgs := buildDirectionFilter(p.Direction)
+	linkFilter, linkArgs := buildLinkFilter(p.LinkTags)
+
+	query := fmt.Sprintf(`
+		SELECT
+			t.as_number,
+			any(an.as_name) AS as_name,
+			sum(t.bytes) AS total_bytes,
+			sum(t.packets) AS total_packets,
+			sum(t.flow_count) AS total_flows
+		FROM traffic_by_ip_as t
+		LEFT JOIN as_names an ON t.as_number = an.as_number
+		WHERE toString(t.ip_address) = @ip
+		  AND t.ts >= @from AND t.ts < @to
+		  %s %s
+		GROUP BY t.as_number
+		ORDER BY total_bytes DESC
+		LIMIT @limit
+	`, dirFilter, linkFilter)
+
+	args := append([]any{
+		clickhouse.Named("ip", ip),
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+		clickhouse.Named("limit", p.Limit),
+	}, dirArgs...)
+	args = append(args, linkArgs...)
+
+	rows, err := s.conn.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query IP top AS: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []model.ASTraffic
+	for rows.Next() {
+		var r model.ASTraffic
+		if err := rows.Scan(&r.ASNumber, &r.ASName, &r.Bytes, &r.Packets, &r.Flows); err != nil {
+			return nil, err
+		}
+		results = append(results, r)
+	}
+
+	return results, nil
+}
+
 // IPTimeSeries returns traffic time series for a specific IP.
 func (s *ClickHouseStore) IPTimeSeries(ctx context.Context, ip string, p QueryParams) ([]model.TrafficPoint, error) {
 	step := autoStep(p.From, p.To)

@@ -22,10 +22,13 @@ func (h *Handler) IPDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	topAS, _ := h.Store.IPTopAS(r.Context(), ip, p)
+
 	writeJSON(w, http.StatusOK, Response{
 		Data: map[string]any{
 			"ip":          ip,
 			"time_series": ts,
+			"top_as":      topAS,
 		},
 		Meta: &ResponseMeta{From: p.From, To: p.To},
 	})

@@ -21,8 +21,10 @@ type FlowReader interface {
 
 	ASTimeSeries(ctx context.Context, asn uint32, p QueryParams) ([]model.TrafficPoint, error)
 	ASPeers(ctx context.Context, asn uint32, p QueryParams) ([]model.ASTraffic, error)
+	ASTopIPs(ctx context.Context, asn uint32, p QueryParams) ([]model.IPTraffic, error)
 
 	IPTimeSeries(ctx context.Context, ip string, p QueryParams) ([]model.TrafficPoint, error)
+	IPTopAS(ctx context.Context, ip string, p QueryParams) ([]model.ASTraffic, error)
 
 	LinkList(ctx context.Context, p QueryParams) ([]model.LinkTraffic, error)
 	LinkTimeSeries(ctx context.Context, tag string, p QueryParams) ([]model.TrafficPoint, error)

@@ -58,6 +58,28 @@ func (h *Handler) ASPeers(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ASTopIPs handles GET /api/v1/as/{asn}/ips
+func (h *Handler) ASTopIPs(w http.ResponseWriter, r *http.Request) {
+	asn, err := parseASN(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid ASN")
+		return
+	}
+
+	p := parseQueryParams(r)
+
+	ips, err := h.Store.ASTopIPs(r.Context(), asn, p)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Response{
+		Data: ips,
+		Meta: &ResponseMeta{From: p.From, To: p.To, Limit: p.Limit},
+	})
+}
+
 func parseASN(r *http.Request) (uint32, error) {
 	asnStr := chi.URLParam(r, "asn")
 	n, err := strconv.ParseUint(asnStr, 10, 32)
