@@ -1,9 +1,18 @@
 # Production overrides
 # Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# IMPORTANT: Set strong credentials in .env before deploying:
+#   CLICKHOUSE_PASSWORD=<random-32-char>
+#   AUTH_ENABLED=true
+#   OIDC_ISSUER_URL=...
+#   OIDC_CLIENT_ID=...
+#   OIDC_CLIENT_SECRET=...
 
 services:
   clickhouse:
     restart: unless-stopped
+    # Remove public port exposure — only accessible within Docker network
+    ports: !override []
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
@@ -14,12 +23,16 @@ services:
 
   redis:
     restart: unless-stopped
+    # Remove public port exposure
+    ports: !override []
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass "${REDIS_PASSWORD:-changeme}"
 
   collector:
     restart: unless-stopped
+    environment:
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD}"
     deploy:
       resources:
         limits:
@@ -27,8 +40,13 @@ services:
 
   api:
     restart: unless-stopped
+    # Remove public port exposure — frontend proxies to API
+    ports: !override []
     environment:
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD}"
+      AUTH_ENABLED: "${AUTH_ENABLED:-true}"
       API_CORS_ORIGINS: "${API_CORS_ORIGINS:-https://asstats.example.com}"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0"
     deploy:
       resources:
         limits:
@@ -37,7 +55,7 @@ services:
   frontend:
     restart: unless-stopped
     ports:
-      - "443:80"
+      - "80:80"
 
 volumes:
   clickhouse_data:

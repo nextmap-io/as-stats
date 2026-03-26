@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -32,7 +34,7 @@ func RateLimit(requestsPerSecond float64) func(http.Handler) http.Handler {
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := r.RemoteAddr
+			ip := realIP(r)
 
 			mu.Lock()
 			v, exists := visitors[ip]
@@ -61,4 +63,21 @@ func RateLimit(requestsPerSecond float64) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func realIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.IndexByte(xff, ','); i != -1 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return strings.TrimSpace(xff)
+	}
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return xri
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

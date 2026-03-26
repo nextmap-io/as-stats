@@ -42,11 +42,12 @@ func main() {
 	router := api.NewRouter(chStore, cfg)
 
 	srv := &http.Server{
-		Addr:         cfg.ListenAddr,
-		Handler:      router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:           cfg.ListenAddr,
+		Handler:        router,
+		ReadTimeout:    15 * time.Second,
+		WriteTimeout:   30 * time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1MB
 	}
 
 	go func() {

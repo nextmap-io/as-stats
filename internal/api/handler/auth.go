@@ -55,6 +55,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 	})
 

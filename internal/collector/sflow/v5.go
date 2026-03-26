@@ -92,6 +92,9 @@ func DecodeDatagram(data []byte, routerIP net.IP) ([]*model.FlowRecord, error) {
 	// sysUptime := binary.BigEndian.Uint32(data[offset+8 : offset+12])
 	numSamples := binary.BigEndian.Uint32(data[offset+12 : offset+16])
 	offset += 16
+	if numSamples > 1000 {
+		numSamples = 1000
+	}
 
 	ts := time.Now().UTC()
 	var flows []*model.FlowRecord
@@ -166,6 +169,9 @@ func decodeFlowSample(data []byte, routerIP net.IP, ts time.Time, expanded bool)
 
 	if samplingRate == 0 {
 		samplingRate = 1
+	}
+	if numRecords > 1000 {
+		numRecords = 1000
 	}
 
 	var flows []*model.FlowRecord

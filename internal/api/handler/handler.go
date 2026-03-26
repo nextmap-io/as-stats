@@ -46,7 +46,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 // writeError writes a JSON error response.
+// For 5xx errors, a generic message is returned to avoid leaking internals.
 func writeError(w http.ResponseWriter, status int, msg string) {
+	if status >= 500 {
+		log.Printf("internal error: %s", msg)
+		writeJSON(w, status, Response{Error: "internal server error"})
+		return
+	}
 	writeJSON(w, status, Response{Error: msg})
 }
 
@@ -89,7 +95,7 @@ func parseQueryParams(r *http.Request) store.QueryParams {
 		}
 	}
 	if v := r.URL.Query().Get("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= 100000 {
 			p.Offset = n
 		}
 	}
@@ -102,6 +108,9 @@ func parseQueryParams(r *http.Request) store.QueryParams {
 		p.LinkTags = []string{v}
 	}
 	if vals := r.URL.Query()["links"]; len(vals) > 0 {
+		if len(vals) > 50 {
+			vals = vals[:50]
+		}
 		p.LinkTags = vals
 	}
 

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -150,8 +149,7 @@ func GetUser(ctx context.Context) *UserInfo {
 func GenerateSessionID() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		log.Printf("warning: failed to generate random session ID: %v", err)
-		return fmt.Sprintf("fallback-%d", time.Now().UnixNano())
+		panic(fmt.Sprintf("failed to generate secure session ID: %v", err))
 	}
 	return hex.EncodeToString(b)
 }

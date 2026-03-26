@@ -84,10 +84,24 @@ func makeKey(routerIP [16]byte, sourceID uint32, templateID uint16) templateKey 
 	}
 }
 
+const maxTemplateCacheSize = 10000
+
 // Set stores a template in the cache.
 func (tc *TemplateCache) Set(routerIP [16]byte, sourceID uint32, tmpl *Template) {
 	key := makeKey(routerIP, sourceID, tmpl.ID)
 	tc.mu.Lock()
+	if len(tc.templates) >= maxTemplateCacheSize {
+		// Evict oldest entry to prevent unbounded growth
+		var oldestKey templateKey
+		var oldestTime time.Time
+		for k, v := range tc.templates {
+			if oldestTime.IsZero() || v.ReceivedAt.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = v.ReceivedAt
+			}
+		}
+		delete(tc.templates, oldestKey)
+	}
 	tc.templates[key] = tmpl
 	tc.mu.Unlock()
 }
