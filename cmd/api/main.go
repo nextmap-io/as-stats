@@ -9,7 +9,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nextmap-io/as-stats/internal/api"
 	"github.com/nextmap-io/as-stats/internal/config"
+	"github.com/nextmap-io/as-stats/internal/store"
 )
 
 func main() {
@@ -26,19 +28,18 @@ func main() {
 	log.Printf("  ClickHouse:  %s/%s", cfg.ClickHouse.Addr, cfg.ClickHouse.Database)
 	log.Printf("  Auth:        %v", cfg.AuthEnabled)
 
-	// TODO: Initialize ClickHouse store
-	// TODO: Initialize OIDC provider (if auth enabled)
-	// TODO: Build router with handlers
+	chStore, err := store.NewClickHouseStore(cfg.ClickHouse)
+	if err != nil {
+		log.Fatalf("failed to connect to ClickHouse: %v", err)
+	}
+	defer chStore.Close()
+	log.Println("Connected to ClickHouse")
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
-	})
+	router := api.NewRouter(chStore, cfg)
 
 	srv := &http.Server{
 		Addr:         cfg.ListenAddr,
-		Handler:      mux,
+		Handler:      router,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
