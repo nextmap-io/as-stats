@@ -70,6 +70,14 @@ export function useLinks(filters: QueryFilters) {
   })
 }
 
+export function useLinksTraffic(ipVersion: number, filters: QueryFilters) {
+  const f = { ...filters, ip_version: ipVersion }
+  return useQuery({
+    queryKey: ["links-traffic", ipVersion, filters],
+    queryFn: () => api.linksTraffic(f),
+  })
+}
+
 export function useLinkDetail(tag: string, filters: QueryFilters) {
   return useQuery({
     queryKey: ["link-detail", tag, filters],

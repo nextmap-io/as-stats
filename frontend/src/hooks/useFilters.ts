@@ -45,5 +45,16 @@ export function useFilters() {
     })
   }, [setSearchParams])
 
-  return { filters, setFilter, setFilters }
+  // Returns search string preserving period/time filters for cross-page navigation
+  const filterSearch = useMemo(() => {
+    const keep = new URLSearchParams()
+    for (const key of ["period", "from", "to"]) {
+      const val = searchParams.get(key)
+      if (val) keep.set(key, val)
+    }
+    const s = keep.toString()
+    return s ? `?${s}` : ""
+  }, [searchParams])
+
+  return { filters, setFilter, setFilters, filterSearch }
 }

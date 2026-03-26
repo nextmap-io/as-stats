@@ -128,6 +128,22 @@ func (h *Handler) LinkDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// LinksTraffic handles GET /api/v1/links/traffic
+func (h *Handler) LinksTraffic(w http.ResponseWriter, r *http.Request) {
+	p := parseQueryParams(r)
+
+	series, err := h.Store.LinksTrafficSeries(r.Context(), p)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Response{
+		Data: series,
+		Meta: &ResponseMeta{From: p.From, To: p.To},
+	})
+}
+
 func linkConfigToModel(cfg LinkConfig, ip net.IP) model.Link {
 	return model.Link{
 		Tag:          cfg.Tag,

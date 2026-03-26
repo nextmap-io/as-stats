@@ -75,6 +75,7 @@ export interface QueryFilters {
   period?: string
   link?: string
   direction?: string
+  ip_version?: number
   limit?: number
   offset?: number
   q?: string
@@ -96,6 +97,20 @@ export interface LinkDetailData {
   tag: string
   time_series: TrafficPoint[]
   top_as: ASTraffic[]
+}
+
+export interface LinkTimeSeries {
+  link_tag: string
+  description: string
+  points: TrafficPoint[]
+}
+
+export interface LinkConfig {
+  tag: string
+  router_ip: string
+  snmp_index: number
+  description: string
+  capacity_mbps: number
 }
 
 export interface UserInfo {

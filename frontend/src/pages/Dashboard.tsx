@@ -1,16 +1,19 @@
 import { Link } from "react-router-dom"
-import { useOverview } from "@/hooks/useApi"
+import { useOverview, useLinksTraffic } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { PageSkeleton } from "@/components/ui/skeleton"
+import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
 import { formatBytes, formatNumber } from "@/lib/utils"
 import { ArrowDownLeft, ArrowUpRight, Layers, Network, BarChart3 } from "lucide-react"
 import type { ASTraffic, IPTraffic, LinkTraffic } from "@/lib/types"
 
 export function Dashboard() {
-  const { filters } = useFilters()
+  const { filters, filterSearch } = useFilters()
   const { data, isLoading, error, refetch } = useOverview(filters)
+  const { data: ipv4Traffic } = useLinksTraffic(4, filters)
+  const { data: ipv6Traffic } = useLinksTraffic(6, filters)
 
   if (isLoading) return <PageSkeleton />
   if (error) return <ErrorDisplay error={error} onRetry={() => refetch()} />
@@ -30,29 +33,51 @@ export function Dashboard() {
         <StatCard
           title="Inbound"
           value={formatBytes(overview.total_bytes_in)}
-          icon={<ArrowDownLeft className="h-4 w-4" />}
+          icon={<ArrowDownLeft className="h-3.5 w-3.5" />}
           accent="in"
           delay={0}
         />
         <StatCard
           title="Outbound"
           value={formatBytes(overview.total_bytes_out)}
-          icon={<ArrowUpRight className="h-4 w-4" />}
+          icon={<ArrowUpRight className="h-3.5 w-3.5" />}
           accent="out"
           delay={1}
         />
         <StatCard
           title="Active ASes"
           value={formatNumber(overview.active_as_count)}
-          icon={<Network className="h-4 w-4" />}
+          icon={<Network className="h-3.5 w-3.5" />}
           delay={2}
         />
         <StatCard
           title="Total Flows"
           value={formatNumber(overview.total_flows)}
-          icon={<Layers className="h-4 w-4" />}
+          icon={<Layers className="h-3.5 w-3.5" />}
           delay={3}
         />
+      </div>
+
+      {/* Traffic charts: IPv4 / IPv6 by link */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardContent className="pt-5">
+            {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
+              <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" />
+            ) : (
+              <EmptyState message="No IPv4 link traffic data" icon={<BarChart3 className="h-8 w-8" />} />
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5">
+            {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
+              <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" />
+            ) : (
+              <EmptyState message="No IPv6 link traffic data" icon={<BarChart3 className="h-8 w-8" />} />
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Tables grid */}
@@ -61,7 +86,7 @@ export function Dashboard() {
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle>Top AS</CardTitle>
-              <Link to="/top/as" className="text-[10px] text-primary hover:underline uppercase tracking-wider">
+              <Link to={`/top/as${filterSearch}`} className="text-[10px] text-primary hover:underline uppercase tracking-wider">
                 View all
               </Link>
             </div>
@@ -86,7 +111,7 @@ export function Dashboard() {
                         style={{ animationDelay: `${i * 30}ms` }}
                       >
                         <td className="py-1.5">
-                          <Link to={`/as/${as.as_number}`} className="text-primary hover:underline">
+                          <Link to={`/as/${as.as_number}${filterSearch}`} className="text-primary hover:underline">
                             {as.as_number}
                           </Link>
                         </td>
@@ -112,7 +137,7 @@ export function Dashboard() {
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle>Top IP</CardTitle>
-              <Link to="/top/ip" className="text-[10px] text-primary hover:underline uppercase tracking-wider">
+              <Link to={`/top/ip${filterSearch}`} className="text-[10px] text-primary hover:underline uppercase tracking-wider">
                 View all
               </Link>
             </div>
@@ -136,13 +161,13 @@ export function Dashboard() {
                         style={{ animationDelay: `${i * 30}ms` }}
                       >
                         <td className="py-1.5">
-                          <Link to={`/ip/${ip.ip}`} className="text-primary hover:underline text-[11px]">
+                          <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline text-[11px]">
                             {ip.ip}
                           </Link>
                         </td>
                         <td className="py-1.5 text-muted-foreground hidden sm:table-cell">
                           {ip.as_number > 0 ? (
-                            <Link to={`/as/${ip.as_number}`} className="hover:text-foreground transition-colors">
+                            <Link to={`/as/${ip.as_number}${filterSearch}`} className="hover:text-foreground transition-colors">
                               AS{ip.as_number}
                             </Link>
                           ) : "-"}
@@ -166,7 +191,7 @@ export function Dashboard() {
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle>Links</CardTitle>
-              <Link to="/links" className="text-[10px] text-primary hover:underline uppercase tracking-wider">
+              <Link to={`/links${filterSearch}`} className="text-[10px] text-primary hover:underline uppercase tracking-wider">
                 View all
               </Link>
             </div>
@@ -190,7 +215,7 @@ export function Dashboard() {
                   {overview.links.map((l: LinkTraffic) => (
                     <tr key={l.tag} className="border-b border-border/40 last:border-0 hover:bg-accent/50 transition-colors">
                       <td className="py-1.5">
-                        <Link to={`/link/${l.tag}`} className="text-primary hover:underline font-medium">
+                        <Link to={`/link/${l.tag}${filterSearch}`} className="text-primary hover:underline font-medium">
                           {l.tag}
                         </Link>
                       </td>
@@ -229,12 +254,12 @@ function StatCard({ title, value, icon, accent, delay = 0 }: {
       className="animate-fade-in"
       style={{ animationDelay: `${delay * 60}ms` }}
     >
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between mb-1">
+      <CardContent className="p-3">
+        <div className="flex items-center justify-between mb-0.5">
           <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">{title}</p>
           <span className={accentClass}>{icon}</span>
         </div>
-        <p className={`text-xl font-bold tabular-nums ${accent ? accentClass.split(" ")[0] : ""}`}>
+        <p className={`text-lg font-bold tabular-nums ${accent ? accentClass.split(" ")[0] : ""}`}>
           {value}
         </p>
       </CardContent>

@@ -104,6 +104,11 @@ func parseQueryParams(r *http.Request) store.QueryParams {
 		p.Direction = v
 	}
 
+	if v := r.URL.Query().Get("ip_version"); v == "4" || v == "6" {
+		n, _ := strconv.Atoi(v)
+		p.IPVersion = uint8(n)
+	}
+
 	if v := r.URL.Query().Get("link"); v != "" {
 		p.LinkTags = []string{v}
 	}

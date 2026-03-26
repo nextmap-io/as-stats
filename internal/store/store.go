@@ -29,6 +29,7 @@ type FlowReader interface {
 	LinkList(ctx context.Context, p QueryParams) ([]model.LinkTraffic, error)
 	LinkTimeSeries(ctx context.Context, tag string, p QueryParams) ([]model.TrafficPoint, error)
 	LinkTopAS(ctx context.Context, tag string, p QueryParams) ([]model.ASTraffic, uint64, error)
+	LinksTrafficSeries(ctx context.Context, p QueryParams) ([]model.LinkTimeSeries, error)
 
 	Overview(ctx context.Context, p QueryParams) (*model.Overview, error)
 
@@ -56,6 +57,7 @@ type QueryParams struct {
 	To        time.Time
 	LinkTags  []string
 	Direction string // "in", "out", or "" for both
+	IPVersion uint8  // 0=all, 4=IPv4, 6=IPv6
 	Limit     int
 	Offset    int
 }

@@ -101,6 +101,13 @@ type LinkTraffic struct {
 	BytesOut     uint64 `json:"bytes_out"`
 }
 
+// LinkTimeSeries represents traffic time series for a single link.
+type LinkTimeSeries struct {
+	Tag         string         `json:"link_tag"`
+	Description string         `json:"description"`
+	Points      []TrafficPoint `json:"points"`
+}
+
 // Overview represents the dashboard overview data.
 type Overview struct {
 	TotalBytesIn  uint64       `json:"total_bytes_in"`

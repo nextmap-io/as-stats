@@ -122,6 +122,7 @@ func (s *ClickHouseStore) TopIP(ctx context.Context, p QueryParams) ([]model.IPT
 		if err := rows.Scan(&r.IP, &r.ASNumber, &r.ASName, &r.Bytes, &r.Packets, &r.Flows); err != nil {
 			return nil, 0, err
 		}
+		r.IP = cleanIPv4Mapped(r.IP)
 		results = append(results, r)
 	}
 
@@ -287,6 +288,7 @@ func (s *ClickHouseStore) ASTopIPs(ctx context.Context, asn uint32, p QueryParam
 		if err := rows.Scan(&r.IP, &r.Bytes, &r.Packets, &r.Flows); err != nil {
 			return nil, err
 		}
+		r.IP = cleanIPv4Mapped(r.IP)
 		r.ASNumber = asn
 		results = append(results, r)
 	}
@@ -483,13 +485,13 @@ func (s *ClickHouseStore) LinkTopAS(ctx context.Context, tag string, p QueryPara
 func (s *ClickHouseStore) Overview(ctx context.Context, p QueryParams) (*model.Overview, error) {
 	ov := &model.Overview{}
 
-	// Total traffic
+	// Total traffic (use traffic_by_as — works even without configured links)
 	err := s.conn.QueryRow(ctx, `
 		SELECT
-			sumIf(bytes_in, true) AS total_in,
-			sumIf(bytes_out, true) AS total_out,
+			sumIf(bytes, direction = 'in') AS total_in,
+			sumIf(bytes, direction = 'out') AS total_out,
 			sum(flow_count) AS total_flows
-		FROM traffic_by_link
+		FROM traffic_by_as
 		WHERE ts >= @from AND ts < @to
 	`,
 		clickhouse.Named("from", p.From),
@@ -695,6 +697,90 @@ func buildLinkFilter(tags []string) (string, []any) {
 	return "AND t.link_tag IN (@links)", []any{clickhouse.Named("links", tags)}
 }
 
+// LinksTrafficSeries returns traffic time series for all links, optionally filtered by IP version.
+func (s *ClickHouseStore) LinksTrafficSeries(ctx context.Context, p QueryParams) ([]model.LinkTimeSeries, error) {
+	step := autoStep(p.From, p.To)
+
+	ipvFilter := ""
+	var ipvArgs []any
+	if p.IPVersion == 4 || p.IPVersion == 6 {
+		ipvFilter = "AND t.ip_version = @ipv"
+		ipvArgs = append(ipvArgs, clickhouse.Named("ipv", p.IPVersion))
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			toStartOfInterval(t.ts, INTERVAL %d SECOND) AS period,
+			t.link_tag,
+			any(l.description) AS description,
+			sum(t.bytes_in) AS bytes_in,
+			sum(t.bytes_out) AS bytes_out,
+			sum(t.packets_in) AS packets_in,
+			sum(t.packets_out) AS packets_out
+		FROM traffic_by_link t
+		LEFT JOIN links l ON t.link_tag = l.tag
+		WHERE t.ts >= @from AND t.ts < @to
+		  AND t.link_tag != ''
+		  %s
+		GROUP BY period, t.link_tag
+		ORDER BY period, t.link_tag
+	`, int(step.Seconds()), ipvFilter)
+
+	args := append([]any{
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+	}, ipvArgs...)
+
+	rows, err := s.conn.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query links traffic series: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	// Pivot rows into per-link series
+	seriesMap := make(map[string]*model.LinkTimeSeries)
+	var order []string
+
+	for rows.Next() {
+		var ts time.Time
+		var tag, desc string
+		var bytesIn, bytesOut, packetsIn, packetsOut uint64
+
+		if err := rows.Scan(&ts, &tag, &desc, &bytesIn, &bytesOut, &packetsIn, &packetsOut); err != nil {
+			return nil, err
+		}
+
+		ls, ok := seriesMap[tag]
+		if !ok {
+			ls = &model.LinkTimeSeries{Tag: tag, Description: desc}
+			seriesMap[tag] = ls
+			order = append(order, tag)
+		}
+		ls.Points = append(ls.Points, model.TrafficPoint{
+			Timestamp:  ts,
+			BytesIn:    bytesIn,
+			BytesOut:   bytesOut,
+			PacketsIn:  packetsIn,
+			PacketsOut: packetsOut,
+		})
+	}
+
+	results := make([]model.LinkTimeSeries, 0, len(order))
+	for _, tag := range order {
+		results = append(results, *seriesMap[tag])
+	}
+
+	return results, nil
+}
+
 func parseIP(s string) net.IP {
 	return net.ParseIP(s)
+}
+
+// cleanIPv4Mapped strips the ::ffff: prefix from IPv4-mapped IPv6 addresses.
+func cleanIPv4Mapped(ip string) string {
+	if strings.HasPrefix(ip, "::ffff:") {
+		return ip[7:]
+	}
+	return ip
 }

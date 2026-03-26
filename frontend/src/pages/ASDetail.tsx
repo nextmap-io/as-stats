@@ -4,11 +4,12 @@ import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TrafficChart } from "@/components/charts/TrafficChart"
 import { formatBytes, formatNumber } from "@/lib/utils"
+import { ExternalLink } from "lucide-react"
 
 export function ASDetail() {
   const { asn } = useParams<{ asn: string }>()
   const asnNum = Number(asn) || 0
-  const { filters } = useFilters()
+  const { filters, filterSearch } = useFilters()
 
   const { data, isLoading, error } = useASDetail(asnNum, filters)
   const { data: peersData } = useASPeers(asnNum, { ...filters, limit: 20 })
@@ -22,13 +23,39 @@ export function ASDetail() {
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="flex items-baseline justify-between flex-wrap gap-2">
         <h1 className="text-2xl font-bold tracking-tight">
           AS{detail.as_number}
           {detail.as_name && (
             <span className="ml-3 text-lg font-normal text-muted-foreground">{detail.as_name}</span>
           )}
         </h1>
+        <div className="flex items-center gap-3 text-xs">
+          <a
+            href={`https://bgp.he.net/AS${detail.as_number}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1"
+          >
+            HE.net <ExternalLink className="h-3 w-3" />
+          </a>
+          <a
+            href={`https://www.peeringdb.com/asn/${detail.as_number}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1"
+          >
+            PeeringDB <ExternalLink className="h-3 w-3" />
+          </a>
+          <a
+            href={`https://bgp.tools/as/${detail.as_number}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1"
+          >
+            bgp.tools <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
       </div>
 
       {/* Traffic chart */}
@@ -65,7 +92,7 @@ export function ASDetail() {
                   {topIPsData.data.map(ip => (
                     <tr key={ip.ip} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
                       <td className="py-1.5">
-                        <Link to={`/ip/${ip.ip}`} className="text-primary hover:underline font-mono text-xs">
+                        <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-xs">
                           {ip.ip}
                         </Link>
                       </td>
@@ -99,7 +126,7 @@ export function ASDetail() {
                   {peersData.data.map(peer => (
                     <tr key={peer.as_number} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
                       <td className="py-1.5">
-                        <Link to={`/as/${peer.as_number}`} className="text-primary hover:underline font-mono">
+                        <Link to={`/as/${peer.as_number}${filterSearch}`} className="text-primary hover:underline font-mono">
                           {peer.as_number}
                         </Link>
                       </td>
