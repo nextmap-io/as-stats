@@ -1,11 +1,9 @@
 name: Setup Repository Protection
 
+# Run manually: Actions > Setup Repository Protection > Run workflow
+# Requires a PAT with admin:repo scope stored as ADMIN_TOKEN secret.
 on:
   workflow_dispatch:
-
-permissions:
-  contents: write
-  administration: write
 
 jobs:
   setup:
@@ -15,6 +13,7 @@ jobs:
       - name: Protect main branch
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.ADMIN_TOKEN }}
           script: |
             // Branch protection on main
             await github.rest.repos.updateBranchProtection({
@@ -50,6 +49,7 @@ jobs:
       - name: Protect version tags
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.ADMIN_TOKEN }}
           script: |
             // Tag protection for v* tags
             try {
@@ -70,6 +70,7 @@ jobs:
       - name: Configure repository settings
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.ADMIN_TOKEN }}
           script: |
             await github.rest.repos.update({
               owner: context.repo.owner,
