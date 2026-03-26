@@ -87,9 +87,7 @@ func DecodeDatagram(data []byte, routerIP net.IP) ([]*model.FlowRecord, error) {
 		return nil, fmt.Errorf("truncated sflow header")
 	}
 
-	// subAgentID := binary.BigEndian.Uint32(data[offset : offset+4])
-	// seqNo := binary.BigEndian.Uint32(data[offset+4 : offset+8])
-	// sysUptime := binary.BigEndian.Uint32(data[offset+8 : offset+12])
+	// Skip sub-agent ID (4), sequence number (4), uptime (4)
 	numSamples := binary.BigEndian.Uint32(data[offset+12 : offset+16])
 	offset += 16
 	if numSamples > 1000 {
@@ -156,8 +154,7 @@ func decodeFlowSample(data []byte, routerIP net.IP, ts time.Time, expanded bool)
 			return nil
 		}
 		// seqNo = binary.BigEndian.Uint32(data[0:4])
-		srcIDType := binary.BigEndian.Uint32(data[4:8])
-		_ = srcIDType
+		// data[4:8] = source ID type+index (unused)
 		samplingRate = binary.BigEndian.Uint32(data[8:12])
 		// samplePool = binary.BigEndian.Uint32(data[12:16])
 		// drops = binary.BigEndian.Uint32(data[16:20])
@@ -211,9 +208,9 @@ func decodeRawPacketRecord(data []byte, routerIP net.IP, ts time.Time, samplingR
 		return nil
 	}
 
-	protocol := binary.BigEndian.Uint32(data[0:4])
+	_ = binary.BigEndian.Uint32(data[0:4]) // protocol
 	frameLen := binary.BigEndian.Uint32(data[4:8])
-	// stripped := binary.BigEndian.Uint32(data[8:12])
+	// data[8:12] = stripped bytes (unused)
 	headerLen := int(binary.BigEndian.Uint32(data[12:16]))
 
 	if headerLen < 0 || headerLen > 65535 || 16+headerLen > len(data) {
@@ -232,8 +229,6 @@ func decodeRawPacketRecord(data []byte, routerIP net.IP, ts time.Time, samplingR
 		Packets:      1,
 		FlowType:     "sflow",
 	}
-
-	_ = protocol
 
 	// Parse Ethernet header
 	if len(packetHeader) < ethHeaderLen {

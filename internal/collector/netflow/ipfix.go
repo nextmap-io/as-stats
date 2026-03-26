@@ -17,40 +17,27 @@ const (
 	ipfixOptionsSet  = 3
 )
 
-// IPFIXHeader represents an IPFIX message header.
-type IPFIXHeader struct {
-	Version    uint16
-	Length     uint16
-	ExportTime uint32
-	SequenceNo uint32
-	DomainID   uint32
-}
-
 // DecodeIPFIX parses an IPFIX (NetFlow v10) packet.
 func DecodeIPFIX(data []byte, routerIP net.IP) ([]*model.FlowRecord, error) {
 	if len(data) < ipfixHeaderLen {
 		return nil, fmt.Errorf("packet too short for IPFIX header: %d bytes", len(data))
 	}
 
-	header := IPFIXHeader{
-		Version:    binary.BigEndian.Uint16(data[0:2]),
-		Length:     binary.BigEndian.Uint16(data[2:4]),
-		ExportTime: binary.BigEndian.Uint32(data[4:8]),
-		SequenceNo: binary.BigEndian.Uint32(data[8:12]),
-		DomainID:   binary.BigEndian.Uint32(data[12:16]),
+	version := binary.BigEndian.Uint16(data[0:2])
+	if version != ipfixVersion {
+		return nil, fmt.Errorf("expected IPFIX version %d, got %d", ipfixVersion, version)
 	}
 
-	if header.Version != ipfixVersion {
-		return nil, fmt.Errorf("expected IPFIX version %d, got %d", ipfixVersion, header.Version)
-	}
-
-	msgLen := int(header.Length)
+	msgLen := int(binary.BigEndian.Uint16(data[2:4]))
 	if msgLen > len(data) {
 		msgLen = len(data)
 	}
 
+	exportTime := binary.BigEndian.Uint32(data[4:8])
+	domainID := binary.BigEndian.Uint32(data[12:16])
+
 	routerKey := ipToKey(routerIP)
-	ts := time.Unix(int64(header.ExportTime), 0).UTC()
+	ts := time.Unix(int64(exportTime), 0).UTC()
 
 	var flows []*model.FlowRecord
 	offset := ipfixHeaderLen
@@ -67,11 +54,11 @@ func DecodeIPFIX(data []byte, routerIP net.IP) ([]*model.FlowRecord, error) {
 
 		switch {
 		case setID == ipfixTemplateSet:
-			parseIPFIXTemplates(setData, routerKey, header.DomainID)
+			parseIPFIXTemplates(setData, routerKey, domainID)
 		case setID == ipfixOptionsSet:
-			parseIPFIXOptionsTemplate(setData, routerKey, header.DomainID)
+			parseIPFIXOptionsTemplate(setData, routerKey, domainID)
 		case setID >= 256:
-			decoded := decodeIPFIXDataSet(setData, routerKey, header.DomainID, setID, routerIP, ts)
+			decoded := decodeIPFIXDataSet(setData, routerKey, domainID, setID, routerIP, ts)
 			flows = append(flows, decoded...)
 		}
 
@@ -142,7 +129,7 @@ func parseIPFIXOptionsTemplate(data []byte, routerKey [16]byte, domainID uint32)
 
 	templateID := binary.BigEndian.Uint16(data[0:2])
 	totalFieldCount := int(binary.BigEndian.Uint16(data[2:4]))
-	scopeFieldCount := int(binary.BigEndian.Uint16(data[4:6]))
+	// data[4:6] = scope field count (unused, all fields parsed uniformly)
 	offset := 6
 
 	tmpl := &Template{
@@ -169,8 +156,6 @@ func parseIPFIXOptionsTemplate(data []byte, routerKey [16]byte, domainID uint32)
 			offset += 4
 		}
 
-		// Mark scope fields by using type as-is (we'll still try to decode them)
-		_ = scopeFieldCount
 		tmpl.Fields = append(tmpl.Fields, TemplateField{Type: fType, Length: fLen})
 		totalLen += int(fLen)
 	}

@@ -20,36 +20,22 @@ const (
 var globalTemplateCache = NewTemplateCache(30 * time.Minute)
 
 // V9Header represents a NetFlow v9 packet header.
-type V9Header struct {
-	Version  uint16
-	Count    uint16
-	SysUp    uint32
-	UnixSecs uint32
-	Sequence uint32
-	SourceID uint32
-}
-
 // DecodeV9 parses a NetFlow v9 packet.
 func DecodeV9(data []byte, routerIP net.IP) ([]*model.FlowRecord, error) {
 	if len(data) < v9HeaderLen {
 		return nil, fmt.Errorf("packet too short for v9 header: %d bytes", len(data))
 	}
 
-	header := V9Header{
-		Version:  binary.BigEndian.Uint16(data[0:2]),
-		Count:    binary.BigEndian.Uint16(data[2:4]),
-		SysUp:    binary.BigEndian.Uint32(data[4:8]),
-		UnixSecs: binary.BigEndian.Uint32(data[8:12]),
-		Sequence: binary.BigEndian.Uint32(data[12:16]),
-		SourceID: binary.BigEndian.Uint32(data[16:20]),
+	version := binary.BigEndian.Uint16(data[0:2])
+	if version != v9Version {
+		return nil, fmt.Errorf("expected version %d, got %d", v9Version, version)
 	}
 
-	if header.Version != v9Version {
-		return nil, fmt.Errorf("expected version %d, got %d", v9Version, header.Version)
-	}
+	unixSecs := binary.BigEndian.Uint32(data[8:12])
+	sourceID := binary.BigEndian.Uint32(data[16:20])
 
 	routerKey := ipToKey(routerIP)
-	ts := time.Unix(int64(header.UnixSecs), 0).UTC()
+	ts := time.Unix(int64(unixSecs), 0).UTC()
 
 	var flows []*model.FlowRecord
 	offset := v9HeaderLen
@@ -66,11 +52,11 @@ func DecodeV9(data []byte, routerIP net.IP) ([]*model.FlowRecord, error) {
 
 		switch {
 		case setID == v9TemplateSet:
-			parseV9Templates(setData, routerKey, header.SourceID)
+			parseV9Templates(setData, routerKey, sourceID)
 		case setID == v9OptionsSet:
 			// Options templates - skip for now
 		case setID >= 256:
-			decoded := decodeDataSet(setData, routerKey, header.SourceID, setID, routerIP, ts)
+			decoded := decodeDataSet(setData, routerKey, sourceID, setID, routerIP, ts)
 			flows = append(flows, decoded...)
 		}
 
