@@ -10,6 +10,13 @@ jobs:
     name: Configure branch and tag protection
     runs-on: ubuntu-latest
     steps:
+      - name: Check ADMIN_TOKEN is set
+        run: |
+          if [ -z "${{ secrets.ADMIN_TOKEN }}" ]; then
+            echo "::error::ADMIN_TOKEN secret is not set. Add a PAT with admin scope in Settings > Secrets > Actions."
+            exit 1
+          fi
+
       - name: Protect main branch
         uses: actions/github-script@v7
         with:
