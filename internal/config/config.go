@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -41,12 +42,24 @@ type APIConfig struct {
 }
 
 func loadClickHouse() ClickHouseConfig {
-	return ClickHouseConfig{
+	cfg := ClickHouseConfig{
 		Addr:     envOr("CLICKHOUSE_ADDR", "localhost:9000"),
 		Database: envOr("CLICKHOUSE_DATABASE", "asstats"),
-		User:     envOr("CLICKHOUSE_USER", "asstats"),
-		Password: envOr("CLICKHOUSE_PASSWORD", "asstats"),
+		User:     envOr("CLICKHOUSE_USER", ""),
+		Password: envOr("CLICKHOUSE_PASSWORD", ""),
 	}
+
+	if cfg.User == "" || cfg.Password == "" {
+		log.Println("WARNING: CLICKHOUSE_USER and CLICKHOUSE_PASSWORD not set, using defaults (not safe for production)")
+		if cfg.User == "" {
+			cfg.User = "asstats"
+		}
+		if cfg.Password == "" {
+			cfg.Password = "asstats"
+		}
+	}
+
+	return cfg
 }
 
 // LoadCollector loads collector configuration from environment variables.
@@ -80,7 +93,7 @@ func LoadAPI() (*APIConfig, error) {
 	scopes := strings.Split(envOr("OIDC_SCOPES", "openid profile email"), " ")
 	authEnabled, _ := strconv.ParseBool(envOr("AUTH_ENABLED", "false"))
 
-	return &APIConfig{
+	cfg := &APIConfig{
 		ClickHouse:   loadClickHouse(),
 		ListenAddr:   envOr("API_LISTEN_ADDR", ":8080"),
 		CORSOrigins:  origins,
@@ -91,7 +104,23 @@ func LoadAPI() (*APIConfig, error) {
 		OIDCRedirect: envOr("OIDC_REDIRECT_URL", "http://localhost:8080/auth/callback"),
 		OIDCScopes:   scopes,
 		RedisURL:     envOr("REDIS_URL", ""),
-	}, nil
+	}
+
+	// Validate OIDC config when auth is enabled
+	if cfg.AuthEnabled {
+		if cfg.OIDCIssuer == "" || cfg.OIDCClientID == "" {
+			return nil, fmt.Errorf("AUTH_ENABLED=true requires OIDC_ISSUER_URL and OIDC_CLIENT_ID")
+		}
+	}
+
+	// Warn about wildcard CORS with credentials
+	for _, origin := range cfg.CORSOrigins {
+		if strings.TrimSpace(origin) == "*" {
+			log.Println("WARNING: CORS origin '*' is not safe with AllowCredentials=true")
+		}
+	}
+
+	return cfg, nil
 }
 
 func envOr(key, fallback string) string {

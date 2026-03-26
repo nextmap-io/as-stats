@@ -15,7 +15,21 @@ import type {
 
 const BASE = "/api/v1"
 
-async function fetchAPI<T>(path: string, params?: QueryFilters): Promise<ApiResponse<T>> {
+function getCSRFToken(): string {
+  const match = document.cookie.match(/(?:^|;\s*)as_stats_csrf=([^;]+)/)
+  return match ? match[1] : ""
+}
+
+interface FetchOptions {
+  method?: string
+  body?: unknown
+}
+
+async function fetchAPI<T>(
+  path: string,
+  params?: QueryFilters,
+  opts?: FetchOptions,
+): Promise<ApiResponse<T>> {
   const url = new URL(path, window.location.origin)
   url.pathname = `${BASE}${path}`
 
@@ -27,9 +41,24 @@ async function fetchAPI<T>(path: string, params?: QueryFilters): Promise<ApiResp
     })
   }
 
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  }
+
+  // Include CSRF token for state-changing requests
+  const method = opts?.method || "GET"
+  if (method !== "GET" && method !== "HEAD") {
+    const csrf = getCSRFToken()
+    if (csrf) {
+      headers["X-CSRF-Token"] = csrf
+    }
+  }
+
   const res = await fetch(url.toString(), {
-    headers: { "Content-Type": "application/json" },
+    method,
+    headers,
     credentials: "include",
+    body: opts?.body ? JSON.stringify(opts.body) : undefined,
   })
 
   if (res.status === 401) {
@@ -63,4 +92,10 @@ export const api = {
   search: (q: string) => fetchAPI<ASInfo[]>("/search", { q }),
 
   me: () => fetchAPI<UserInfo>("/auth/me"),
+
+  // Admin endpoints (POST/DELETE — include CSRF token)
+  createLink: (link: Record<string, unknown>) =>
+    fetchAPI<unknown>("/admin/links", undefined, { method: "POST", body: link }),
+  deleteLink: (tag: string) =>
+    fetchAPI<unknown>(`/admin/links/${tag}`, undefined, { method: "DELETE" }),
 }

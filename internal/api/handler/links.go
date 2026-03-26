@@ -9,6 +9,8 @@ import (
 	"github.com/nextmap-io/as-stats/internal/model"
 )
 
+const maxLinkBodySize = 10 * 1024 // 10KB
+
 // Links handles GET /api/v1/links
 func (h *Handler) Links(w http.ResponseWriter, r *http.Request) {
 	p := parseQueryParams(r)
@@ -79,13 +81,19 @@ func (h *Handler) LinksAdmin(w http.ResponseWriter, r *http.Request) {
 
 // LinkCreate handles POST /api/v1/admin/links
 func (h *Handler) LinkCreate(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxLinkBodySize)
+
 	var cfg LinkConfig
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if cfg.Tag == "" {
-		writeError(w, http.StatusBadRequest, "tag is required")
+	if cfg.Tag == "" || len(cfg.Tag) > 128 {
+		writeError(w, http.StatusBadRequest, "tag is required and must be <= 128 chars")
+		return
+	}
+	if len(cfg.Description) > 500 {
+		writeError(w, http.StatusBadRequest, "description must be <= 500 chars")
 		return
 	}
 

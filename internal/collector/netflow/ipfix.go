@@ -88,7 +88,7 @@ func parseIPFIXTemplates(data []byte, routerKey [16]byte, domainID uint32) {
 		fieldCount := int(binary.BigEndian.Uint16(data[offset+2 : offset+4]))
 		offset += 4
 
-		if fieldCount == 0 {
+		if fieldCount == 0 || fieldCount > 256 {
 			break
 		}
 

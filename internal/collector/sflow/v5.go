@@ -216,7 +216,7 @@ func decodeRawPacketRecord(data []byte, routerIP net.IP, ts time.Time, samplingR
 	// stripped := binary.BigEndian.Uint32(data[8:12])
 	headerLen := int(binary.BigEndian.Uint32(data[12:16]))
 
-	if 16+headerLen > len(data) {
+	if headerLen < 0 || headerLen > 65535 || 16+headerLen > len(data) {
 		return nil
 	}
 

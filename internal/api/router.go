@@ -101,6 +101,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig) http.Handler {
 			if cfg.AuthEnabled {
 				r.Use(middleware.RequireRole("admin"))
 			}
+			r.Use(middleware.CSRF())
 			r.Get("/links", h.LinksAdmin)
 			r.Post("/links", h.LinkCreate)
 			r.Delete("/links/{tag}", h.LinkDelete)

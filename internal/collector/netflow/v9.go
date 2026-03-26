@@ -91,7 +91,7 @@ func parseV9Templates(data []byte, routerKey [16]byte, sourceID uint32) {
 		fieldCount := int(binary.BigEndian.Uint16(data[offset+2 : offset+4]))
 		offset += 4
 
-		if fieldCount == 0 || offset+fieldCount*4 > len(data) {
+		if fieldCount == 0 || fieldCount > 256 || offset+fieldCount*4 > len(data) {
 			break
 		}
 
