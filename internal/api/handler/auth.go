@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -244,13 +243,3 @@ func computeS256Challenge(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(h[:])
 }
 
-// extractRoles maps OIDC group/role claims to application roles.
-func extractRoles(groups []string) string {
-	for _, g := range groups {
-		lower := strings.ToLower(g)
-		if lower == "admin" || lower == "admins" || lower == "as-stats-admin" {
-			return "admin"
-		}
-	}
-	return "viewer"
-}
