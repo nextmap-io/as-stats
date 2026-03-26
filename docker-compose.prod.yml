@@ -16,6 +16,8 @@ services:
     restart: unless-stopped
     # Remove public port exposure — only accessible within Docker network
     ports: !override []
+    environment:
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD}"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
@@ -31,6 +33,13 @@ services:
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --requirepass "${REDIS_PASSWORD:-changeme}"
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-changeme}"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   collector:
     image: ghcr.io/nextmap-io/as-stats-collector:${IMAGE_TAG:-latest}
