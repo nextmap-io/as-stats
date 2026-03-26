@@ -34,6 +34,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig) http.Handler {
 	}))
 
 	h := handler.New(s)
+	sessions := middleware.NewSessionStore()
 
 	// Health check (no auth, no rate limit)
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -41,9 +42,26 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig) http.Handler {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
+	// Auth endpoints (if OIDC enabled)
+	if cfg.AuthEnabled {
+		authH := handler.NewAuthHandler(cfg, sessions)
+		r.Get("/auth/login", authH.Login)
+		r.Get("/auth/callback", authH.Callback)
+		r.Post("/auth/logout", authH.Logout)
+	}
+
 	// API v1
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(middleware.RateLimit(100))
+
+		// Apply auth middleware if enabled
+		if cfg.AuthEnabled {
+			r.Use(middleware.AuthMiddleware(cfg, sessions))
+		}
+
+		// Auth info
+		authH := handler.NewAuthHandler(cfg, sessions)
+		r.Get("/auth/me", authH.Me)
 
 		// Overview
 		r.Get("/overview", h.Overview)
@@ -67,8 +85,11 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig) http.Handler {
 		// Search
 		r.Get("/search", h.Search)
 
-		// Admin (link management)
+		// Admin (link management, requires admin role when auth is enabled)
 		r.Route("/admin", func(r chi.Router) {
+			if cfg.AuthEnabled {
+				r.Use(middleware.RequireRole("admin"))
+			}
 			r.Get("/links", h.LinksAdmin)
 			r.Post("/links", h.LinkCreate)
 			r.Delete("/links/{tag}", h.LinkDelete)
