@@ -1,4 +1,4 @@
-.PHONY: build build-collector build-api run-collector run-api test lint migrate dev docker-build docker-up docker-down frontend-dev clean
+.PHONY: build build-collector build-api run-collector run-api test test-cover lint migrate dev docker-build docker-up docker-down frontend-dev frontend-lint frontend-typecheck ci clean
 
 # Go build
 build: build-collector build-api
@@ -19,6 +19,10 @@ run-api:
 # Test
 test:
 	go test ./... -v -race
+
+test-cover:
+	go test ./... -race -coverprofile=coverage.out -covermode=atomic
+	go tool cover -func=coverage.out
 
 lint:
 	golangci-lint run ./...
@@ -47,6 +51,16 @@ frontend-dev:
 
 frontend-build:
 	cd frontend && npm run build
+
+frontend-lint:
+	cd frontend && npm run lint
+
+frontend-typecheck:
+	cd frontend && npx tsc -b
+
+# CI: run all checks locally
+ci: lint test frontend-lint frontend-typecheck frontend-build build
+	@echo "All CI checks passed."
 
 # Dev: start infrastructure + run services
 dev: docker-up
