@@ -39,10 +39,12 @@ const (
 
 // Link represents a known network link (router interface).
 type Link struct {
-	Tag         string
-	RouterIP    net.IP
-	SNMPIndex   uint32
-	Description string
+	Tag          string
+	RouterIP     net.IP
+	SNMPIndex    uint32
+	Description  string
+	GroupName    string // operator/provider name (e.g. "Cogent", "Level3")
+	Color        string // hex color for charts (e.g. "#10b981")
 	CapacityMbps uint32
 }
 
@@ -96,9 +98,17 @@ type PrefixTraffic struct {
 type LinkTraffic struct {
 	Tag          string `json:"tag"`
 	Description  string `json:"description"`
+	GroupName    string `json:"group_name,omitempty"`
+	Color        string `json:"color,omitempty"`
 	CapacityMbps uint32 `json:"capacity_mbps,omitempty"`
 	BytesIn      uint64 `json:"bytes_in"`
 	BytesOut     uint64 `json:"bytes_out"`
+}
+
+// LinkGroup represents links grouped by operator/provider.
+type LinkGroup struct {
+	Name  string        `json:"name"`
+	Links []LinkTraffic `json:"links"`
 }
 
 // Overview represents the dashboard overview data.

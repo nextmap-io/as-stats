@@ -65,6 +65,8 @@ type LinkConfig struct {
 	RouterIP     string `json:"router_ip"`
 	SNMPIndex    uint32 `json:"snmp_index"`
 	Description  string `json:"description"`
+	GroupName    string `json:"group_name"`
+	Color        string `json:"color"`
 	CapacityMbps uint32 `json:"capacity_mbps"`
 }
 
@@ -128,12 +130,67 @@ func (h *Handler) LinkDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// LinksTimeSeries handles GET /api/v1/links/timeseries — per-link stacked chart data
+func (h *Handler) LinksTimeSeries(w http.ResponseWriter, r *http.Request) {
+	p := parseQueryParams(r)
+
+	series, err := h.Store.LinkTimeSeriesAll(r.Context(), p)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Response{
+		Data: series,
+		Meta: &ResponseMeta{From: p.From, To: p.To},
+	})
+}
+
+// LinksGrouped handles GET /api/v1/links/grouped — links grouped by operator
+func (h *Handler) LinksGrouped(w http.ResponseWriter, r *http.Request) {
+	p := parseQueryParams(r)
+
+	links, err := h.Store.LinkList(r.Context(), p)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	groups := make(map[string]*model.LinkGroup)
+	var order []string
+	for _, l := range links {
+		name := l.GroupName
+		if name == "" {
+			name = "Ungrouped"
+		}
+		g, ok := groups[name]
+		if !ok {
+			g = &model.LinkGroup{Name: name}
+			groups[name] = g
+			order = append(order, name)
+		}
+		g.Links = append(g.Links, l)
+	}
+
+	result := make([]model.LinkGroup, 0, len(order))
+	for _, name := range order {
+		result = append(result, *groups[name])
+	}
+
+	writeJSON(w, http.StatusOK, Response{
+		Data: result,
+		Meta: &ResponseMeta{From: p.From, To: p.To},
+	})
+}
+
 func linkConfigToModel(cfg LinkConfig, ip net.IP) model.Link {
 	return model.Link{
 		Tag:          cfg.Tag,
 		RouterIP:     ip,
 		SNMPIndex:    cfg.SNMPIndex,
 		Description:  cfg.Description,
+		GroupName:    cfg.GroupName,
+		Color:        cfg.Color,
 		CapacityMbps: cfg.CapacityMbps,
 	}
 }

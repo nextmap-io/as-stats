@@ -70,6 +70,20 @@ export function useLinks(filters: QueryFilters) {
   })
 }
 
+export function useLinksGrouped(filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["links-grouped", filters],
+    queryFn: () => api.linksGrouped(filters),
+  })
+}
+
+export function useLinksTimeSeries(filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["links-timeseries", filters],
+    queryFn: () => api.linksTimeSeries(filters),
+  })
+}
+
 export function useLinkDetail(tag: string, filters: QueryFilters) {
   return useQuery({
     queryKey: ["link-detail", tag, filters],

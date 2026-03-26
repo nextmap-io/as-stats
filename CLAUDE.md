@@ -77,6 +77,8 @@ All under `/api/v1/`. Common params: `from`, `to`, `period` (1h/6h/24h/7d/30d), 
 | GET | `/as/{asn}/ips` | `handler.ASTopIPs` (from traffic_by_ip_as) |
 | GET | `/ip/{ip}` | `handler.IPDetail` (time series + top AS) |
 | GET | `/links` | `handler.Links` |
+| GET | `/links/grouped` | `handler.LinksGrouped` (by operator) |
+| GET | `/links/timeseries` | `handler.LinksTimeSeries` (all links, for stacked chart) |
 | GET | `/link/{tag}` | `handler.LinkDetail` (time series + top AS) |
 | GET | `/search?q=` | `handler.Search` (AS name/number) |
 | POST | `/admin/links` | `handler.LinkCreate` (CSRF protected) |

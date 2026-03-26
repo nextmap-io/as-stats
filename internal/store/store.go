@@ -28,6 +28,7 @@ type FlowReader interface {
 
 	LinkList(ctx context.Context, p QueryParams) ([]model.LinkTraffic, error)
 	LinkTimeSeries(ctx context.Context, tag string, p QueryParams) ([]model.TrafficPoint, error)
+	LinkTimeSeriesAll(ctx context.Context, p QueryParams) (map[string][]model.TrafficPoint, error)
 	LinkTopAS(ctx context.Context, tag string, p QueryParams) ([]model.ASTraffic, uint64, error)
 
 	Overview(ctx context.Context, p QueryParams) (*model.Overview, error)

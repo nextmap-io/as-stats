@@ -377,6 +377,8 @@ func (s *ClickHouseStore) LinkList(ctx context.Context, p QueryParams) ([]model.
 		SELECT
 			t.link_tag,
 			any(l.description) AS description,
+			any(l.group_name) AS group_name,
+			any(l.color) AS color,
 			any(l.capacity_mbps) AS capacity_mbps,
 			sum(t.bytes_in) AS bytes_in,
 			sum(t.bytes_out) AS bytes_out
@@ -399,7 +401,7 @@ func (s *ClickHouseStore) LinkList(ctx context.Context, p QueryParams) ([]model.
 	var results []model.LinkTraffic
 	for rows.Next() {
 		var r model.LinkTraffic
-		if err := rows.Scan(&r.Tag, &r.Description, &r.CapacityMbps, &r.BytesIn, &r.BytesOut); err != nil {
+		if err := rows.Scan(&r.Tag, &r.Description, &r.GroupName, &r.Color, &r.CapacityMbps, &r.BytesIn, &r.BytesOut); err != nil {
 			return nil, err
 		}
 		results = append(results, r)
@@ -431,6 +433,47 @@ func (s *ClickHouseStore) LinkTimeSeries(ctx context.Context, tag string, p Quer
 		clickhouse.Named("from", p.From),
 		clickhouse.Named("to", p.To),
 	})
+}
+
+// LinkTimeSeriesAll returns traffic time series for all links (for stacked chart).
+func (s *ClickHouseStore) LinkTimeSeriesAll(ctx context.Context, p QueryParams) (map[string][]model.TrafficPoint, error) {
+	step := autoStep(p.From, p.To)
+
+	query := fmt.Sprintf(`
+		SELECT
+			link_tag,
+			toStartOfInterval(ts, INTERVAL %d SECOND) AS period,
+			sum(bytes_in) AS bytes_in,
+			sum(bytes_out) AS bytes_out,
+			sum(packets_in) AS packets_in,
+			sum(packets_out) AS packets_out
+		FROM traffic_by_link
+		WHERE ts >= @from AND ts < @to
+		  AND link_tag != ''
+		GROUP BY link_tag, period
+		ORDER BY period
+	`, int(step.Seconds()))
+
+	rows, err := s.conn.Query(ctx, query,
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query all link time series: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	result := make(map[string][]model.TrafficPoint)
+	for rows.Next() {
+		var tag string
+		var pt model.TrafficPoint
+		if err := rows.Scan(&tag, &pt.Timestamp, &pt.BytesIn, &pt.BytesOut, &pt.PacketsIn, &pt.PacketsOut); err != nil {
+			return nil, err
+		}
+		result[tag] = append(result[tag], pt)
+	}
+
+	return result, nil
 }
 
 // LinkTopAS returns the top ASes on a specific link.
@@ -567,9 +610,9 @@ func (s *ClickHouseStore) SearchAS(ctx context.Context, query string, limit int)
 // ListLinks returns all configured links.
 func (s *ClickHouseStore) ListLinks(ctx context.Context) ([]model.Link, error) {
 	rows, err := s.conn.Query(ctx, `
-		SELECT tag, toString(router_ip), snmp_index, description, capacity_mbps
+		SELECT tag, toString(router_ip), snmp_index, description, group_name, color, capacity_mbps
 		FROM links FINAL
-		ORDER BY tag
+		ORDER BY group_name, tag
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("list links: %w", err)
@@ -580,7 +623,7 @@ func (s *ClickHouseStore) ListLinks(ctx context.Context) ([]model.Link, error) {
 	for rows.Next() {
 		var l model.Link
 		var routerIPStr string
-		if err := rows.Scan(&l.Tag, &routerIPStr, &l.SNMPIndex, &l.Description, &l.CapacityMbps); err != nil {
+		if err := rows.Scan(&l.Tag, &routerIPStr, &l.SNMPIndex, &l.Description, &l.GroupName, &l.Color, &l.CapacityMbps); err != nil {
 			return nil, err
 		}
 		l.RouterIP = parseIP(routerIPStr)
@@ -593,13 +636,15 @@ func (s *ClickHouseStore) ListLinks(ctx context.Context) ([]model.Link, error) {
 // UpsertLink inserts or replaces a link configuration.
 func (s *ClickHouseStore) UpsertLink(ctx context.Context, link model.Link) error {
 	return s.conn.Exec(ctx, `
-		INSERT INTO links (tag, router_ip, snmp_index, description, capacity_mbps)
-		VALUES (@tag, @router_ip, @snmp_index, @description, @capacity_mbps)
+		INSERT INTO links (tag, router_ip, snmp_index, description, group_name, color, capacity_mbps)
+		VALUES (@tag, @router_ip, @snmp_index, @description, @group_name, @color, @capacity_mbps)
 	`,
 		clickhouse.Named("tag", link.Tag),
 		clickhouse.Named("router_ip", ipToIPv6(link.RouterIP)),
 		clickhouse.Named("snmp_index", link.SNMPIndex),
 		clickhouse.Named("description", link.Description),
+		clickhouse.Named("group_name", link.GroupName),
+		clickhouse.Named("color", link.Color),
 		clickhouse.Named("capacity_mbps", link.CapacityMbps),
 	)
 }

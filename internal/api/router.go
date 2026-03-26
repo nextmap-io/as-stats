@@ -92,6 +92,8 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig) http.Handler {
 
 		// Links
 		r.Get("/links", h.Links)
+		r.Get("/links/grouped", h.LinksGrouped)
+		r.Get("/links/timeseries", h.LinksTimeSeries)
 		r.Get("/link/{tag}", h.LinkDetail)
 
 		// Search

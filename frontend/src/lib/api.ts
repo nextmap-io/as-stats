@@ -6,10 +6,12 @@ import type {
   IPDetailData,
   IPTraffic,
   LinkDetailData,
+  LinkGroup,
   LinkTraffic,
   Overview,
   PrefixTraffic,
   QueryFilters,
+  TrafficPoint,
   UserInfo,
 } from "./types"
 
@@ -88,6 +90,8 @@ export const api = {
   ipDetail: (ip: string, filters?: QueryFilters) => fetchAPI<IPDetailData>(`/ip/${ip}`, filters),
 
   links: (filters?: QueryFilters) => fetchAPI<LinkTraffic[]>("/links", filters),
+  linksGrouped: (filters?: QueryFilters) => fetchAPI<LinkGroup[]>("/links/grouped", filters),
+  linksTimeSeries: (filters?: QueryFilters) => fetchAPI<Record<string, TrafficPoint[]>>("/links/timeseries", filters),
   linkDetail: (tag: string, filters?: QueryFilters) => fetchAPI<LinkDetailData>(`/link/${tag}`, filters),
 
   search: (q: string) => fetchAPI<ASInfo[]>("/search", { q }),

@@ -36,9 +36,16 @@ export interface TrafficPoint {
 export interface LinkTraffic {
   tag: string
   description: string
+  group_name?: string
+  color?: string
   capacity_mbps?: number
   bytes_in: number
   bytes_out: number
+}
+
+export interface LinkGroup {
+  name: string
+  links: LinkTraffic[]
 }
 
 export interface ASInfo {
