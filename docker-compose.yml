@@ -31,5 +31,65 @@ services:
       timeout: 5s
       retries: 5
 
+  collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.collector
+    ports:
+      - "2055:2055/udp"
+      - "6343:6343/udp"
+    environment:
+      CLICKHOUSE_ADDR: clickhouse:9000
+      CLICKHOUSE_DATABASE: asstats
+      CLICKHOUSE_USER: asstats
+      CLICKHOUSE_PASSWORD: asstats
+      COLLECTOR_LISTEN_NETFLOW: ":2055"
+      COLLECTOR_LISTEN_SFLOW: ":6343"
+      COLLECTOR_BATCH_SIZE: "10000"
+      COLLECTOR_FLUSH_INTERVAL: "5s"
+      COLLECTOR_WORKERS: "4"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "true"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8080:8080"
+    environment:
+      CLICKHOUSE_ADDR: clickhouse:9000
+      CLICKHOUSE_DATABASE: asstats
+      CLICKHOUSE_USER: asstats
+      CLICKHOUSE_PASSWORD: asstats
+      API_LISTEN_ADDR: ":8080"
+      API_CORS_ORIGINS: "http://localhost:5173,http://localhost:80"
+      AUTH_ENABLED: "false"
+      REDIS_URL: "redis://redis:6379/0"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "80:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   clickhouse_data:

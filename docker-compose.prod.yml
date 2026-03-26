@@ -1,0 +1,45 @@
+# Production overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  clickhouse:
+    restart: unless-stopped
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+
+  redis:
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+  collector:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  api:
+    restart: unless-stopped
+    environment:
+      API_CORS_ORIGINS: "${API_CORS_ORIGINS:-https://asstats.example.com}"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  frontend:
+    restart: unless-stopped
+    ports:
+      - "443:80"
+
+volumes:
+  clickhouse_data:
+  clickhouse_logs:
+  redis_data:
