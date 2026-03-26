@@ -1,0 +1,38 @@
+name: Question
+description: Ask a question about setup, usage, or architecture
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question? We're happy to help.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Topic
+      options:
+        - Installation / Setup
+        - Router configuration (NetFlow/sFlow/IPFIX)
+        - ClickHouse / Storage
+        - API usage
+        - Frontend / UI
+        - Performance / Scaling
+        - Authentication (OIDC)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Any additional context (config, topology, etc.)
