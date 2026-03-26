@@ -19,48 +19,62 @@ export function FilterBar() {
   const { filters, setFilter } = useFilters()
 
   return (
-    <div className="border-b border-border bg-muted/30">
+    <div className="border-b border-border bg-muted/20">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-4 py-2">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Period</span>
-          <div className="flex gap-1">
+        <div className="flex items-center gap-3 py-1.5 overflow-x-auto scrollbar-none">
+          <FilterGroup label="Period">
             {periods.map(p => (
-              <button
+              <FilterButton
                 key={p.value}
+                active={filters.period === p.value}
                 onClick={() => setFilter("period", p.value)}
-                className={cn(
-                  "px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
-                  filters.period === p.value
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                )}
               >
                 {p.label}
-              </button>
+              </FilterButton>
             ))}
-          </div>
+          </FilterGroup>
 
-          <div className="h-4 w-px bg-border" />
+          <div className="h-4 w-px bg-border shrink-0" aria-hidden="true" />
 
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Direction</span>
-          <div className="flex gap-1">
+          <FilterGroup label="Direction">
             {directions.map(d => (
-              <button
+              <FilterButton
                 key={d.value}
+                active={(filters.direction || "") === d.value}
                 onClick={() => setFilter("direction", d.value || undefined)}
-                className={cn(
-                  "px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
-                  (filters.direction || "") === d.value
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                )}
               >
                 {d.label}
-              </button>
+              </FilterButton>
             ))}
-          </div>
+          </FilterGroup>
         </div>
       </div>
     </div>
+  )
+}
+
+function FilterGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-1.5 shrink-0" role="group" aria-label={label}>
+      <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">{label}</span>
+      <div className="flex gap-0.5">{children}</div>
+    </div>
+  )
+}
+
+function FilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "px-2 py-0.5 text-[11px] font-medium rounded transition-all",
+        active
+          ? "bg-primary text-primary-foreground shadow-sm"
+          : "text-muted-foreground hover:text-foreground hover:bg-accent"
+      )}
+      aria-pressed={active}
+    >
+      {children}
+    </button>
   )
 }

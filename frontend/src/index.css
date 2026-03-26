@@ -1,79 +1,80 @@
 @import "tailwindcss";
 
+/* ─── AS-Stats: NOC-inspired dark-first theme ─── */
+
 @theme {
-  --color-background: hsl(0 0% 100%);
-  --color-foreground: hsl(222.2 84% 4.9%);
-  --color-card: hsl(0 0% 100%);
-  --color-card-foreground: hsl(222.2 84% 4.9%);
-  --color-popover: hsl(0 0% 100%);
-  --color-popover-foreground: hsl(222.2 84% 4.9%);
-  --color-primary: hsl(222.2 47.4% 11.2%);
-  --color-primary-foreground: hsl(210 40% 98%);
-  --color-secondary: hsl(210 40% 96.1%);
-  --color-secondary-foreground: hsl(222.2 47.4% 11.2%);
-  --color-muted: hsl(210 40% 96.1%);
-  --color-muted-foreground: hsl(215.4 16.3% 46.9%);
-  --color-accent: hsl(210 40% 96.1%);
-  --color-accent-foreground: hsl(222.2 47.4% 11.2%);
-  --color-destructive: hsl(0 84.2% 60.2%);
-  --color-destructive-foreground: hsl(210 40% 98%);
-  --color-border: hsl(214.3 31.8% 91.4%);
-  --color-input: hsl(214.3 31.8% 91.4%);
-  --color-ring: hsl(222.2 84% 4.9%);
-  --radius: 0.5rem;
+  /* Dark by default — this is a network monitoring tool */
+  --color-background: hsl(220 20% 7%);
+  --color-foreground: hsl(210 20% 88%);
+  --color-card: hsl(220 18% 10%);
+  --color-card-foreground: hsl(210 20% 88%);
+  --color-popover: hsl(220 18% 12%);
+  --color-popover-foreground: hsl(210 20% 88%);
+  --color-primary: hsl(190 90% 50%);
+  --color-primary-foreground: hsl(220 20% 7%);
+  --color-secondary: hsl(220 15% 16%);
+  --color-secondary-foreground: hsl(210 20% 80%);
+  --color-muted: hsl(220 15% 14%);
+  --color-muted-foreground: hsl(215 12% 50%);
+  --color-accent: hsl(220 15% 18%);
+  --color-accent-foreground: hsl(210 20% 88%);
+  --color-destructive: hsl(0 72% 50%);
+  --color-destructive-foreground: hsl(0 0% 100%);
+  --color-border: hsl(220 15% 16%);
+  --color-input: hsl(220 15% 16%);
+  --color-ring: hsl(190 90% 50%);
+  --radius: 0.375rem;
 
-  --color-chart-1: hsl(173 58% 39%);
-  --color-chart-2: hsl(12 76% 61%);
-  --color-chart-3: hsl(197 37% 24%);
-  --color-chart-4: hsl(43 74% 66%);
-  --color-chart-5: hsl(27 87% 67%);
+  /* Traffic: teal for inbound, amber for outbound — colorblind safe */
+  --color-traffic-in: hsl(174 72% 46%);
+  --color-traffic-out: hsl(36 100% 55%);
+  --color-traffic-in-muted: hsl(174 72% 46% / 0.15);
+  --color-traffic-out-muted: hsl(36 100% 55% / 0.15);
 
-  --color-sidebar: hsl(0 0% 98%);
-  --color-sidebar-foreground: hsl(240 5.3% 26.1%);
-  --color-sidebar-primary: hsl(240 5.9% 10%);
-  --color-sidebar-primary-foreground: hsl(0 0% 98%);
-  --color-sidebar-accent: hsl(240 4.8% 95.9%);
-  --color-sidebar-accent-foreground: hsl(240 5.9% 10%);
-  --color-sidebar-border: hsl(220 13% 91%);
-  --color-sidebar-ring: hsl(217.2 91.2% 59.8%);
+  /* Chart palette — all distinguishable under deuteranopia/protanopia */
+  --color-chart-1: hsl(174 72% 46%);
+  --color-chart-2: hsl(36 100% 55%);
+  --color-chart-3: hsl(210 80% 56%);
+  --color-chart-4: hsl(330 70% 60%);
+  --color-chart-5: hsl(270 60% 62%);
+
+  /* Status */
+  --color-success: hsl(152 60% 44%);
+  --color-warning: hsl(36 100% 55%);
 }
 
 @layer base {
-  .dark {
-    --color-background: hsl(222.2 84% 4.9%);
-    --color-foreground: hsl(210 40% 98%);
-    --color-card: hsl(222.2 84% 4.9%);
-    --color-card-foreground: hsl(210 40% 98%);
-    --color-popover: hsl(222.2 84% 4.9%);
-    --color-popover-foreground: hsl(210 40% 98%);
-    --color-primary: hsl(210 40% 98%);
-    --color-primary-foreground: hsl(222.2 47.4% 11.2%);
-    --color-secondary: hsl(217.2 32.6% 17.5%);
-    --color-secondary-foreground: hsl(210 40% 98%);
-    --color-muted: hsl(217.2 32.6% 17.5%);
-    --color-muted-foreground: hsl(215 20.2% 65.1%);
-    --color-accent: hsl(217.2 32.6% 17.5%);
-    --color-accent-foreground: hsl(210 40% 98%);
-    --color-destructive: hsl(0 62.8% 30.6%);
-    --color-destructive-foreground: hsl(210 40% 98%);
-    --color-border: hsl(217.2 32.6% 17.5%);
-    --color-input: hsl(217.2 32.6% 17.5%);
-    --color-ring: hsl(212.7 26.8% 83.9%);
+  .light {
+    --color-background: hsl(210 20% 97%);
+    --color-foreground: hsl(220 20% 12%);
+    --color-card: hsl(0 0% 100%);
+    --color-card-foreground: hsl(220 20% 12%);
+    --color-popover: hsl(0 0% 100%);
+    --color-popover-foreground: hsl(220 20% 12%);
+    --color-primary: hsl(190 80% 38%);
+    --color-primary-foreground: hsl(0 0% 100%);
+    --color-secondary: hsl(210 15% 93%);
+    --color-secondary-foreground: hsl(220 20% 20%);
+    --color-muted: hsl(210 15% 94%);
+    --color-muted-foreground: hsl(215 12% 46%);
+    --color-accent: hsl(210 15% 92%);
+    --color-accent-foreground: hsl(220 20% 12%);
+    --color-destructive: hsl(0 72% 50%);
+    --color-destructive-foreground: hsl(0 0% 100%);
+    --color-border: hsl(214 20% 88%);
+    --color-input: hsl(214 20% 88%);
+    --color-ring: hsl(190 80% 38%);
 
-    --color-chart-1: hsl(220 70% 50%);
-    --color-chart-2: hsl(160 60% 45%);
-    --color-chart-3: hsl(30 80% 55%);
-    --color-chart-4: hsl(280 65% 60%);
-    --color-chart-5: hsl(340 75% 55%);
+    --color-traffic-in: hsl(174 72% 36%);
+    --color-traffic-out: hsl(30 90% 45%);
+    --color-traffic-in-muted: hsl(174 72% 36% / 0.1);
+    --color-traffic-out-muted: hsl(30 90% 45% / 0.1);
 
-    --color-sidebar: hsl(240 5.9% 10%);
-    --color-sidebar-foreground: hsl(240 4.8% 95.9%);
-    --color-sidebar-primary: hsl(224.3 76.3% 48%);
-    --color-sidebar-primary-foreground: hsl(0 0% 100%);
-    --color-sidebar-accent: hsl(240 3.7% 15.9%);
-    --color-sidebar-accent-foreground: hsl(240 4.8% 95.9%);
-    --color-sidebar-border: hsl(240 3.7% 15.9%);
-    --color-sidebar-ring: hsl(217.2 91.2% 59.8%);
+    --color-chart-1: hsl(174 72% 36%);
+    --color-chart-2: hsl(30 90% 45%);
+    --color-chart-3: hsl(210 70% 48%);
+    --color-chart-4: hsl(330 60% 50%);
+    --color-chart-5: hsl(270 50% 52%);
   }
 }
 
@@ -81,8 +82,97 @@
   * {
     @apply border-border;
   }
+
   body {
-    @apply bg-background text-foreground;
-    font-family: system-ui, -apple-system, sans-serif;
+    @apply bg-background text-foreground antialiased;
+    font-family: "JetBrains Mono", "SF Mono", "Fira Code", ui-monospace, monospace;
+    font-feature-settings: "tnum" 1, "ss01" 1;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  /* Smooth transitions on theme change */
+  body, .bg-background, .bg-card, .bg-muted, .bg-accent {
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  /* Tabular numbers everywhere — critical for data tables */
+  table, .font-mono, .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Custom scrollbar for the NOC feel */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(220 15% 24%);
+    border-radius: 3px;
+  }
+  .light ::-webkit-scrollbar-thumb {
+    background: hsl(214 20% 80%);
+  }
+
+  /* Focus ring — consistent everywhere */
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+    border-radius: var(--radius);
+  }
+}
+
+/* ─── Utility classes ─── */
+@layer utilities {
+  .text-traffic-in {
+    color: var(--color-traffic-in);
+  }
+  .text-traffic-out {
+    color: var(--color-traffic-out);
+  }
+  .bg-traffic-in {
+    background-color: var(--color-traffic-in);
+  }
+  .bg-traffic-out {
+    background-color: var(--color-traffic-out);
+  }
+
+  /* Glow effect for status indicators */
+  .glow-in {
+    box-shadow: 0 0 8px var(--color-traffic-in-muted);
+  }
+  .glow-out {
+    box-shadow: 0 0 8px var(--color-traffic-out-muted);
+  }
+}
+
+/* ─── Animation keyframes ─── */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fade-in 0.3s ease-out both;
+  }
+  .animate-pulse-subtle {
+    animation: pulse-subtle 2s ease-in-out infinite;
+  }
+  .animate-shimmer {
+    background: linear-gradient(90deg, transparent 25%, var(--color-muted) 50%, transparent 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
   }
 }
