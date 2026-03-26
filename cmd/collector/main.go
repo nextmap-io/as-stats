@@ -7,7 +7,9 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/nextmap-io/as-stats/internal/collector"
 	"github.com/nextmap-io/as-stats/internal/config"
+	"github.com/nextmap-io/as-stats/internal/store"
 )
 
 func main() {
@@ -27,11 +29,18 @@ func main() {
 	log.Printf("  Flush interval: %s", cfg.FlushInterval)
 	log.Printf("  Workers:        %d", cfg.Workers)
 
-	// TODO: Initialize ClickHouse store
-	// TODO: Initialize enricher (link mapping, AS names)
-	// TODO: Initialize batch writer
-	// TODO: Start UDP listeners (NetFlow, sFlow)
+	chStore, err := store.NewClickHouseStore(cfg.ClickHouse)
+	if err != nil {
+		log.Fatalf("failed to connect to ClickHouse: %v", err)
+	}
+	defer chStore.Close()
+	log.Println("Connected to ClickHouse")
 
-	<-ctx.Done()
-	log.Printf("Shutting down collector...")
+	c := collector.New(cfg, chStore)
+
+	if err := c.Run(ctx); err != nil {
+		log.Fatalf("collector error: %v", err)
+	}
+
+	log.Println("Collector stopped")
 }
