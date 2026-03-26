@@ -7,38 +7,27 @@ import (
 
 // IANA field type IDs for NetFlow v9 / IPFIX.
 const (
-	FieldInBytes         = 1
-	FieldInPkts          = 2
-	FieldProtocol        = 4
-	FieldSrcTOS          = 5
-	FieldTCPFlags        = 6
-	FieldL4SrcPort       = 7
-	FieldIPv4SrcAddr     = 8
-	FieldSrcMask         = 9
-	FieldInputSNMP       = 10
-	FieldL4DstPort       = 11
-	FieldIPv4DstAddr     = 12
-	FieldDstMask         = 13
-	FieldOutputSNMP      = 14
-	FieldIPv4NextHop     = 15
-	FieldSrcAS           = 16
-	FieldDstAS           = 17
-	FieldIPv6SrcAddr     = 27
-	FieldIPv6DstAddr     = 28
-	FieldIPv6SrcMask     = 29
-	FieldIPv6DstMask     = 30
-	FieldDirection       = 61
-	FieldSamplingRate    = 34
-	FieldIngressVRFID    = 234
-	FieldIPVersion       = 60
-	FieldOutBytes        = 23
-	FieldOutPkts         = 24
-	FieldFlowStartSysUp = 22
-	FieldFlowEndSysUp   = 21
-	FieldFlowStartMs    = 152
-	FieldFlowEndMs      = 153
-	FieldFlowStartSec   = 150
-	FieldFlowEndSec     = 151
+	FieldInBytes      = 1
+	FieldInPkts       = 2
+	FieldProtocol     = 4
+	FieldTCPFlags     = 6
+	FieldL4SrcPort    = 7
+	FieldIPv4SrcAddr  = 8
+	FieldSrcMask      = 9
+	FieldInputSNMP    = 10
+	FieldL4DstPort    = 11
+	FieldIPv4DstAddr  = 12
+	FieldDstMask      = 13
+	FieldOutputSNMP   = 14
+	FieldSrcAS        = 16
+	FieldDstAS        = 17
+	FieldOutBytes     = 23
+	FieldOutPkts      = 24
+	FieldIPv6SrcAddr  = 27
+	FieldIPv6DstAddr  = 28
+	FieldSamplingRate = 34
+	FieldIPVersion    = 60
+	FieldDirection    = 61
 )
 
 // TemplateField represents a single field in a v9/IPFIX template.

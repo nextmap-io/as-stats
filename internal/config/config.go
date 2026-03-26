@@ -37,8 +37,7 @@ type APIConfig struct {
 	OIDCClientID string
 	OIDCSecret   string
 	OIDCRedirect string
-	OIDCScopes   []string
-	RedisURL     string
+	OIDCScopes []string
 }
 
 func loadClickHouse() ClickHouseConfig {
@@ -102,8 +101,7 @@ func LoadAPI() (*APIConfig, error) {
 		OIDCClientID: envOr("OIDC_CLIENT_ID", ""),
 		OIDCSecret:   envOr("OIDC_CLIENT_SECRET", ""),
 		OIDCRedirect: envOr("OIDC_REDIRECT_URL", "http://localhost:8080/auth/callback"),
-		OIDCScopes:   scopes,
-		RedisURL:     envOr("REDIS_URL", ""),
+		OIDCScopes: scopes,
 	}
 
 	// Validate OIDC config when auth is enabled
