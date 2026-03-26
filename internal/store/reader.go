@@ -405,7 +405,7 @@ func (s *ClickHouseStore) Overview(ctx context.Context, p QueryParams) (*model.O
 	}
 
 	// Active AS count
-	s.conn.QueryRow(ctx, `
+	_ = s.conn.QueryRow(ctx, `
 		SELECT uniq(as_number) FROM traffic_by_as
 		WHERE ts >= @from AND ts < @to
 	`,

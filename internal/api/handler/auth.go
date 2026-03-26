@@ -72,8 +72,9 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, Response{Data: user})
 }
 
-// createSession creates a new session for the user and sets a cookie.
-func (h *AuthHandler) createSession(w http.ResponseWriter, user middleware.UserInfo) {
+// CreateSession creates a new session for the user and sets a cookie.
+// Called from the OIDC callback handler once token exchange is implemented.
+func (h *AuthHandler) CreateSession(w http.ResponseWriter, user middleware.UserInfo) {
 	sessionID := middleware.GenerateSessionID()
 	h.sessions.Set(sessionID, user, 24*time.Hour)
 
