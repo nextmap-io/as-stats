@@ -33,7 +33,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to ClickHouse: %v", err)
 	}
-	defer chStore.Close()
+	defer func() {
+		if err := chStore.Close(); err != nil {
+			log.Printf("clickhouse close error: %v", err)
+		}
+	}()
 	log.Println("Connected to ClickHouse")
 
 	c := collector.New(cfg, chStore)

@@ -32,7 +32,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to ClickHouse: %v", err)
 	}
-	defer chStore.Close()
+	defer func() {
+		if err := chStore.Close(); err != nil {
+			log.Printf("clickhouse close error: %v", err)
+		}
+	}()
 	log.Println("Connected to ClickHouse")
 
 	router := api.NewRouter(chStore, cfg)
@@ -57,5 +61,7 @@ func main() {
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
-	srv.Shutdown(shutdownCtx)
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("shutdown error: %v", err)
+	}
 }

@@ -119,7 +119,7 @@ func AuthMiddleware(cfg *config.APIConfig, sessions *SessionStore) func(http.Han
 			// Not authenticated
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"error": "authentication required"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "authentication required"})
 		})
 	}
 }
@@ -132,7 +132,7 @@ func RequireRole(role string) func(http.Handler) http.Handler {
 			if user == nil || user.Role != role {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
-				json.NewEncoder(w).Encode(map[string]string{"error": "insufficient permissions"})
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "insufficient permissions"})
 				return
 			}
 			next.ServeHTTP(w, r)

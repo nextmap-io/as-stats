@@ -39,7 +39,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig) http.Handler {
 	// Health check (no auth, no rate limit)
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
 	// Auth endpoints (if OIDC enabled)

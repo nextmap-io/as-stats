@@ -44,7 +44,7 @@ func (s *ClickHouseStore) TopAS(ctx context.Context, p QueryParams) ([]model.AST
 	if err != nil {
 		return nil, 0, fmt.Errorf("query top AS: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []model.ASTraffic
 	for rows.Next() {
@@ -114,7 +114,7 @@ func (s *ClickHouseStore) TopIP(ctx context.Context, p QueryParams) ([]model.IPT
 	if err != nil {
 		return nil, 0, fmt.Errorf("query top IP: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []model.IPTraffic
 	for rows.Next() {
@@ -162,7 +162,7 @@ func (s *ClickHouseStore) TopPrefix(ctx context.Context, p QueryParams) ([]model
 	if err != nil {
 		return nil, 0, fmt.Errorf("query top prefix: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []model.PrefixTraffic
 	for rows.Next() {
@@ -233,7 +233,7 @@ func (s *ClickHouseStore) ASPeers(ctx context.Context, asn uint32, p QueryParams
 	if err != nil {
 		return nil, fmt.Errorf("query AS peers: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []model.ASTraffic
 	for rows.Next() {
@@ -299,7 +299,7 @@ func (s *ClickHouseStore) LinkList(ctx context.Context, p QueryParams) ([]model.
 	if err != nil {
 		return nil, fmt.Errorf("query links: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []model.LinkTraffic
 	for rows.Next() {
@@ -370,7 +370,7 @@ func (s *ClickHouseStore) LinkTopAS(ctx context.Context, tag string, p QueryPara
 	if err != nil {
 		return nil, 0, fmt.Errorf("query link top AS: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []model.ASTraffic
 	for rows.Next() {
@@ -455,7 +455,7 @@ func (s *ClickHouseStore) SearchAS(ctx context.Context, query string, limit int)
 	if err != nil {
 		return nil, fmt.Errorf("search AS: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []model.ASInfo
 	for rows.Next() {
@@ -479,7 +479,7 @@ func (s *ClickHouseStore) ListLinks(ctx context.Context) ([]model.Link, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list links: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []model.Link
 	for rows.Next() {
@@ -550,7 +550,7 @@ func (s *ClickHouseStore) queryTimeSeries(ctx context.Context, query string, arg
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []model.TrafficPoint
 	for rows.Next() {

@@ -78,8 +78,12 @@ func (c *Collector) Run(ctx context.Context) error {
 	<-ctx.Done()
 
 	log.Println("Stopping collector...")
-	c.nfListen.Close()
-	c.sfListen.Close()
+	if err := c.nfListen.Close(); err != nil {
+		log.Printf("netflow listener close error: %v", err)
+	}
+	if err := c.sfListen.Close(); err != nil {
+		log.Printf("sflow listener close error: %v", err)
+	}
 	close(c.flows)
 
 	return nil

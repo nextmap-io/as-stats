@@ -184,6 +184,6 @@ func BenchmarkDecodeV5(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		DecodeV5(data, routerIP)
+		_, _ = DecodeV5(data, routerIP)
 	}
 }
