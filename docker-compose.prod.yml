@@ -1,6 +1,9 @@
 # Production overrides
 # Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
+# Uses pre-built images from GHCR instead of building locally.
+# Set IMAGE_TAG to a specific version (default: latest).
+#
 # IMPORTANT: Set strong credentials in .env before deploying:
 #   CLICKHOUSE_PASSWORD=<random-32-char>
 #   AUTH_ENABLED=true
@@ -30,6 +33,7 @@ services:
     command: redis-server --appendonly yes --requirepass "${REDIS_PASSWORD:-changeme}"
 
   collector:
+    image: ghcr.io/nextmap-io/as-stats-collector:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD}"
@@ -39,6 +43,7 @@ services:
           memory: 2G
 
   api:
+    image: ghcr.io/nextmap-io/as-stats-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
     # Remove public port exposure — frontend proxies to API
     ports: !override []
@@ -53,6 +58,7 @@ services:
           memory: 1G
 
   frontend:
+    image: ghcr.io/nextmap-io/as-stats-frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "80:80"
