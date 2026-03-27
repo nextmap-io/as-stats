@@ -123,14 +123,14 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
           <defs>
             {linkTags.map((tag) => (
               <linearGradient key={`g_${tag}_in`} id={`g_${tag}_in`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={colors[tag].in} stopOpacity={0.6} />
-                <stop offset="100%" stopColor={colors[tag].in} stopOpacity={0.1} />
+                <stop offset="0%" stopColor={colors[tag].in} stopOpacity={0.8} />
+                <stop offset="100%" stopColor={colors[tag].in} stopOpacity={0.3} />
               </linearGradient>
             ))}
             {linkTags.map((tag) => (
               <linearGradient key={`g_${tag}_out`} id={`g_${tag}_out`} x1="0" y1="1" x2="0" y2="0">
-                <stop offset="0%" stopColor={colors[tag].out} stopOpacity={0.6} />
-                <stop offset="100%" stopColor={colors[tag].out} stopOpacity={0.1} />
+                <stop offset="0%" stopColor={colors[tag].out} stopOpacity={0.8} />
+                <stop offset="100%" stopColor={colors[tag].out} stopOpacity={0.3} />
               </linearGradient>
             ))}
           </defs>
@@ -192,7 +192,7 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
               stackId="up"
               stroke={colors[tag].in}
               fill={`url(#g_${tag}_in)`}
-              strokeWidth={1}
+              strokeWidth={1.5}
               dot={false}
               isAnimationActive={false}
             />
@@ -206,7 +206,7 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
               stackId="down"
               stroke={colors[tag].out}
               fill={`url(#g_${tag}_out)`}
-              strokeWidth={1}
+              strokeWidth={1.5}
               dot={false}
               isAnimationActive={false}
             />

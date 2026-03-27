@@ -77,12 +77,12 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
         <AreaChart data={formatted} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="gradIn" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="hsl(174 72% 46%)" stopOpacity={0.5} />
-              <stop offset="100%" stopColor="hsl(174 72% 46%)" stopOpacity={0.05} />
+              <stop offset="0%" stopColor="hsl(174 72% 46%)" stopOpacity={0.7} />
+              <stop offset="100%" stopColor="hsl(174 72% 46%)" stopOpacity={0.2} />
             </linearGradient>
             <linearGradient id="gradOut" x1="0" y1="1" x2="0" y2="0">
-              <stop offset="0%" stopColor="hsl(174 72% 46%)" stopOpacity={0.3} />
-              <stop offset="100%" stopColor="hsl(174 72% 46%)" stopOpacity={0.05} />
+              <stop offset="0%" stopColor="hsl(174 72% 46%)" stopOpacity={0.5} />
+              <stop offset="100%" stopColor="hsl(174 72% 46%)" stopOpacity={0.1} />
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 16%)" opacity={0.4} />
@@ -124,7 +124,7 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
             dataKey="inbound"
             stroke="hsl(174 72% 46%)"
             fill="url(#gradIn)"
-            strokeWidth={1}
+            strokeWidth={1.5}
             dot={false}
             isAnimationActive={false}
           />
@@ -133,7 +133,7 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
             dataKey="outbound"
             stroke="hsl(174 72% 46%)"
             fill="url(#gradOut)"
-            strokeWidth={1}
+            strokeWidth={1.5}
             fillOpacity={0.5}
             dot={false}
             isAnimationActive={false}
