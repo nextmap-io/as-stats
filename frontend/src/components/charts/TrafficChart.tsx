@@ -90,13 +90,15 @@ export function TrafficChart({ data, height = 280, showLegend = true, title }: T
           )}
           <Bar
             dataKey="inbound"
+            stackId="traffic"
             fill="var(--color-traffic-in)"
-            fillOpacity={0.8}
+            fillOpacity={0.9}
           />
           <Bar
             dataKey="outbound"
-            fill="var(--color-traffic-out)"
-            fillOpacity={0.8}
+            stackId="traffic"
+            fill="var(--color-traffic-in)"
+            fillOpacity={0.45}
           />
         </BarChart>
       </ResponsiveContainer>

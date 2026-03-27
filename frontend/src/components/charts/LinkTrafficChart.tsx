@@ -1,31 +1,44 @@
 import {
-  AreaChart,
-  Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
   Legend,
+  ReferenceLine,
 } from "recharts"
 import type { LinkTimeSeries } from "@/lib/types"
 import { useUnit } from "@/hooks/useUnit"
 
-const COLORS = [
-  "hsl(174 72% 46%)",  // teal
-  "hsl(36 100% 55%)",  // amber
-  "hsl(210 80% 56%)",  // blue
-  "hsl(330 70% 60%)",  // pink
-  "hsl(270 60% 62%)",  // purple
-  "hsl(152 60% 44%)",  // green
-  "hsl(15 85% 55%)",   // orange
-  "hsl(195 75% 50%)",  // cyan
+// Default link colors — each link gets a base hue, out = lighter version
+const DEFAULT_COLORS = [
+  "#e74c3c", // red
+  "#3498db", // blue
+  "#2ecc71", // green
+  "#f39c12", // orange
+  "#9b59b6", // purple
+  "#1abc9c", // teal
+  "#e67e22", // dark orange
+  "#2980b9", // dark blue
 ]
+
+function lighten(hex: string, amount = 0.35): string {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  const lr = Math.round(r + (255 - r) * amount)
+  const lg = Math.round(g + (255 - g) * amount)
+  const lb = Math.round(b + (255 - b) * amount)
+  return `#${lr.toString(16).padStart(2, "0")}${lg.toString(16).padStart(2, "0")}${lb.toString(16).padStart(2, "0")}`
+}
 
 interface LinkTrafficChartProps {
   series: LinkTimeSeries[]
   height?: number
   title?: string
+  linkColors?: Record<string, string>
 }
 
 function getIntervalSeconds(series: LinkTimeSeries[]): number {
@@ -38,24 +51,33 @@ function getIntervalSeconds(series: LinkTimeSeries[]): number {
   return 300
 }
 
-export function LinkTrafficChart({ series, height = 260, title }: LinkTrafficChartProps) {
+export function LinkTrafficChart({ series, height = 260, title, linkColors }: LinkTrafficChartProps) {
   const { formatTraffic } = useUnit()
   if (!series.length) return null
   const interval = getIntervalSeconds(series)
 
-  // Build a unified time axis with one key per link
-  const timeMap = new Map<string, Record<string, number>>()
   const linkTags: string[] = []
   const linkLabels: Record<string, string> = {}
+  const colors: Record<string, { in: string; out: string }> = {}
 
-  for (const ls of series) {
+  for (let i = 0; i < series.length; i++) {
+    const ls = series[i]
     linkTags.push(ls.link_tag)
     linkLabels[ls.link_tag] = ls.description || ls.link_tag
+    const base = linkColors?.[ls.link_tag] || DEFAULT_COLORS[i % DEFAULT_COLORS.length]
+    colors[ls.link_tag] = { in: base, out: lighten(base) }
+  }
+
+  // Build unified time axis: per link, in (positive) and out (negative)
+  const timeMap = new Map<string, Record<string, number>>()
+
+  for (const ls of series) {
     for (const pt of ls.points) {
       const key = pt.t
       if (!timeMap.has(key)) timeMap.set(key, {})
       const row = timeMap.get(key)!
-      row[ls.link_tag] = (pt.bytes_in || 0) + (pt.bytes_out || 0)
+      row[`${ls.link_tag}_in`] = pt.bytes_in || 0
+      row[`${ls.link_tag}_out`] = -(pt.bytes_out || 0)
     }
   }
 
@@ -79,15 +101,7 @@ export function LinkTrafficChart({ series, height = 260, title }: LinkTrafficCha
         </h3>
       )}
       <ResponsiveContainer width="100%" height={height}>
-        <AreaChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-          <defs>
-            {linkTags.map((tag, i) => (
-              <linearGradient key={tag} id={`grad-${tag}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0.3} />
-                <stop offset="100%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0} />
-              </linearGradient>
-            ))}
-          </defs>
+        <BarChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="15%">
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" opacity={0.5} />
           <XAxis
             dataKey="time"
@@ -100,9 +114,10 @@ export function LinkTrafficChart({ series, height = 260, title }: LinkTrafficCha
             tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
             tickLine={false}
             axisLine={false}
-            tickFormatter={(v) => formatTraffic(v, interval)}
-            width={56}
+            tickFormatter={(v) => formatTraffic(Math.abs(v), interval)}
+            width={64}
           />
+          <ReferenceLine y={0} stroke="var(--color-muted-foreground)" strokeOpacity={0.5} />
           <Tooltip
             contentStyle={{
               backgroundColor: "var(--color-card)",
@@ -112,33 +127,47 @@ export function LinkTrafficChart({ series, height = 260, title }: LinkTrafficCha
               fontFamily: "inherit",
               boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
             }}
-            formatter={(value, name) => [
-              formatTraffic(Number(value), interval),
-              linkLabels[String(name)] || String(name),
-            ]}
+            formatter={(value, name) => {
+              const tag = String(name).replace(/_in$|_out$/, "")
+              const dir = String(name).endsWith("_in") ? "In" : "Out"
+              return [
+                formatTraffic(Math.abs(Number(value)), interval),
+                `${linkLabels[tag] || tag} ${dir}`,
+              ]
+            }}
             labelStyle={{ color: "var(--color-muted-foreground)", marginBottom: 4 }}
           />
           <Legend
-            formatter={(v) => (
-              <span className="text-xs">{linkLabels[String(v)] || String(v)}</span>
-            )}
-            iconType="plainline"
+            formatter={(v) => {
+              const tag = String(v).replace(/_in$|_out$/, "")
+              if (String(v).endsWith("_out")) return null
+              return <span className="text-xs">{linkLabels[tag] || tag}</span>
+            }}
+            iconType="square"
             wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
           />
-          {linkTags.map((tag, i) => (
-            <Area
-              key={tag}
-              type="monotone"
-              dataKey={tag}
-              stackId="1"
-              stroke={COLORS[i % COLORS.length]}
-              fill={`url(#grad-${tag})`}
-              strokeWidth={1.5}
-              dot={false}
-              activeDot={{ r: 3, fill: COLORS[i % COLORS.length] }}
+          {/* Inbound bars (positive, stacked) */}
+          {linkTags.map((tag) => (
+            <Bar
+              key={`${tag}_in`}
+              dataKey={`${tag}_in`}
+              stackId="in"
+              fill={colors[tag].in}
+              fillOpacity={0.9}
             />
           ))}
-        </AreaChart>
+          {/* Outbound bars (negative, stacked) */}
+          {linkTags.map((tag) => (
+            <Bar
+              key={`${tag}_out`}
+              dataKey={`${tag}_out`}
+              stackId="out"
+              fill={colors[tag].out}
+              fillOpacity={0.9}
+              legendType="none"
+            />
+          ))}
+        </BarChart>
       </ResponsiveContainer>
     </div>
   )
