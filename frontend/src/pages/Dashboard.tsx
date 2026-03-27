@@ -76,7 +76,7 @@ export function Dashboard() {
           <Card className="overflow-visible">
             <CardContent className="p-4">
               {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
-                <ExpandableChart title="IPv4 Traffic by Link">
+                <ExpandableChart title="IPv4 Traffic by Link" fetchType="link-traffic" fetchParams={{ ip_version: 4 }} linkColors={linkColors} currentPeriod={filters.period}>
                   <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" linkColors={linkColors} />
                 </ExpandableChart>
               ) : (
@@ -87,7 +87,7 @@ export function Dashboard() {
           <Card className="overflow-visible">
             <CardContent className="p-4">
               {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
-                <ExpandableChart title="IPv6 Traffic by Link">
+                <ExpandableChart title="IPv6 Traffic by Link" fetchType="link-traffic" fetchParams={{ ip_version: 6 }} linkColors={linkColors} currentPeriod={filters.period}>
                   <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" linkColors={linkColors} />
                 </ExpandableChart>
               ) : (
@@ -139,7 +139,7 @@ export function Dashboard() {
                 <div className="grid gap-4 lg:grid-cols-2">
                   <div>
                     {entry.v4 && entry.v4.series.length > 0 ? (
-                      <ExpandableChart title={`AS${asn} — IPv4`}>
+                      <ExpandableChart title={`AS${asn} — IPv4`} fetchType="as-detail-v4" fetchParams={{ asn }} linkColors={linkColors} currentPeriod={filters.period}>
                         <LinkTrafficChart
                           series={entry.v4.series}
                           title="IPv4"
@@ -157,7 +157,7 @@ export function Dashboard() {
                   </div>
                   <div>
                     {entry.v6 && entry.v6.series.length > 0 ? (
-                      <ExpandableChart title={`AS${asn} — IPv6`}>
+                      <ExpandableChart title={`AS${asn} — IPv6`} fetchType="as-detail-v6" fetchParams={{ asn }} linkColors={linkColors} currentPeriod={filters.period}>
                         <LinkTrafficChart
                           series={entry.v6.series}
                           title="IPv6"

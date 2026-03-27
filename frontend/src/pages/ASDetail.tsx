@@ -84,7 +84,7 @@ export function ASDetail() {
         <Card className="overflow-visible">
           <CardContent className="p-4">
             {detail.v4_series && detail.v4_series.length > 0 ? (
-              <ExpandableChart title={`AS${detail.as_number} — IPv4`}>
+              <ExpandableChart title={`AS${detail.as_number} — IPv4`} fetchType="as-detail-v4" fetchParams={{ asn: asnNum }} linkColors={linkColors} currentPeriod={filters.period}>
                 <LinkTrafficChart series={detail.v4_series} title="IPv4 Traffic by Link" height={280} linkColors={linkColors} p95In={detail.p95_v4_in} p95Out={detail.p95_v4_out} />
               </ExpandableChart>
             ) : (
@@ -95,7 +95,7 @@ export function ASDetail() {
         <Card className="overflow-visible">
           <CardContent className="p-4">
             {detail.v6_series && detail.v6_series.length > 0 ? (
-              <ExpandableChart title={`AS${detail.as_number} — IPv6`}>
+              <ExpandableChart title={`AS${detail.as_number} — IPv6`} fetchType="as-detail-v6" fetchParams={{ asn: asnNum }} linkColors={linkColors} currentPeriod={filters.period}>
                 <LinkTrafficChart series={detail.v6_series} title="IPv6 Traffic by Link" height={280} linkColors={linkColors} p95In={detail.p95_v6_in} p95Out={detail.p95_v6_out} />
               </ExpandableChart>
             ) : (

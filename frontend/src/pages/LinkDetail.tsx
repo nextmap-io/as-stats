@@ -79,7 +79,7 @@ export function LinkDetail() {
         </CardHeader>
         <CardContent>
           {detail.time_series?.length > 0 ? (
-            <ExpandableChart title="Link Traffic">
+            <ExpandableChart title="Link Traffic" fetchType="link-detail" fetchParams={{ tag: tag || "" }} currentPeriod={filters.period}>
               <TrafficChart data={detail.time_series} height={350} p95In={detail.p95_in} p95Out={detail.p95_out} />
             </ExpandableChart>
           ) : (
