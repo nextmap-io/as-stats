@@ -732,13 +732,13 @@ func (s *ClickHouseStore) LinkTopAS(ctx context.Context, tag string, p QueryPara
 func (s *ClickHouseStore) Overview(ctx context.Context, p QueryParams) (*model.Overview, error) {
 	ov := &model.Overview{}
 
-	// Total traffic (use traffic_by_as — works even without configured links)
+	// Total traffic from traffic_by_link (real in/out from interface direction)
 	err := s.conn.QueryRow(ctx, `
 		SELECT
-			sumIf(bytes, direction = 'in') AS total_in,
-			sumIf(bytes, direction = 'out') AS total_out,
+			sum(bytes_in) AS total_in,
+			sum(bytes_out) AS total_out,
 			sum(flow_count) AS total_flows
-		FROM traffic_by_as
+		FROM traffic_by_link
 		WHERE ts >= @from AND ts < @to
 	`,
 		clickhouse.Named("from", p.From),
