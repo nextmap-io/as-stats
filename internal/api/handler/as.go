@@ -5,7 +5,7 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/nextmap-io/as-stats/internal/ripestat"
+	"github.com/nextmap-io/as-stats/internal/model"
 )
 
 // ASDetail handles GET /api/v1/as/{asn}
@@ -88,13 +88,18 @@ func (h *Handler) ASTopIPs(w http.ResponseWriter, r *http.Request) {
 	p := parseQueryParams(r)
 
 	scope := r.URL.Query().Get("scope")
-	if scope == "external" && h.LocalIPFilter != "" {
-		p.LocalIPFilter = "NOT " + h.LocalIPFilter + " AND NOT " + ripestat.PrivateIPFilter("ip_address")
-	} else if h.LocalIPFilter != "" {
-		p.LocalIPFilter = h.LocalIPFilter
-	}
 
-	ips, err := h.Store.ASTopIPs(r.Context(), asn, p)
+	var ips []model.IPTraffic
+	if scope == "external" {
+		// Remote IPs: query flows_raw for actual IPs belonging to this AS
+		ips, err = h.Store.ASRemoteIPs(r.Context(), asn, p)
+	} else {
+		// Internal IPs: our IPs that communicate with this AS
+		if h.LocalIPFilter != "" {
+			p.LocalIPFilter = h.LocalIPFilter
+		}
+		ips, err = h.Store.ASTopIPs(r.Context(), asn, p)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

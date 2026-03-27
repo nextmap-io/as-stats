@@ -388,6 +388,47 @@ func (s *ClickHouseStore) ASTotals(ctx context.Context, asn uint32, p QueryParam
 	return
 }
 
+// ASRemoteIPs returns the top remote IPs belonging to a given AS.
+// Queries flows_raw directly since aggregation tables don't store remote IPs.
+func (s *ClickHouseStore) ASRemoteIPs(ctx context.Context, asn uint32, p QueryParams) ([]model.IPTraffic, error) {
+	query := `
+		SELECT
+			replaceRegexpOne(toString(src_ip), '^::ffff:', '') AS ip,
+			sum(bytes * sampling_rate) AS total_bytes,
+			sum(packets * sampling_rate) AS total_packets,
+			count() AS total_flows
+		FROM flows_raw
+		WHERE src_as = @asn
+		  AND timestamp >= @from AND timestamp < @to
+		GROUP BY ip
+		ORDER BY total_bytes DESC
+		LIMIT @limit
+	`
+
+	rows, err := s.conn.Query(ctx, query,
+		clickhouse.Named("asn", asn),
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+		clickhouse.Named("limit", p.Limit),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query AS remote IPs: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []model.IPTraffic
+	for rows.Next() {
+		var r model.IPTraffic
+		if err := rows.Scan(&r.IP, &r.Bytes, &r.Packets, &r.Flows); err != nil {
+			return nil, err
+		}
+		r.ASNumber = asn
+		results = append(results, r)
+	}
+
+	return results, nil
+}
+
 // ASPeers returns ASes seen in the same flows as the given AS.
 func (s *ClickHouseStore) ASPeers(ctx context.Context, asn uint32, p QueryParams) ([]model.ASTraffic, error) {
 	query := `

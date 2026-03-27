@@ -24,6 +24,7 @@ type FlowReader interface {
 	ASTotals(ctx context.Context, asn uint32, p QueryParams) (v4In, v4Out, v6In, v6Out uint64, err error)
 	ASPeers(ctx context.Context, asn uint32, p QueryParams) ([]model.ASTraffic, error)
 	ASTopIPs(ctx context.Context, asn uint32, p QueryParams) ([]model.IPTraffic, error)
+	ASRemoteIPs(ctx context.Context, asn uint32, p QueryParams) ([]model.IPTraffic, error)
 
 	IPTimeSeries(ctx context.Context, ip string, p QueryParams) ([]model.TrafficPoint, error)
 	IPTopAS(ctx context.Context, ip string, p QueryParams) ([]model.ASTraffic, error)
