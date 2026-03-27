@@ -36,23 +36,23 @@ export function useUnitState(): UnitContextType {
   const formatTraffic = useCallback((bytes: number, intervalSeconds = 300) => {
     if (unit === "bps") {
       const bps = (bytes * 8) / intervalSeconds
-      if (bps === 0) return "0 bps"
+      if (bps < 1) return bps === 0 ? "0 bps" : "<1 bps"
       const units = ["bps", "Kbps", "Mbps", "Gbps", "Tbps"]
-      const i = Math.min(Math.floor(Math.log(bps) / Math.log(1000)), units.length - 1)
+      const i = Math.min(Math.max(0, Math.floor(Math.log(bps) / Math.log(1000))), units.length - 1)
       const val = bps / Math.pow(1000, i)
       return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
     }
     if (unit === "pps") {
-      const pps = bytes / intervalSeconds // bytes here is actually used as a generic counter
-      if (pps === 0) return "0 pps"
+      const pps = bytes / intervalSeconds
+      if (pps < 1) return pps === 0 ? "0 pps" : "<1 pps"
       const units = ["pps", "Kpps", "Mpps", "Gpps"]
-      const i = Math.min(Math.floor(Math.log(pps) / Math.log(1000)), units.length - 1)
+      const i = Math.min(Math.max(0, Math.floor(Math.log(pps) / Math.log(1000))), units.length - 1)
       const val = pps / Math.pow(1000, i)
       return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
     }
-    if (bytes === 0) return "0 B"
+    if (bytes < 1) return bytes === 0 ? "0 B" : "<1 B"
     const units = ["B", "KB", "MB", "GB", "TB", "PB"]
-    const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1000)), units.length - 1)
+    const i = Math.min(Math.max(0, Math.floor(Math.log(bytes) / Math.log(1000))), units.length - 1)
     const val = bytes / Math.pow(1000, i)
     return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
   }, [unit])
