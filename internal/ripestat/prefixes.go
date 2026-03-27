@@ -62,3 +62,16 @@ func PrefixesToSQL(col string, prefixes []net.IPNet) string {
 	s += ")"
 	return s
 }
+
+// PrivateIPFilter returns a SQL expression that matches RFC1918, CGNAT, link-local IPs.
+func PrivateIPFilter(col string) string {
+	return fmt.Sprintf(`(
+		isIPAddressInRange(replaceRegexpOne(toString(%s), '^::ffff:', ''), '10.0.0.0/8') OR
+		isIPAddressInRange(replaceRegexpOne(toString(%s), '^::ffff:', ''), '172.16.0.0/12') OR
+		isIPAddressInRange(replaceRegexpOne(toString(%s), '^::ffff:', ''), '192.168.0.0/16') OR
+		isIPAddressInRange(replaceRegexpOne(toString(%s), '^::ffff:', ''), '100.64.0.0/10') OR
+		isIPAddressInRange(replaceRegexpOne(toString(%s), '^::ffff:', ''), '169.254.0.0/16') OR
+		isIPAddressInRange(toString(%s), 'fe80::/10') OR
+		isIPAddressInRange(toString(%s), 'fc00::/7')
+	)`, col, col, col, col, col, col, col)
+}

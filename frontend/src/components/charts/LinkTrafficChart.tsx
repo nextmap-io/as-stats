@@ -177,10 +177,10 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
           />
           {/* All bars in one stack — positives go up, negatives go down */}
           {linkTags.map((tag) => (
-            <Bar key={`${tag}_in`} dataKey={`${tag}_in`} stackId="a" fill={colors[tag].in} isAnimationActive={false} />
+            <Bar key={`${tag}_in`} dataKey={`${tag}_in`} stackId="up" fill={colors[tag].in} isAnimationActive={false} />
           ))}
           {linkTags.map((tag) => (
-            <Bar key={`${tag}_out`} dataKey={`${tag}_out`} stackId="a" fill={colors[tag].out} isAnimationActive={false} />
+            <Bar key={`${tag}_out`} dataKey={`${tag}_out`} stackId="down" fill={colors[tag].out} isAnimationActive={false} />
           ))}
         </BarChart>
       </ResponsiveContainer>

@@ -2,6 +2,8 @@ package handler
 
 import (
 	"net/http"
+
+	"github.com/nextmap-io/as-stats/internal/ripestat"
 )
 
 // TopAS handles GET /api/v1/top/as
@@ -54,7 +56,7 @@ func (h *Handler) TopIP(w http.ResponseWriter, r *http.Request) {
 	if scope == "internal" && h.LocalIPFilter != "" {
 		p.LocalIPFilter = h.LocalIPFilter
 	} else if scope == "external" && h.LocalIPFilter != "" {
-		p.LocalIPFilter = "NOT " + h.LocalIPFilter
+		p.LocalIPFilter = "NOT " + h.LocalIPFilter + " AND NOT " + ripestat.PrivateIPFilter("t.ip_address")
 	}
 
 	results, _, err := h.Store.TopIP(r.Context(), p)
