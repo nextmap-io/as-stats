@@ -25,6 +25,8 @@ const (
 	FieldOutPkts      = 24
 	FieldIPv6SrcAddr  = 27
 	FieldIPv6DstAddr  = 28
+	FieldIPv6SrcMask  = 29
+	FieldIPv6DstMask  = 30
 	FieldSamplingRate = 34
 	FieldIPVersion    = 60
 	FieldDirection    = 61

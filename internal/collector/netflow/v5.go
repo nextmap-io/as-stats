@@ -117,9 +117,12 @@ func parseV5Header(data []byte) V5Header {
 	}
 }
 
-// maskIP applies a prefix mask to an IPv4 address.
+// maskIP applies a prefix mask to an IP address (IPv4 or IPv6).
 func maskIP(ip net.IP, maskLen uint8) net.IP {
-	mask := net.CIDRMask(int(maskLen), 32)
-	masked := ip.Mask(mask)
-	return masked
+	bits := 32
+	if ip.To4() == nil {
+		bits = 128
+	}
+	mask := net.CIDRMask(int(maskLen), bits)
+	return ip.Mask(mask)
 }

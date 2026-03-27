@@ -198,11 +198,11 @@ func applyField(flow *model.FlowRecord, fieldType uint16, data []byte) {
 		flow.InInterface = readUint32(data)
 	case FieldOutputSNMP:
 		flow.OutInterface = readUint32(data)
-	case FieldSrcMask:
+	case FieldSrcMask, FieldIPv6SrcMask:
 		if len(data) >= 1 && data[0] > 0 && flow.SrcIP != nil {
 			flow.SrcPrefix = fmt.Sprintf("%s/%d", maskIP(flow.SrcIP, data[0]), data[0])
 		}
-	case FieldDstMask:
+	case FieldDstMask, FieldIPv6DstMask:
 		if len(data) >= 1 && data[0] > 0 && flow.DstIP != nil {
 			flow.DstPrefix = fmt.Sprintf("%s/%d", maskIP(flow.DstIP, data[0]), data[0])
 		}
