@@ -273,7 +273,6 @@ func (s *ClickHouseStore) ASTimeSeries(ctx context.Context, asn uint32, p QueryP
 // ASLinkSeries returns per-link time series for a specific AS, optionally filtered by ip_version.
 func (s *ClickHouseStore) ASLinkSeries(ctx context.Context, asn uint32, p QueryParams) ([]model.LinkTimeSeries, error) {
 	step := autoStep(p.From, p.To)
-	table := pickASTable(p.From, p.To)
 
 	ipvFilter := ""
 	var ipvArgs []any
