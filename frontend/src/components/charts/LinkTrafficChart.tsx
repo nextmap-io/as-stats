@@ -120,22 +120,27 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors }: Li
           <ReferenceLine y={0} stroke="var(--color-muted-foreground)" strokeOpacity={0.5} />
           <Tooltip
             contentStyle={{
-              backgroundColor: "var(--color-card)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius)",
-              fontSize: "11px",
+              backgroundColor: "hsl(220 18% 10%)",
+              border: "1px solid hsl(220 15% 16%)",
+              borderRadius: "0.375rem",
+              fontSize: "10px",
               fontFamily: "inherit",
-              boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+              padding: "6px 10px",
+              lineHeight: "1.5",
             }}
+            itemStyle={{ padding: 0 }}
             formatter={(value, name) => {
               const tag = String(name).replace(/_in$|_out$/, "")
               const dir = String(name).endsWith("_in") ? "In" : "Out"
+              const abs = Math.abs(Number(value))
+              if (abs === 0) return null
               return [
-                formatTraffic(Math.abs(Number(value)), interval),
+                formatTraffic(abs, interval),
                 `${linkLabels[tag] || tag} ${dir}`,
               ]
             }}
-            labelStyle={{ color: "var(--color-muted-foreground)", marginBottom: 4 }}
+            labelStyle={{ color: "hsl(215 12% 50%)", marginBottom: 2, fontSize: "10px" }}
           />
           <Legend
             formatter={(v) => {
