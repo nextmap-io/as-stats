@@ -139,7 +139,7 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
             tickLine={false}
             axisLine={false}
             tickFormatter={(v) => formatTraffic(Math.abs(v), interval)}
-            width={52}
+            width={58}
           />
           <ReferenceLine y={0} stroke="hsl(215 12% 40%)" strokeWidth={1} />
           <Tooltip

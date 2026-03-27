@@ -88,7 +88,7 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
             tickLine={false}
             axisLine={false}
             tickFormatter={(v) => formatTraffic(Math.abs(v), interval)}
-            width={52}
+            width={58}
           />
           <ReferenceLine y={0} stroke="hsl(215 12% 40%)" strokeWidth={1} />
           <Tooltip

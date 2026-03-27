@@ -12,7 +12,7 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 20
+	limit := 50
 	results, err := h.Store.SearchAS(r.Context(), q, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

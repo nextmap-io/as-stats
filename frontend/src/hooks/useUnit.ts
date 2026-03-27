@@ -40,7 +40,7 @@ export function useUnitState(): UnitContextType {
       const units = ["bps", "Kbps", "Mbps", "Gbps", "Tbps"]
       const i = Math.min(Math.floor(Math.log(bps) / Math.log(1000)), units.length - 1)
       const val = bps / Math.pow(1000, i)
-      return `${val.toFixed(val < 10 ? 2 : 1)} ${units[i]}`
+      return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
     }
     if (unit === "pps") {
       const pps = bytes / intervalSeconds // bytes here is actually used as a generic counter
@@ -48,13 +48,13 @@ export function useUnitState(): UnitContextType {
       const units = ["pps", "Kpps", "Mpps", "Gpps"]
       const i = Math.min(Math.floor(Math.log(pps) / Math.log(1000)), units.length - 1)
       const val = pps / Math.pow(1000, i)
-      return `${val.toFixed(val < 10 ? 2 : 1)} ${units[i]}`
+      return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
     }
     if (bytes === 0) return "0 B"
     const units = ["B", "KB", "MB", "GB", "TB", "PB"]
     const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1000)), units.length - 1)
     const val = bytes / Math.pow(1000, i)
-    return `${val.toFixed(val < 10 ? 2 : 1)} ${units[i]}`
+    return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
   }, [unit])
 
   const formatPackets = useCallback((packets: number, intervalSeconds = 300) => {
@@ -64,7 +64,7 @@ export function useUnitState(): UnitContextType {
       const units = ["pps", "Kpps", "Mpps", "Gpps"]
       const i = Math.min(Math.floor(Math.log(pps) / Math.log(1000)), units.length - 1)
       const val = pps / Math.pow(1000, i)
-      return `${val.toFixed(val < 10 ? 2 : 1)} ${units[i]}`
+      return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
     }
     return new Intl.NumberFormat().format(packets)
   }, [unit])
