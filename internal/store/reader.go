@@ -217,6 +217,101 @@ func (s *ClickHouseStore) ASTimeSeries(ctx context.Context, asn uint32, p QueryP
 	return s.queryTimeSeries(ctx, query, args)
 }
 
+// ASLinkSeries returns per-link time series for a specific AS, optionally filtered by ip_version.
+func (s *ClickHouseStore) ASLinkSeries(ctx context.Context, asn uint32, p QueryParams) ([]model.LinkTimeSeries, error) {
+	step := autoStep(p.From, p.To)
+	table := pickASTable(p.From, p.To)
+
+	ipvFilter := ""
+	var ipvArgs []any
+	if p.IPVersion == 4 || p.IPVersion == 6 {
+		ipvFilter = "AND t.ip_version = @ipv"
+		ipvArgs = append(ipvArgs, clickhouse.Named("ipv", p.IPVersion))
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			toStartOfInterval(t.ts, INTERVAL %d SECOND) AS period,
+			t.link_tag,
+			sumIf(t.bytes, t.direction = 'in') AS bytes_in,
+			sumIf(t.bytes, t.direction = 'out') AS bytes_out,
+			sumIf(t.packets, t.direction = 'in') AS packets_in,
+			sumIf(t.packets, t.direction = 'out') AS packets_out
+		FROM %s t
+		WHERE t.as_number = @asn
+		  AND t.ts >= @from AND t.ts < @to
+		  AND t.link_tag != ''
+		  %s
+		GROUP BY period, t.link_tag
+		ORDER BY period, t.link_tag
+	`, int(step.Seconds()), table, ipvFilter)
+
+	args := append([]any{
+		clickhouse.Named("asn", asn),
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+	}, ipvArgs...)
+
+	rows, err := s.conn.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query AS link series: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	seriesMap := make(map[string]*model.LinkTimeSeries)
+	var order []string
+
+	for rows.Next() {
+		var ts time.Time
+		var tag string
+		var bytesIn, bytesOut, packetsIn, packetsOut uint64
+		if err := rows.Scan(&ts, &tag, &bytesIn, &bytesOut, &packetsIn, &packetsOut); err != nil {
+			return nil, err
+		}
+		ls, ok := seriesMap[tag]
+		if !ok {
+			ls = &model.LinkTimeSeries{Tag: tag}
+			seriesMap[tag] = ls
+			order = append(order, tag)
+		}
+		ls.Points = append(ls.Points, model.TrafficPoint{
+			Timestamp: ts, BytesIn: bytesIn, BytesOut: bytesOut,
+			PacketsIn: packetsIn, PacketsOut: packetsOut,
+		})
+	}
+
+	results := make([]model.LinkTimeSeries, 0, len(order))
+	for _, tag := range order {
+		results = append(results, *seriesMap[tag])
+	}
+	return results, nil
+}
+
+// ASTotals returns total bytes exchanged per IP version for a specific AS.
+func (s *ClickHouseStore) ASTotals(ctx context.Context, asn uint32, p QueryParams) (v4In, v4Out, v6In, v6Out uint64, err error) {
+	table := pickASTable(p.From, p.To)
+
+	query := fmt.Sprintf(`
+		SELECT
+			sumIf(bytes, direction = 'in' AND ip_version = 4) AS v4_in,
+			sumIf(bytes, direction = 'out' AND ip_version = 4) AS v4_out,
+			sumIf(bytes, direction = 'in' AND ip_version = 6) AS v6_in,
+			sumIf(bytes, direction = 'out' AND ip_version = 6) AS v6_out
+		FROM %s
+		WHERE as_number = @asn AND ts >= @from AND ts < @to
+	`, table)
+
+	err = s.conn.QueryRow(ctx, query,
+		clickhouse.Named("asn", asn),
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+	).Scan(&v4In, &v4Out, &v6In, &v6Out)
+	if err != nil {
+		err = fmt.Errorf("query AS totals: %w", err)
+	}
+	return
+}
+
 // ASPeers returns ASes seen in the same flows as the given AS.
 func (s *ClickHouseStore) ASPeers(ctx context.Context, asn uint32, p QueryParams) ([]model.ASTraffic, error) {
 	query := `

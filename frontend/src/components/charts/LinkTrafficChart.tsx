@@ -123,23 +123,36 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
           />
           <ReferenceLine y={0} stroke="hsl(215 12% 50%)" strokeOpacity={0.5} />
           <Tooltip
-            contentStyle={{
-              backgroundColor: "hsl(220 18% 10%)",
-              border: "1px solid hsl(220 15% 16%)",
-              borderRadius: "0.375rem",
-              fontSize: "10px",
-              boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
-              padding: "6px 10px",
+            content={({ active, payload, label }) => {
+              if (!active || !payload?.length) return null
+              const byLink = new Map<string, { inVal: number; outVal: number }>()
+              for (const e of payload) {
+                const k = String(e.dataKey).replace(/_in$|_out$/, "")
+                if (!byLink.has(k)) byLink.set(k, { inVal: 0, outVal: 0 })
+                const l = byLink.get(k)!
+                if (String(e.dataKey).endsWith("_in")) l.inVal = Math.abs(Number(e.value) || 0)
+                else l.outVal = Math.abs(Number(e.value) || 0)
+              }
+              return (
+                <div style={{ backgroundColor: "hsl(220 18% 10%)", border: "1px solid hsl(220 15% 16%)", borderRadius: "0.375rem", fontSize: "10px", boxShadow: "0 4px 12px rgba(0,0,0,0.5)", padding: "6px 10px" }}>
+                  <div style={{ color: "hsl(215 12% 50%)", marginBottom: 4 }}>{label}</div>
+                  {Array.from(byLink.entries()).map(([tag, { inVal, outVal }]) => {
+                    if (inVal === 0 && outVal === 0) return null
+                    return (
+                      <div key={tag} style={{ display: "flex", alignItems: "center", gap: 6, lineHeight: 1.8, color: "hsl(210 20% 88%)" }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: colors[tag]?.in || "#888", flexShrink: 0 }} />
+                        <span>{linkLabels[tag] || tag}</span>
+                        <span style={{ marginLeft: "auto", paddingLeft: 12, whiteSpace: "nowrap" }}>
+                          {inVal > 0 && <>{"\u2193"}{formatTraffic(inVal, interval)}</>}
+                          {inVal > 0 && outVal > 0 && " "}
+                          {outVal > 0 && <>{"\u2191"}{formatTraffic(outVal, interval)}</>}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
             }}
-            itemStyle={{ padding: 0, color: "hsl(210 20% 88%)" }}
-            formatter={(value, name) => {
-              const abs = Math.abs(Number(value))
-              if (abs === 0) return [null, null]
-              const tag = String(name).replace(/_in$|_out$/, "")
-              const dir = String(name).endsWith("_in") ? "\u2193" : "\u2191"
-              return [formatTraffic(abs, interval), `${dir} ${linkLabels[tag] || tag}`]
-            }}
-            labelStyle={{ color: "hsl(215 12% 50%)", marginBottom: 2, fontSize: "10px" }}
           />
           {/* Separate stackIds so positive stacks up, negative stacks down */}
           {linkTags.map((tag) => (

@@ -2,8 +2,8 @@ import { Link, useParams } from "react-router-dom"
 import { useASDetail, useASPeers, useASTopIPs } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { TrafficChart } from "@/components/charts/TrafficChart"
-import { formatNumber } from "@/lib/utils"
+import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
+import { formatNumber, formatBytes } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 import { ExternalLink } from "lucide-react"
 
@@ -24,82 +24,95 @@ export function ASDetail() {
   if (!detail) return null
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/* Header */}
       <div className="flex items-baseline justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold tracking-tight">
+        <h1 className="text-lg font-bold tracking-tight">
           AS{detail.as_number}
           {detail.as_name && (
-            <span className="ml-3 text-lg font-normal text-muted-foreground">{detail.as_name}</span>
+            <span className="ml-2 text-sm font-normal text-muted-foreground">{detail.as_name}</span>
           )}
         </h1>
-        <div className="flex items-center gap-3 text-xs">
-          <a
-            href={`https://bgp.he.net/AS${detail.as_number}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1"
-          >
-            HE.net <ExternalLink className="h-3 w-3" />
+        <div className="flex items-center gap-3 text-[10px]">
+          <a href={`https://bgp.he.net/AS${detail.as_number}`} target="_blank" rel="noopener noreferrer"
+            className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1">
+            HE.net <ExternalLink className="h-2.5 w-2.5" />
           </a>
-          <a
-            href={`https://www.peeringdb.com/asn/${detail.as_number}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1"
-          >
-            PeeringDB <ExternalLink className="h-3 w-3" />
+          <a href={`https://www.peeringdb.com/asn/${detail.as_number}`} target="_blank" rel="noopener noreferrer"
+            className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1">
+            PeeringDB <ExternalLink className="h-2.5 w-2.5" />
           </a>
-          <a
-            href={`https://bgp.tools/as/${detail.as_number}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1"
-          >
-            bgp.tools <ExternalLink className="h-3 w-3" />
+          <a href={`https://bgp.tools/as/${detail.as_number}`} target="_blank" rel="noopener noreferrer"
+            className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1">
+            bgp.tools <ExternalLink className="h-2.5 w-2.5" />
           </a>
         </div>
       </div>
 
-      {/* Traffic chart */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Traffic</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {detail.time_series?.length > 0 ? (
-            <TrafficChart data={detail.time_series} height={350} timeBounds={timeBounds} />
-          ) : (
-            <p className="text-sm text-muted-foreground">No traffic data for this period</p>
-          )}
-        </CardContent>
-      </Card>
+      {/* Volume summary — IPv4 / IPv6 totals */}
+      <div className="flex gap-6 text-xs">
+        <div>
+          <span className="text-muted-foreground">IPv4:</span>{" "}
+          <span className="text-traffic-in">{formatBytes(detail.v4_bytes_in || 0)} in</span>
+          {" / "}
+          <span className="text-traffic-out">{formatBytes(detail.v4_bytes_out || 0)} out</span>
+        </div>
+        <div>
+          <span className="text-muted-foreground">IPv6:</span>{" "}
+          <span className="text-traffic-in">{formatBytes(detail.v6_bytes_in || 0)} in</span>
+          {" / "}
+          <span className="text-traffic-out">{formatBytes(detail.v6_bytes_out || 0)} out</span>
+        </div>
+      </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Top internal IPs for this AS */}
+      {/* IPv4 + IPv6 traffic charts side by side, split by link */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardContent className="pt-4">
+            {detail.v4_series && detail.v4_series.length > 0 ? (
+              <LinkTrafficChart series={detail.v4_series} title="IPv4 Traffic by Link" height={280} timeBounds={timeBounds} />
+            ) : (
+              <p className="text-xs text-muted-foreground py-8 text-center">No IPv4 data</p>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            {detail.v6_series && detail.v6_series.length > 0 ? (
+              <LinkTrafficChart series={detail.v6_series} title="IPv6 Traffic by Link" height={280} timeBounds={timeBounds} />
+            ) : (
+              <p className="text-xs text-muted-foreground py-8 text-center">No IPv6 data</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Tables: Top IPs + Peers */}
+      <div className="grid gap-5 lg:grid-cols-2">
         {topIPsData?.data && topIPsData.data.length > 0 && (
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Top Internal IPs</CardTitle>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Top Internal IPs</CardTitle>
             </CardHeader>
             <CardContent>
-              <table className="w-full text-sm">
+              <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="pb-2 text-left font-medium text-muted-foreground">IP</th>
-                    <th className="pb-2 text-right font-medium text-muted-foreground">Traffic</th>
-                    <th className="pb-2 text-right font-medium text-muted-foreground">Flows</th>
+                    <th className="pb-1.5 text-left font-medium text-muted-foreground">IP</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Traffic</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Flows</th>
                   </tr>
                 </thead>
                 <tbody>
                   {topIPsData.data.map(ip => (
-                    <tr key={ip.ip} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
-                      <td className="py-1.5">
-                        <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-xs">
+                    <tr key={ip.ip} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
+                      <td className="py-1">
+                        <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px]">
                           {ip.ip}
                         </Link>
                       </td>
-                      <td className="py-1.5 text-right font-mono">{formatTraffic(ip.bytes, periodSeconds)}</td>
-                      <td className="py-1.5 text-right font-mono text-muted-foreground">{formatNumber(ip.flows)}</td>
+                      <td className="py-1 text-right font-mono">{formatTraffic(ip.bytes, periodSeconds)}</td>
+                      <td className="py-1 text-right font-mono text-muted-foreground">{formatNumber(ip.flows)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -108,33 +121,30 @@ export function ASDetail() {
           </Card>
         )}
 
-        {/* Peers */}
         {peersData?.data && peersData.data.length > 0 && (
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Peers</CardTitle>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Peers</CardTitle>
             </CardHeader>
             <CardContent>
-              <table className="w-full text-sm">
+              <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="pb-2 text-left font-medium text-muted-foreground">ASN</th>
-                    <th className="pb-2 text-left font-medium text-muted-foreground">Name</th>
-                    <th className="pb-2 text-right font-medium text-muted-foreground">Traffic</th>
-                    <th className="pb-2 text-right font-medium text-muted-foreground">Flows</th>
+                    <th className="pb-1.5 text-left font-medium text-muted-foreground">ASN</th>
+                    <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Traffic</th>
                   </tr>
                 </thead>
                 <tbody>
                   {peersData.data.map(peer => (
-                    <tr key={peer.as_number} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
-                      <td className="py-1.5">
+                    <tr key={peer.as_number} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
+                      <td className="py-1">
                         <Link to={`/as/${peer.as_number}${filterSearch}`} className="text-primary hover:underline font-mono">
                           {peer.as_number}
                         </Link>
                       </td>
-                      <td className="py-1.5 truncate max-w-48">{peer.as_name || "-"}</td>
-                      <td className="py-1.5 text-right font-mono">{formatTraffic(peer.bytes, periodSeconds)}</td>
-                      <td className="py-1.5 text-right font-mono text-muted-foreground">{formatNumber(peer.flows)}</td>
+                      <td className="py-1 text-muted-foreground truncate max-w-40">{peer.as_name || "-"}</td>
+                      <td className="py-1 text-right font-mono">{formatTraffic(peer.bytes, periodSeconds)}</td>
                     </tr>
                   ))}
                 </tbody>

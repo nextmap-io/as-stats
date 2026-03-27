@@ -85,6 +85,12 @@ export interface ASDetailData {
   as_number: number
   as_name: string
   time_series: TrafficPoint[]
+  v4_series?: LinkTimeSeries[]
+  v6_series?: LinkTimeSeries[]
+  v4_bytes_in?: number
+  v4_bytes_out?: number
+  v6_bytes_in?: number
+  v6_bytes_out?: number
 }
 
 export interface IPDetailData {

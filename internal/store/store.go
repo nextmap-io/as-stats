@@ -20,6 +20,8 @@ type FlowReader interface {
 	TopPrefix(ctx context.Context, p QueryParams) ([]model.PrefixTraffic, uint64, error)
 
 	ASTimeSeries(ctx context.Context, asn uint32, p QueryParams) ([]model.TrafficPoint, error)
+	ASLinkSeries(ctx context.Context, asn uint32, p QueryParams) ([]model.LinkTimeSeries, error)
+	ASTotals(ctx context.Context, asn uint32, p QueryParams) (v4In, v4Out, v6In, v6Out uint64, err error)
 	ASPeers(ctx context.Context, asn uint32, p QueryParams) ([]model.ASTraffic, error)
 	ASTopIPs(ctx context.Context, asn uint32, p QueryParams) ([]model.IPTraffic, error)
 
