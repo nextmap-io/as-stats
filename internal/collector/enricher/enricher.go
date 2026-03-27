@@ -91,15 +91,15 @@ func (e *Enricher) Enrich(flow *model.FlowRecord) {
 	if info, ok := e.links[inKey]; ok {
 		flow.LinkTag = info.Tag
 		flow.Direction = model.DirectionInbound
-		return
 	}
 
 	// Check output interface -> outbound traffic
-	outKey := linkKey{RouterIP: routerIP, SNMPIndex: flow.OutInterface}
-	if info, ok := e.links[outKey]; ok {
-		flow.LinkTag = info.Tag
-		flow.Direction = model.DirectionOutbound
-		return
+	if flow.LinkTag == "" {
+		outKey := linkKey{RouterIP: routerIP, SNMPIndex: flow.OutInterface}
+		if info, ok := e.links[outKey]; ok {
+			flow.LinkTag = info.Tag
+			flow.Direction = model.DirectionOutbound
+		}
 	}
 
 	// Override private/missing AS for IPs in local prefixes
