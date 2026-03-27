@@ -2,10 +2,12 @@ import { Link } from "react-router-dom"
 import { useTopAS } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { formatBytes, formatNumber, formatPercent } from "@/lib/utils"
+import { formatNumber, formatPercent } from "@/lib/utils"
+import { useUnit } from "@/hooks/useUnit"
 
 export function TopAS() {
-  const { filters, setFilter } = useFilters()
+  const { filters, setFilter, periodSeconds } = useFilters()
+  const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useTopAS({ ...filters, limit: 50 })
 
   return (
@@ -45,7 +47,7 @@ export function TopAS() {
                         </Link>
                       </td>
                       <td className="py-2 truncate max-w-64">{as.as_name || "-"}</td>
-                      <td className="py-2 text-right font-mono">{formatBytes(as.bytes)}</td>
+                      <td className="py-2 text-right font-mono">{formatTraffic(as.bytes, periodSeconds)}</td>
                       <td className="py-2 text-right font-mono text-muted-foreground">{formatNumber(as.packets)}</td>
                       <td className="py-2 text-right font-mono text-muted-foreground">{formatNumber(as.flows)}</td>
                       <td className="py-2 text-right font-mono">

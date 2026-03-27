@@ -2,10 +2,12 @@ import { Link } from "react-router-dom"
 import { useTopPrefix } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { formatBytes, formatNumber } from "@/lib/utils"
+import { formatNumber } from "@/lib/utils"
+import { useUnit } from "@/hooks/useUnit"
 
 export function TopPrefixes() {
-  const { filters, setFilter } = useFilters()
+  const { filters, setFilter, periodSeconds } = useFilters()
+  const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useTopPrefix({ ...filters, limit: 50 })
 
   return (
@@ -45,7 +47,7 @@ export function TopPrefixes() {
                           </Link>
                         ) : "-"}
                       </td>
-                      <td className="py-2 text-right font-mono">{formatBytes(pfx.bytes)}</td>
+                      <td className="py-2 text-right font-mono">{formatTraffic(pfx.bytes, periodSeconds)}</td>
                       <td className="py-2 text-right font-mono text-muted-foreground">{formatNumber(pfx.packets)}</td>
                       <td className="py-2 text-right font-mono text-muted-foreground">{formatNumber(pfx.flows)}</td>
                     </tr>

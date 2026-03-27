@@ -2,10 +2,12 @@ import { Link } from "react-router-dom"
 import { useTopIP } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { formatBytes, formatNumber } from "@/lib/utils"
+import { formatNumber } from "@/lib/utils"
+import { useUnit } from "@/hooks/useUnit"
 
 export function TopIP() {
-  const { filters, setFilter } = useFilters()
+  const { filters, setFilter, periodSeconds } = useFilters()
+  const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useTopIP({ ...filters, limit: 50 })
 
   return (
@@ -49,7 +51,7 @@ export function TopIP() {
                           </Link>
                         ) : "-"}
                       </td>
-                      <td className="py-2 text-right font-mono">{formatBytes(ip.bytes)}</td>
+                      <td className="py-2 text-right font-mono">{formatTraffic(ip.bytes, periodSeconds)}</td>
                       <td className="py-2 text-right font-mono text-muted-foreground">{formatNumber(ip.packets)}</td>
                       <td className="py-2 text-right font-mono text-muted-foreground">{formatNumber(ip.flows)}</td>
                     </tr>

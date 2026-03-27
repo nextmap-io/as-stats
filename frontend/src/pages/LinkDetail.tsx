@@ -3,11 +3,13 @@ import { useLinkDetail } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TrafficChart } from "@/components/charts/TrafficChart"
-import { formatBytes, formatNumber } from "@/lib/utils"
+import { formatNumber } from "@/lib/utils"
+import { useUnit } from "@/hooks/useUnit"
 
 export function LinkDetail() {
   const { tag } = useParams<{ tag: string }>()
-  const { filters } = useFilters()
+  const { filters, periodSeconds } = useFilters()
+  const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useLinkDetail(tag || "", filters)
 
   if (isLoading) return <p className="text-muted-foreground">Loading...</p>
@@ -57,7 +59,7 @@ export function LinkDetail() {
                       </Link>
                     </td>
                     <td className="py-1.5 truncate max-w-48">{as.as_name || "-"}</td>
-                    <td className="py-1.5 text-right font-mono">{formatBytes(as.bytes)}</td>
+                    <td className="py-1.5 text-right font-mono">{formatTraffic(as.bytes, periodSeconds)}</td>
                     <td className="py-1.5 text-right font-mono text-muted-foreground">{formatNumber(as.flows)}</td>
                   </tr>
                 ))}

@@ -6,13 +6,14 @@ import { useFilters } from "@/hooks/useFilters"
 import { api } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
-import { formatBytes } from "@/lib/utils"
+import { useUnit } from "@/hooks/useUnit"
 import { Plus, Trash2, BarChart3 } from "lucide-react"
 import { EmptyState } from "@/components/ui/error"
 
 export function Links() {
-  const { filters, filterSearch } = useFilters()
+  const { filters, filterSearch, periodSeconds } = useFilters()
   const { data, isLoading, error } = useLinks(filters)
+  const { formatTraffic } = useUnit()
   const { data: ipv4Traffic } = useLinksTraffic(4, filters)
   const { data: ipv6Traffic } = useLinksTraffic(6, filters)
 
@@ -76,10 +77,10 @@ export function Links() {
                     <td className="py-2 text-right font-mono text-muted-foreground">
                       {l.capacity_mbps ? `${l.capacity_mbps} Mbps` : "-"}
                     </td>
-                    <td className="py-2 text-right font-mono">{formatBytes(l.bytes_in)}</td>
-                    <td className="py-2 text-right font-mono">{formatBytes(l.bytes_out)}</td>
+                    <td className="py-2 text-right font-mono">{formatTraffic(l.bytes_in, periodSeconds)}</td>
+                    <td className="py-2 text-right font-mono">{formatTraffic(l.bytes_out, periodSeconds)}</td>
                     <td className="py-2 text-right font-mono font-medium">
-                      {formatBytes(l.bytes_in + l.bytes_out)}
+                      {formatTraffic(l.bytes_in + l.bytes_out, periodSeconds)}
                     </td>
                   </tr>
                 ))}
