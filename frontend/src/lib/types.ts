@@ -92,6 +92,10 @@ export interface ASDetailData {
   v4_bytes_out?: number
   v6_bytes_in?: number
   v6_bytes_out?: number
+  p95_v4_in?: number
+  p95_v4_out?: number
+  p95_v6_in?: number
+  p95_v6_out?: number
 }
 
 export interface IPDetailData {
@@ -104,6 +108,8 @@ export interface LinkDetailData {
   tag: string
   time_series: TrafficPoint[]
   top_as: ASTraffic[]
+  p95_in?: number
+  p95_out?: number
 }
 
 export interface LinkTimeSeries {
@@ -116,6 +122,8 @@ export interface ASTrafficDetail {
   as_number: number
   as_name: string
   bytes: number
+  p95_in?: number
+  p95_out?: number
   series: LinkTimeSeries[]
 }
 

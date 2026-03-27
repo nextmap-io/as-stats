@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
 	"time"
 
@@ -1089,12 +1090,31 @@ func (s *ClickHouseStore) TopASTrafficSeries(ctx context.Context, p QueryParams)
 		})
 	}
 
-	// Assemble results
+	// Assemble results and compute p95 from time series
 	for asn, detail := range asMap {
+		// Aggregate all link series into per-period totals for p95
+		periodTotals := make(map[time.Time][2]uint64) // [in, out]
 		for lk, ls := range linkSeries {
 			if lk.asn == asn {
 				detail.Series = append(detail.Series, *ls)
+				for _, pt := range ls.Points {
+					t := periodTotals[pt.Timestamp]
+					t[0] += pt.BytesIn
+					t[1] += pt.BytesOut
+					periodTotals[pt.Timestamp] = t
+				}
 			}
+		}
+		// Calculate p95
+		if len(periodTotals) > 0 {
+			inVals := make([]uint64, 0, len(periodTotals))
+			outVals := make([]uint64, 0, len(periodTotals))
+			for _, v := range periodTotals {
+				inVals = append(inVals, v[0])
+				outVals = append(outVals, v[1])
+			}
+			detail.P95In = percentile95(inVals)
+			detail.P95Out = percentile95(outVals)
 		}
 	}
 
@@ -1128,6 +1148,132 @@ func useRawTable(from, to time.Time) bool {
 }
 
 // pickLinkTable selects the best source table for link queries based on time range.
+// LinksP95 returns the 95th percentile of total in/out traffic across all links.
+func (s *ClickHouseStore) LinksP95(ctx context.Context, p QueryParams) (inP95, outP95 uint64, err error) {
+	step := autoStep(p.From, p.To)
+	table := pickLinkTable(p.From, p.To)
+
+	var query string
+	if useRawTable(p.From, p.To) {
+		query = fmt.Sprintf(`
+			SELECT
+				quantile(0.95)(bucket_in) AS p95_in,
+				quantile(0.95)(bucket_out) AS p95_out
+			FROM (
+				SELECT
+					toStartOfInterval(timestamp, INTERVAL %d SECOND) AS period,
+					sumIf(bytes * sampling_rate, direction = 'in') AS bucket_in,
+					sumIf(bytes * sampling_rate, direction = 'out') AS bucket_out
+				FROM flows_raw
+				WHERE timestamp >= @from AND timestamp < @to AND link_tag != ''
+				GROUP BY period
+			)
+		`, int(step.Seconds()))
+	} else {
+		query = fmt.Sprintf(`
+			SELECT
+				quantile(0.95)(bucket_in) AS p95_in,
+				quantile(0.95)(bucket_out) AS p95_out
+			FROM (
+				SELECT
+					toStartOfInterval(ts, INTERVAL %d SECOND) AS period,
+					sum(bytes_in) AS bucket_in,
+					sum(bytes_out) AS bucket_out
+				FROM %s
+				WHERE ts >= @from AND ts < @to
+				GROUP BY period
+			)
+		`, int(step.Seconds()), table)
+	}
+
+	err = s.conn.QueryRow(ctx, query,
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+	).Scan(&inP95, &outP95)
+	if err != nil {
+		err = fmt.Errorf("query links p95: %w", err)
+	}
+	return
+}
+
+// LinkP95 returns the 95th percentile for a specific link.
+func (s *ClickHouseStore) LinkP95(ctx context.Context, tag string, p QueryParams) (inP95, outP95 uint64, err error) {
+	step := autoStep(p.From, p.To)
+
+	var query string
+	if useRawTable(p.From, p.To) {
+		query = fmt.Sprintf(`
+			SELECT quantile(0.95)(bi), quantile(0.95)(bo) FROM (
+				SELECT toStartOfInterval(timestamp, INTERVAL %d SECOND) AS period,
+					sumIf(bytes * sampling_rate, direction = 'in') AS bi,
+					sumIf(bytes * sampling_rate, direction = 'out') AS bo
+				FROM flows_raw WHERE timestamp >= @from AND timestamp < @to AND link_tag = @tag
+				GROUP BY period
+			)`, int(step.Seconds()))
+	} else {
+		table := pickLinkTable(p.From, p.To)
+		query = fmt.Sprintf(`
+			SELECT quantile(0.95)(bi), quantile(0.95)(bo) FROM (
+				SELECT toStartOfInterval(ts, INTERVAL %d SECOND) AS period,
+					sum(bytes_in) AS bi, sum(bytes_out) AS bo
+				FROM %s WHERE ts >= @from AND ts < @to AND link_tag = @tag
+				GROUP BY period
+			)`, int(step.Seconds()), table)
+	}
+
+	err = s.conn.QueryRow(ctx, query,
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+		clickhouse.Named("tag", tag),
+	).Scan(&inP95, &outP95)
+	return
+}
+
+// ASP95 returns the 95th percentile for a specific AS, split by ip_version.
+func (s *ClickHouseStore) ASP95(ctx context.Context, asn uint32, p QueryParams) (v4In, v4Out, v6In, v6Out uint64, err error) {
+	step := autoStep(p.From, p.To)
+
+	var query string
+	if useRawTable(p.From, p.To) {
+		query = fmt.Sprintf(`
+			SELECT
+				quantile(0.95)(v4i), quantile(0.95)(v4o),
+				quantile(0.95)(v6i), quantile(0.95)(v6o)
+			FROM (
+				SELECT toStartOfInterval(timestamp, INTERVAL %d SECOND) AS period,
+					sumIf(bytes * sampling_rate, src_as = @asn AND ip_version = 4) AS v4i,
+					sumIf(bytes * sampling_rate, dst_as = @asn AND ip_version = 4) AS v4o,
+					sumIf(bytes * sampling_rate, src_as = @asn AND ip_version = 6) AS v6i,
+					sumIf(bytes * sampling_rate, dst_as = @asn AND ip_version = 6) AS v6o
+				FROM flows_raw WHERE timestamp >= @from AND timestamp < @to
+					AND (src_as = @asn OR dst_as = @asn)
+				GROUP BY period
+			)`, int(step.Seconds()))
+	} else {
+		table := pickASTable(p.From, p.To)
+		query = fmt.Sprintf(`
+			SELECT
+				quantile(0.95)(v4i), quantile(0.95)(v4o),
+				quantile(0.95)(v6i), quantile(0.95)(v6o)
+			FROM (
+				SELECT toStartOfInterval(ts, INTERVAL %d SECOND) AS period,
+					sumIf(bytes, direction = 'out' AND ip_version = 4) AS v4i,
+					sumIf(bytes, direction = 'in' AND ip_version = 4) AS v4o,
+					sumIf(bytes, direction = 'out' AND ip_version = 6) AS v6i,
+					sumIf(bytes, direction = 'in' AND ip_version = 6) AS v6o
+				FROM %s WHERE ts >= @from AND ts < @to AND as_number = @asn
+				GROUP BY period
+			)`, int(step.Seconds()), table)
+	}
+
+	err = s.conn.QueryRow(ctx, query,
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+		clickhouse.Named("asn", asn),
+	).Scan(&v4In, &v4Out, &v6In, &v6Out)
+	return
+}
+
 func pickLinkTable(from, to time.Time) string {
 	dur := to.Sub(from)
 	switch {
@@ -1138,6 +1284,17 @@ func pickLinkTable(from, to time.Time) string {
 	default:
 		return "traffic_by_link_daily"
 	}
+}
+
+func percentile95(vals []uint64) uint64 {
+	if len(vals) == 0 {
+		return 0
+	}
+	sorted := make([]uint64, len(vals))
+	copy(sorted, vals)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	idx := int(float64(len(sorted)-1) * 0.95)
+	return sorted[idx]
 }
 
 func buildDirectionFilter(dir string) (string, []any) {

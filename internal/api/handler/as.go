@@ -36,20 +36,27 @@ func (h *Handler) ASDetail(w http.ResponseWriter, r *http.Request) {
 	// Totals per IP version
 	v4In, v4Out, v6In, v6Out, _ := h.Store.ASTotals(r.Context(), asn, p)
 
+	// P95 per IP version
+	p95v4In, p95v4Out, p95v6In, p95v6Out, _ := h.Store.ASP95(r.Context(), asn, p)
+
 	// Get AS name
 	asName, _ := h.Store.GetASName(r.Context(), asn)
 
 	writeJSON(w, http.StatusOK, Response{
 		Data: map[string]any{
-			"as_number":   asn,
-			"as_name":     asName,
-			"time_series": ts,
-			"v4_series":   v4Series,
-			"v6_series":   v6Series,
-			"v4_bytes_in": v4In,
+			"as_number":    asn,
+			"as_name":      asName,
+			"time_series":  ts,
+			"v4_series":    v4Series,
+			"v6_series":    v6Series,
+			"v4_bytes_in":  v4In,
 			"v4_bytes_out": v4Out,
-			"v6_bytes_in": v6In,
+			"v6_bytes_in":  v6In,
 			"v6_bytes_out": v6Out,
+			"p95_v4_in":    p95v4In,
+			"p95_v4_out":   p95v4Out,
+			"p95_v6_in":    p95v6In,
+			"p95_v6_out":   p95v6Out,
 		},
 		Meta: &ResponseMeta{From: p.From, To: p.To},
 	})

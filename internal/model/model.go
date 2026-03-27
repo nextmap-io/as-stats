@@ -111,9 +111,11 @@ type LinkTimeSeries struct {
 
 // ASTrafficDetail represents an AS with time series split by link and direction.
 type ASTrafficDetail struct {
-	ASNumber uint32         `json:"as_number"`
-	ASName   string         `json:"as_name"`
-	Bytes    uint64         `json:"bytes"`
+	ASNumber uint32           `json:"as_number"`
+	ASName   string           `json:"as_name"`
+	Bytes    uint64           `json:"bytes"`
+	P95In    uint64           `json:"p95_in,omitempty"`
+	P95Out   uint64           `json:"p95_out,omitempty"`
 	Series   []LinkTimeSeries `json:"series"`
 }
 

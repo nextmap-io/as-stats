@@ -38,6 +38,8 @@ interface LinkTrafficChartProps {
   title?: string
   linkColors?: Record<string, string>
   timeBounds?: { from: number; to: number }
+  p95In?: number
+  p95Out?: number
 }
 
 function getIntervalSeconds(series: LinkTimeSeries[]): number {
@@ -54,7 +56,7 @@ function formatTimeShort(ts: number): string {
   return new Date(ts).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" })
 }
 
-export function LinkTrafficChart({ series, height = 260, title, linkColors, timeBounds }: LinkTrafficChartProps) {
+export function LinkTrafficChart({ series, height = 260, title, linkColors, timeBounds, p95In, p95Out }: LinkTrafficChartProps) {
   const { formatTraffic, formatAxis, unit } = useUnit()
   if (!series.length) return null
   const interval = getIntervalSeconds(series)
@@ -86,7 +88,7 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
 
   const data: Record<string, unknown>[] = []
   if (timeBounds && stepMs > 0) {
-    const maxSlots = height <= 160 ? 120 : 300
+    const maxSlots = 300
     let fillStep = stepMs
     const totalSlots = Math.ceil((timeBounds.to - timeBounds.from) / stepMs)
     if (totalSlots > maxSlots) {
@@ -137,6 +139,12 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
             width={40}
           />
           <ReferenceLine y={0} stroke="hsl(215 12% 40%)" strokeWidth={1} />
+          {p95In != null && p95In > 0 && (
+            <ReferenceLine y={p95In} stroke="#e74c3c" strokeDasharray="4 2" strokeWidth={1} label={{ value: `p95 in: ${formatTraffic(p95In, interval)}`, position: "right", fontSize: 8, fill: "#e74c3c" }} />
+          )}
+          {p95Out != null && p95Out > 0 && (
+            <ReferenceLine y={-p95Out} stroke="#e74c3c" strokeDasharray="4 2" strokeWidth={1} label={{ value: `p95 out: ${formatTraffic(p95Out, interval)}`, position: "right", fontSize: 8, fill: "#e74c3c" }} />
+          )}
           <Tooltip
             cursor={{ stroke: "hsl(215 12% 50%)", strokeOpacity: 0.3 }}
             content={({ active, payload, label }) => {

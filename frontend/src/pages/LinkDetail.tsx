@@ -30,7 +30,7 @@ export function LinkDetail() {
         <CardContent>
           {detail.time_series?.length > 0 ? (
             <ExpandableChart title="Link Traffic">
-              <TrafficChart data={detail.time_series} height={350} timeBounds={timeBounds} />
+              <TrafficChart data={detail.time_series} height={350} timeBounds={timeBounds} p95In={detail.p95_in} p95Out={detail.p95_out} />
             </ExpandableChart>
           ) : (
             <p className="text-sm text-muted-foreground">No traffic data for this period</p>

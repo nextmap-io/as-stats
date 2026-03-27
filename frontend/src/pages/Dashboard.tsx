@@ -66,7 +66,7 @@ export function Dashboard() {
       {((ipv4Traffic?.data && ipv4Traffic.data.length > 0) || (ipv6Traffic?.data && ipv6Traffic.data.length > 0)) && (
         <div className="grid gap-4 lg:grid-cols-2">
           <Card className="overflow-visible">
-            <CardContent className="pt-5 pb-8">
+            <CardContent className="pt-6 pb-8">
               {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
                 <ExpandableChart title="IPv4 Traffic by Link">
                   <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
@@ -77,7 +77,7 @@ export function Dashboard() {
             </CardContent>
           </Card>
           <Card className="overflow-visible">
-            <CardContent className="pt-5 pb-8">
+            <CardContent className="pt-6 pb-8">
               {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
                 <ExpandableChart title="IPv6 Traffic by Link">
                   <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
@@ -120,6 +120,8 @@ export function Dashboard() {
                           height={140}
                           linkColors={linkColors}
                           timeBounds={timeBounds}
+                          p95In={entry.v4.p95_in}
+                          p95Out={entry.v4.p95_out}
                         />
                       </ExpandableChart>
                     ) : (
@@ -135,6 +137,8 @@ export function Dashboard() {
                           height={140}
                           linkColors={linkColors}
                           timeBounds={timeBounds}
+                          p95In={entry.v6?.p95_in}
+                          p95Out={entry.v6?.p95_out}
                         />
                       </ExpandableChart>
                     ) : (
