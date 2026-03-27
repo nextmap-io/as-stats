@@ -9,12 +9,6 @@ const periods = [
   { label: "30d", value: "30d" },
 ]
 
-const directions = [
-  { label: "Both", value: "" },
-  { label: "In", value: "in" },
-  { label: "Out", value: "out" },
-]
-
 export function FilterBar() {
   const { filters, setFilter } = useFilters()
 
@@ -30,20 +24,6 @@ export function FilterBar() {
                 onClick={() => setFilter("period", p.value)}
               >
                 {p.label}
-              </FilterButton>
-            ))}
-          </FilterGroup>
-
-          <div className="h-4 w-px bg-border shrink-0" aria-hidden="true" />
-
-          <FilterGroup label="Direction">
-            {directions.map(d => (
-              <FilterButton
-                key={d.value}
-                active={(filters.direction || "") === d.value}
-                onClick={() => setFilter("direction", d.value || undefined)}
-              >
-                {d.label}
               </FilterButton>
             ))}
           </FilterGroup>

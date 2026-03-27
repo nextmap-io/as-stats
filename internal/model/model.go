@@ -49,9 +49,9 @@ type Link struct {
 
 // ASInfo holds AS number to name mapping.
 type ASInfo struct {
-	Number  uint32
-	Name    string
-	Country string
+	Number  uint32 `json:"number"`
+	Name    string `json:"name"`
+	Country string `json:"country"`
 }
 
 // TrafficPoint represents a single time-series data point.
