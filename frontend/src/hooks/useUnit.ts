@@ -7,6 +7,7 @@ interface UnitContextType {
   toggleUnit: () => void
   formatTraffic: (bytes: number, intervalSeconds?: number) => string
   formatPackets: (packets: number, intervalSeconds?: number) => string
+  formatAxis: (bytes: number, intervalSeconds?: number) => string
 }
 
 const UnitContext = createContext<UnitContextType | null>(null)
@@ -69,7 +70,32 @@ export function useUnitState(): UnitContextType {
     return new Intl.NumberFormat().format(packets)
   }, [unit])
 
-  return { unit, toggleUnit, formatTraffic, formatPackets }
+  // Short format for chart axis labels (no space, compact units)
+  const formatAxis = useCallback((bytes: number, intervalSeconds = 300) => {
+    if (unit === "bps") {
+      const bps = (bytes * 8) / intervalSeconds
+      if (bps < 1) return "0"
+      const u = ["", "K", "M", "G", "T"]
+      const i = Math.min(Math.max(0, Math.floor(Math.log(bps) / Math.log(1000))), u.length - 1)
+      const val = bps / Math.pow(1000, i)
+      return `${val < 10 ? val.toFixed(1) : Math.round(val)}${u[i]}`
+    }
+    if (unit === "pps") {
+      const pps = bytes / intervalSeconds
+      if (pps < 1) return "0"
+      const u = ["", "K", "M", "G"]
+      const i = Math.min(Math.max(0, Math.floor(Math.log(pps) / Math.log(1000))), u.length - 1)
+      const val = pps / Math.pow(1000, i)
+      return `${val < 10 ? val.toFixed(1) : Math.round(val)}${u[i]}`
+    }
+    if (bytes < 1) return "0"
+    const u = ["B", "K", "M", "G", "T"]
+    const i = Math.min(Math.max(0, Math.floor(Math.log(bytes) / Math.log(1000))), u.length - 1)
+    const val = bytes / Math.pow(1000, i)
+    return `${val < 10 ? val.toFixed(1) : Math.round(val)}${u[i]}`
+  }, [unit])
+
+  return { unit, toggleUnit, formatTraffic, formatPackets, formatAxis }
 }
 
 export function useUnit(): UnitContextType {

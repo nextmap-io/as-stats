@@ -55,7 +55,7 @@ function formatTimeShort(ts: number): string {
 }
 
 export function LinkTrafficChart({ series, height = 260, title, linkColors, timeBounds }: LinkTrafficChartProps) {
-  const { formatTraffic, unit } = useUnit()
+  const { formatTraffic, formatAxis, unit } = useUnit()
   if (!series.length) return null
   const interval = getIntervalSeconds(series)
   const stepMs = interval * 1000
@@ -146,8 +146,8 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
             tick={{ fontSize: 8, fill: "hsl(215 12% 50%)" }}
             tickLine={false}
             axisLine={false}
-            tickFormatter={(v) => formatTraffic(Math.abs(v), interval)}
-            width={58}
+            tickFormatter={(v) => formatAxis(Math.abs(v), interval)}
+            width={40}
           />
           <ReferenceLine y={0} stroke="hsl(215 12% 40%)" strokeWidth={1} />
           <Tooltip

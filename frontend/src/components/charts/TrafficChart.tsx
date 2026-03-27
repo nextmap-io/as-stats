@@ -32,7 +32,7 @@ function formatTimeShort(ts: number): string {
 }
 
 export function TrafficChart({ data, height = 280, showLegend = true, title, timeBounds }: TrafficChartProps) {
-  const { formatTraffic, unit } = useUnit()
+  const { formatTraffic, formatAxis, unit } = useUnit()
   const interval = getIntervalSeconds(data)
   const stepMs = interval * 1000
   const usePps = unit === "pps"
@@ -97,8 +97,8 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
             tick={{ fontSize: 8, fill: "hsl(215 12% 50%)" }}
             tickLine={false}
             axisLine={false}
-            tickFormatter={(v) => formatTraffic(Math.abs(v), interval)}
-            width={58}
+            tickFormatter={(v) => formatAxis(Math.abs(v), interval)}
+            width={40}
           />
           <ReferenceLine y={0} stroke="hsl(215 12% 40%)" strokeWidth={1} />
           <Tooltip
