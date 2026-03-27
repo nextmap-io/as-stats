@@ -95,8 +95,8 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
             }}
             labelStyle={{ color: "hsl(215 12% 50%)", marginBottom: 2, fontSize: "10px" }}
           />
-          <Bar dataKey="inbound" stackId="traffic" fill="hsl(174 72% 46%)" fillOpacity={0.9} />
-          <Bar dataKey="outbound" stackId="traffic" fill="hsl(174 72% 46%)" fillOpacity={0.4} />
+          <Bar dataKey="inbound" fill="hsl(174 72% 46%)" fillOpacity={0.9} />
+          <Bar dataKey="outbound" fill="hsl(174 72% 46%)" fillOpacity={0.4} />
         </BarChart>
       </ResponsiveContainer>
       {showLegend && (

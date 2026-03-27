@@ -141,18 +141,18 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
             }}
             labelStyle={{ color: "hsl(215 12% 50%)", marginBottom: 2, fontSize: "10px" }}
           />
-          {/* All bars share one stackId */}
+          {/* Separate stackIds so positive stacks up, negative stacks down */}
           {linkTags.map((tag) => (
-            <Bar key={`${tag}_in`} dataKey={`${tag}_in`} stackId="traffic" fill={colors[tag].in} fillOpacity={0.9} />
+            <Bar key={`${tag}_in`} dataKey={`${tag}_in`} stackId="in" fill={colors[tag].in} fillOpacity={0.9} />
           ))}
           {linkTags.map((tag) => (
-            <Bar key={`${tag}_out`} dataKey={`${tag}_out`} stackId="traffic" fill={colors[tag].out} fillOpacity={0.9} />
+            <Bar key={`${tag}_out`} dataKey={`${tag}_out`} stackId="out" fill={colors[tag].out} fillOpacity={0.9} />
           ))}
         </BarChart>
       </ResponsiveContainer>
       {/* Custom legend — one line per link */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 px-1">
-        {linkTags.map((tag, i) => (
+        {linkTags.map((tag) => (
           <div key={tag} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
             <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: colors[tag].in }} />
             <span>{linkLabels[tag]}</span>
