@@ -60,8 +60,8 @@ export function Dashboard() {
       {/* Global traffic charts: IPv4 / IPv6 by link */}
       {((ipv4Traffic?.data && ipv4Traffic.data.length > 0) || (ipv6Traffic?.data && ipv6Traffic.data.length > 0)) && (
         <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardContent className="pt-4">
+          <Card className="overflow-visible">
+            <CardContent className="pt-5 pb-8">
               {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
                 <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
               ) : (
@@ -69,8 +69,8 @@ export function Dashboard() {
               )}
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="pt-4">
+          <Card className="overflow-visible">
+            <CardContent className="pt-5 pb-8">
               {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
                 <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
               ) : (

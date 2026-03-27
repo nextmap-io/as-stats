@@ -68,8 +68,8 @@ export function ASDetail() {
 
       {/* IPv4 + IPv6 traffic charts side by side, split by link */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardContent className="pt-4">
+        <Card className="overflow-visible">
+          <CardContent className="pt-5 pb-8">
             {detail.v4_series && detail.v4_series.length > 0 ? (
               <LinkTrafficChart series={detail.v4_series} title="IPv4 Traffic by Link" height={280} timeBounds={timeBounds} linkColors={linkColors} />
             ) : (
@@ -77,8 +77,8 @@ export function ASDetail() {
             )}
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-4">
+        <Card className="overflow-visible">
+          <CardContent className="pt-5 pb-8">
             {detail.v6_series && detail.v6_series.length > 0 ? (
               <LinkTrafficChart series={detail.v6_series} title="IPv6 Traffic by Link" height={280} timeBounds={timeBounds} linkColors={linkColors} />
             ) : (
