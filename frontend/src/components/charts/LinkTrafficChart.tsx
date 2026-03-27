@@ -1,6 +1,6 @@
 import {
-  BarChart,
-  Bar,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -51,17 +51,15 @@ function getIntervalSeconds(series: LinkTimeSeries[]): number {
 }
 
 function formatTimeShort(ts: number): string {
-  return new Date(ts).toLocaleString(undefined, {
-    hour: "2-digit", minute: "2-digit",
-  })
+  return new Date(ts).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" })
 }
 
 export function LinkTrafficChart({ series, height = 260, title, linkColors, timeBounds }: LinkTrafficChartProps) {
   const { formatTraffic, unit } = useUnit()
   if (!series.length) return null
-  const usePps = unit === "pps"
   const interval = getIntervalSeconds(series)
   const stepMs = interval * 1000
+  const usePps = unit === "pps"
 
   const linkTags: string[] = []
   const linkLabels: Record<string, string> = {}
@@ -75,7 +73,6 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
     colors[ls.link_tag] = { in: base, out: lighten(base) }
   }
 
-  // Build data indexed by timestamp
   const dataByTs = new Map<number, Record<string, number>>()
   for (const ls of series) {
     for (const pt of ls.points) {
@@ -87,7 +84,6 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
     }
   }
 
-  // Fill full time range (cap at 300 slots to avoid browser crash)
   const data: Record<string, unknown>[] = []
   if (timeBounds && stepMs > 0) {
     const maxSlots = height <= 160 ? 120 : 300
@@ -98,7 +94,6 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
     }
     const start = Math.floor(timeBounds.from / fillStep) * fillStep
     for (let t = start; t <= timeBounds.to; t += fillStep) {
-      // Collect data from all steps within this fill bucket
       const row: Record<string, number> = {}
       for (let s = t; s < t + fillStep && s <= timeBounds.to; s += stepMs) {
         const existing = dataByTs.get(s)
@@ -116,7 +111,6 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
     }
   }
 
-  // Compute tick interval for X axis (~6-8 ticks max)
   const tickInterval = data.length > 0 ? Math.max(1, Math.floor(data.length / 8)) : 1
 
   return (
@@ -125,7 +119,21 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
         <h3 className="text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wider">{title}</h3>
       )}
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }} barCategoryGap={-1}>
+        <AreaChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
+          <defs>
+            {linkTags.map((tag) => (
+              <linearGradient key={`g_${tag}_in`} id={`g_${tag}_in`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={colors[tag].in} stopOpacity={0.6} />
+                <stop offset="100%" stopColor={colors[tag].in} stopOpacity={0.1} />
+              </linearGradient>
+            ))}
+            {linkTags.map((tag) => (
+              <linearGradient key={`g_${tag}_out`} id={`g_${tag}_out`} x1="0" y1="1" x2="0" y2="0">
+                <stop offset="0%" stopColor={colors[tag].out} stopOpacity={0.6} />
+                <stop offset="100%" stopColor={colors[tag].out} stopOpacity={0.1} />
+              </linearGradient>
+            ))}
+          </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 16%)" opacity={0.4} />
           <XAxis
             dataKey="time"
@@ -143,7 +151,7 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
           />
           <ReferenceLine y={0} stroke="hsl(215 12% 40%)" strokeWidth={1} />
           <Tooltip
-            cursor={{ fill: "hsl(220 15% 16%)", opacity: 0.5 }}
+            cursor={{ stroke: "hsl(215 12% 50%)", strokeOpacity: 0.3 }}
             content={({ active, payload, label }) => {
               if (!active || !payload?.length) return null
               const byLink = new Map<string, { inVal: number; outVal: number }>()
@@ -175,16 +183,36 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
               )
             }}
           />
-          {/* All bars in one stack — positives go up, negatives go down */}
+          {/* Inbound areas (positive, stacked upward) */}
           {linkTags.map((tag) => (
-            <Bar key={`${tag}_in`} dataKey={`${tag}_in`} stackId="up" fill={colors[tag].in} isAnimationActive={false} />
+            <Area
+              key={`${tag}_in`}
+              type="stepAfter"
+              dataKey={`${tag}_in`}
+              stackId="up"
+              stroke={colors[tag].in}
+              fill={`url(#g_${tag}_in)`}
+              strokeWidth={1}
+              dot={false}
+              isAnimationActive={false}
+            />
           ))}
+          {/* Outbound areas (negative, stacked downward) */}
           {linkTags.map((tag) => (
-            <Bar key={`${tag}_out`} dataKey={`${tag}_out`} stackId="down" fill={colors[tag].out} isAnimationActive={false} />
+            <Area
+              key={`${tag}_out`}
+              type="stepAfter"
+              dataKey={`${tag}_out`}
+              stackId="down"
+              stroke={colors[tag].out}
+              fill={`url(#g_${tag}_out)`}
+              strokeWidth={1}
+              dot={false}
+              isAnimationActive={false}
+            />
           ))}
-        </BarChart>
+        </AreaChart>
       </ResponsiveContainer>
-      {/* Compact legend */}
       <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 px-1">
         {linkTags.map((tag) => (
           <div key={tag} className="flex items-center gap-1 text-[9px] text-muted-foreground">

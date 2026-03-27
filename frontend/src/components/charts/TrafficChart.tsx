@@ -1,6 +1,6 @@
 import {
-  BarChart,
-  Bar,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -74,7 +74,17 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
     <div className="animate-fade-in">
       {title && <h3 className="text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wider">{title}</h3>}
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={formatted} margin={{ top: 2, right: 2, left: 0, bottom: 0 }} barCategoryGap={-1} barGap={0}>
+        <AreaChart data={formatted} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
+          <defs>
+            <linearGradient id="gradIn" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="hsl(174 72% 46%)" stopOpacity={0.5} />
+              <stop offset="100%" stopColor="hsl(174 72% 46%)" stopOpacity={0.05} />
+            </linearGradient>
+            <linearGradient id="gradOut" x1="0" y1="1" x2="0" y2="0">
+              <stop offset="0%" stopColor="hsl(174 72% 46%)" stopOpacity={0.3} />
+              <stop offset="100%" stopColor="hsl(174 72% 46%)" stopOpacity={0.05} />
+            </linearGradient>
+          </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 16%)" opacity={0.4} />
           <XAxis
             dataKey="time"
@@ -92,7 +102,7 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
           />
           <ReferenceLine y={0} stroke="hsl(215 12% 40%)" strokeWidth={1} />
           <Tooltip
-            cursor={{ fill: "hsl(220 15% 16%)", opacity: 0.5 }}
+            cursor={{ stroke: "hsl(215 12% 50%)", strokeOpacity: 0.3 }}
             contentStyle={{
               backgroundColor: "hsl(220 18% 10%)",
               border: "1px solid hsl(220 15% 20%)",
@@ -109,9 +119,26 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
             }}
             labelStyle={{ color: "hsl(215 12% 50%)", marginBottom: 2, fontSize: 9 }}
           />
-          <Bar dataKey="inbound" fill="hsl(174 72% 46%)" isAnimationActive={false} />
-          <Bar dataKey="outbound" fill="hsl(174 72% 46%)" fillOpacity={0.45} isAnimationActive={false} />
-        </BarChart>
+          <Area
+            type="stepAfter"
+            dataKey="inbound"
+            stroke="hsl(174 72% 46%)"
+            fill="url(#gradIn)"
+            strokeWidth={1}
+            dot={false}
+            isAnimationActive={false}
+          />
+          <Area
+            type="stepAfter"
+            dataKey="outbound"
+            stroke="hsl(174 72% 46%)"
+            fill="url(#gradOut)"
+            strokeWidth={1}
+            fillOpacity={0.5}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </AreaChart>
       </ResponsiveContainer>
       {showLegend && (
         <div className="flex gap-3 mt-1 px-1 text-[9px] text-muted-foreground">
@@ -120,7 +147,7 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
             <span>{"\u2193"} In</span>
           </div>
           <div className="flex items-center gap-1">
-            <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: "hsl(174 72% 46%)", opacity: 0.45 }} />
+            <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: "hsl(174 72% 46%)", opacity: 0.4 }} />
             <span>{"\u2191"} Out</span>
           </div>
         </div>
