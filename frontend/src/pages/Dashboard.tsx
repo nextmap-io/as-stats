@@ -74,7 +74,7 @@ export function Dashboard() {
       {((ipv4Traffic?.data && ipv4Traffic.data.length > 0) || (ipv6Traffic?.data && ipv6Traffic.data.length > 0)) && (
         <div className="grid gap-4 lg:grid-cols-2">
           <Card className="overflow-visible">
-            <CardContent className="p-4">
+            <CardContent className="px-4 pt-5 pb-4">
               {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
                 <ExpandableChart title="IPv4 Traffic by Link" fetchType="link-traffic" fetchParams={{ ip_version: 4 }} linkColors={linkColors} currentPeriod={filters.period}>
                   <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" linkColors={linkColors} />
@@ -85,7 +85,7 @@ export function Dashboard() {
             </CardContent>
           </Card>
           <Card className="overflow-visible">
-            <CardContent className="p-4">
+            <CardContent className="px-4 pt-5 pb-4">
               {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
                 <ExpandableChart title="IPv6 Traffic by Link" fetchType="link-traffic" fetchParams={{ ip_version: 6 }} linkColors={linkColors} currentPeriod={filters.period}>
                   <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" linkColors={linkColors} />
