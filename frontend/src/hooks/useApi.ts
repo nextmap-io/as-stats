@@ -98,7 +98,7 @@ export function useLinkColors() {
   const { data } = useQuery({
     queryKey: ["admin-links"],
     queryFn: () => api.adminLinks(),
-    staleTime: 300_000,
+    staleTime: 30_000,
   })
   const colors: Record<string, string> = {}
   if (data?.data) {

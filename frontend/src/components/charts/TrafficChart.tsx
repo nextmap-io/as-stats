@@ -47,7 +47,7 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
 
   const formatted: { time: string; inbound: number; outbound: number }[] = []
   if (timeBounds && stepMs > 0) {
-    const maxSlots = 150
+    const maxSlots = 300
     let fillStep = stepMs
     const totalSlots = Math.ceil((timeBounds.to - timeBounds.from) / stepMs)
     if (totalSlots > maxSlots) {

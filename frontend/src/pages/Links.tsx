@@ -237,12 +237,16 @@ function LinkManager() {
                   <td className="py-1.5">
                     <input
                       type="color"
-                      value={l.color || "#e74c3c"}
-                      onChange={e => updateColorMutation.mutate({
-                        tag: l.tag, router_ip: l.router_ip,
-                        snmp_index: l.snmp_index, description: l.description,
-                        capacity_mbps: l.capacity_mbps, color: e.target.value,
-                      })}
+                      defaultValue={l.color || "#e74c3c"}
+                      onBlur={e => {
+                        if (e.target.value !== (l.color || "#e74c3c")) {
+                          updateColorMutation.mutate({
+                            tag: l.tag, router_ip: l.router_ip,
+                            snmp_index: l.snmp_index, description: l.description,
+                            capacity_mbps: l.capacity_mbps, color: e.target.value,
+                          })
+                        }
+                      }}
                       className="w-5 h-5 rounded cursor-pointer border-0 p-0"
                       title="Change link color"
                     />
