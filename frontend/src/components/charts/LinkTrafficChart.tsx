@@ -50,9 +50,9 @@ function getIntervalSeconds(series: LinkTimeSeries[]): number {
   return 300
 }
 
-function formatTime(ts: number): string {
+function formatTimeShort(ts: number): string {
   return new Date(ts).toLocaleString(undefined, {
-    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    hour: "2-digit", minute: "2-digit",
   })
 }
 
@@ -91,38 +91,42 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
   if (timeBounds && stepMs > 0) {
     const start = Math.floor(timeBounds.from / stepMs) * stepMs
     for (let t = start; t <= timeBounds.to; t += stepMs) {
-      data.push({ time: formatTime(t), ...(dataByTs.get(t) || {}) })
+      data.push({ time: formatTimeShort(t), ...(dataByTs.get(t) || {}) })
     }
   } else {
     for (const [t, vals] of Array.from(dataByTs.entries()).sort(([a], [b]) => a - b)) {
-      data.push({ time: formatTime(t), ...vals })
+      data.push({ time: formatTimeShort(t), ...vals })
     }
   }
+
+  // Compute tick interval for X axis (~6-8 ticks max)
+  const tickInterval = data.length > 0 ? Math.max(1, Math.floor(data.length / 8)) : 1
 
   return (
     <div className="animate-fade-in">
       {title && (
-        <h3 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">{title}</h3>
+        <h3 className="text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wider">{title}</h3>
       )}
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="15%">
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 16%)" opacity={0.5} />
+        <BarChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }} barCategoryGap={0} barGap={0}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 16%)" opacity={0.4} />
           <XAxis
             dataKey="time"
-            tick={{ fontSize: 9, fill: "hsl(215 12% 50%)" }}
-            tickLine={false}
+            tick={{ fontSize: 8, fill: "hsl(215 12% 50%)" }}
+            tickLine={{ stroke: "hsl(220 15% 16%)" }}
             axisLine={{ stroke: "hsl(220 15% 16%)" }}
-            interval="preserveStartEnd"
+            interval={tickInterval}
           />
           <YAxis
-            tick={{ fontSize: 9, fill: "hsl(215 12% 50%)" }}
+            tick={{ fontSize: 8, fill: "hsl(215 12% 50%)" }}
             tickLine={false}
             axisLine={false}
             tickFormatter={(v) => formatTraffic(Math.abs(v), interval)}
-            width={60}
+            width={52}
           />
-          <ReferenceLine y={0} stroke="hsl(215 12% 50%)" strokeOpacity={0.5} />
+          <ReferenceLine y={0} stroke="hsl(215 12% 40%)" strokeWidth={1} />
           <Tooltip
+            cursor={{ fill: "hsl(220 15% 16%)", opacity: 0.5 }}
             content={({ active, payload, label }) => {
               if (!active || !payload?.length) return null
               const byLink = new Map<string, { inVal: number; outVal: number }>()
@@ -134,15 +138,15 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
                 else l.outVal = Math.abs(Number(e.value) || 0)
               }
               return (
-                <div style={{ backgroundColor: "hsl(220 18% 10%)", border: "1px solid hsl(220 15% 16%)", borderRadius: "0.375rem", fontSize: "10px", boxShadow: "0 4px 12px rgba(0,0,0,0.5)", padding: "6px 10px" }}>
-                  <div style={{ color: "hsl(215 12% 50%)", marginBottom: 4 }}>{label}</div>
+                <div style={{ backgroundColor: "hsl(220 18% 10%)", border: "1px solid hsl(220 15% 20%)", borderRadius: 4, fontSize: 10, boxShadow: "0 4px 12px rgba(0,0,0,0.5)", padding: "5px 8px" }}>
+                  <div style={{ color: "hsl(215 12% 50%)", marginBottom: 3, fontSize: 9 }}>{label}</div>
                   {Array.from(byLink.entries()).map(([tag, { inVal, outVal }]) => {
                     if (inVal === 0 && outVal === 0) return null
                     return (
-                      <div key={tag} style={{ display: "flex", alignItems: "center", gap: 6, lineHeight: 1.8, color: "hsl(210 20% 88%)" }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: colors[tag]?.in || "#888", flexShrink: 0 }} />
-                        <span>{linkLabels[tag] || tag}</span>
-                        <span style={{ marginLeft: "auto", paddingLeft: 12, whiteSpace: "nowrap" }}>
+                      <div key={tag} style={{ display: "flex", alignItems: "center", gap: 4, lineHeight: 1.6, color: "hsl(210 20% 88%)" }}>
+                        <span style={{ width: 6, height: 6, borderRadius: 1, backgroundColor: colors[tag]?.in || "#888", flexShrink: 0 }} />
+                        <span style={{ fontSize: 9 }}>{linkLabels[tag] || tag}</span>
+                        <span style={{ marginLeft: "auto", paddingLeft: 8, whiteSpace: "nowrap", fontSize: 9 }}>
                           {inVal > 0 && <>{"\u2193"}{formatTraffic(inVal, interval)}</>}
                           {inVal > 0 && outVal > 0 && " "}
                           {outVal > 0 && <>{"\u2191"}{formatTraffic(outVal, interval)}</>}
@@ -154,20 +158,21 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
               )
             }}
           />
-          {/* Separate stackIds so positive stacks up, negative stacks down */}
+          {/* In bars stacked upward */}
           {linkTags.map((tag) => (
-            <Bar key={`${tag}_in`} dataKey={`${tag}_in`} stackId="in" fill={colors[tag].in} fillOpacity={0.9} />
+            <Bar key={`${tag}_in`} dataKey={`${tag}_in`} stackId="in" fill={colors[tag].in} isAnimationActive={false} />
           ))}
+          {/* Out bars stacked downward */}
           {linkTags.map((tag) => (
-            <Bar key={`${tag}_out`} dataKey={`${tag}_out`} stackId="out" fill={colors[tag].out} fillOpacity={0.9} />
+            <Bar key={`${tag}_out`} dataKey={`${tag}_out`} stackId="out" fill={colors[tag].out} isAnimationActive={false} />
           ))}
         </BarChart>
       </ResponsiveContainer>
-      {/* Custom legend — one line per link */}
-      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 px-1">
+      {/* Compact legend */}
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 px-1">
         {linkTags.map((tag) => (
-          <div key={tag} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: colors[tag].in }} />
+          <div key={tag} className="flex items-center gap-1 text-[9px] text-muted-foreground">
+            <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: colors[tag].in }} />
             <span>{linkLabels[tag]}</span>
           </div>
         ))}

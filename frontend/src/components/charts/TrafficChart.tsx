@@ -27,10 +27,8 @@ function getIntervalSeconds(data: TrafficPoint[]): number {
   return diff > 0 ? diff : 300
 }
 
-function formatTime(ts: number): string {
-  return new Date(ts).toLocaleString(undefined, {
-    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-  })
+function formatTimeShort(ts: number): string {
+  return new Date(ts).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" })
 }
 
 export function TrafficChart({ data, height = 280, showLegend = true, title, timeBounds }: TrafficChartProps) {
@@ -49,43 +47,46 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
     const start = Math.floor(timeBounds.from / stepMs) * stepMs
     for (let t = start; t <= timeBounds.to; t += stepMs) {
       const existing = dataByTs.get(t)
-      formatted.push({ time: formatTime(t), inbound: existing?.inbound || 0, outbound: existing?.outbound || 0 })
+      formatted.push({ time: formatTimeShort(t), inbound: existing?.inbound || 0, outbound: existing?.outbound || 0 })
     }
   } else {
     for (const [t, vals] of Array.from(dataByTs.entries()).sort(([a], [b]) => a - b)) {
-      formatted.push({ time: formatTime(t), ...vals })
+      formatted.push({ time: formatTimeShort(t), ...vals })
     }
   }
 
+  const tickInterval = formatted.length > 0 ? Math.max(1, Math.floor(formatted.length / 8)) : 1
+
   return (
     <div className="animate-fade-in">
-      {title && <h3 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">{title}</h3>}
+      {title && <h3 className="text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wider">{title}</h3>}
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={formatted} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="10%">
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 16%)" opacity={0.5} />
+        <BarChart data={formatted} margin={{ top: 2, right: 2, left: 0, bottom: 0 }} barCategoryGap={0} barGap={0}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 16%)" opacity={0.4} />
           <XAxis
             dataKey="time"
-            tick={{ fontSize: 9, fill: "hsl(215 12% 50%)" }}
-            tickLine={false}
+            tick={{ fontSize: 8, fill: "hsl(215 12% 50%)" }}
+            tickLine={{ stroke: "hsl(220 15% 16%)" }}
             axisLine={{ stroke: "hsl(220 15% 16%)" }}
-            interval="preserveStartEnd"
+            interval={tickInterval}
           />
           <YAxis
-            tick={{ fontSize: 9, fill: "hsl(215 12% 50%)" }}
+            tick={{ fontSize: 8, fill: "hsl(215 12% 50%)" }}
             tickLine={false}
             axisLine={false}
             tickFormatter={(v) => formatTraffic(Math.abs(v), interval)}
-            width={60}
+            width={52}
           />
-          <ReferenceLine y={0} stroke="hsl(215 12% 50%)" strokeOpacity={0.5} />
+          <ReferenceLine y={0} stroke="hsl(215 12% 40%)" strokeWidth={1} />
           <Tooltip
+            cursor={{ fill: "hsl(220 15% 16%)", opacity: 0.5 }}
             contentStyle={{
               backgroundColor: "hsl(220 18% 10%)",
-              border: "1px solid hsl(220 15% 16%)",
-              borderRadius: "0.375rem",
-              fontSize: "10px",
+              border: "1px solid hsl(220 15% 20%)",
+              borderRadius: 4,
+              fontSize: 10,
               boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
-              padding: "6px 10px",
+              padding: "5px 8px",
             }}
             itemStyle={{ padding: 0, color: "hsl(210 20% 88%)" }}
             formatter={(value, name) => {
@@ -93,20 +94,20 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
               if (abs === 0) return [null, null]
               return [formatTraffic(abs, interval), name === "inbound" ? "\u2193 In" : "\u2191 Out"]
             }}
-            labelStyle={{ color: "hsl(215 12% 50%)", marginBottom: 2, fontSize: "10px" }}
+            labelStyle={{ color: "hsl(215 12% 50%)", marginBottom: 2, fontSize: 9 }}
           />
-          <Bar dataKey="inbound" fill="hsl(174 72% 46%)" fillOpacity={0.9} />
-          <Bar dataKey="outbound" fill="hsl(174 72% 46%)" fillOpacity={0.4} />
+          <Bar dataKey="inbound" fill="hsl(174 72% 46%)" isAnimationActive={false} />
+          <Bar dataKey="outbound" fill="hsl(174 72% 46%)" fillOpacity={0.45} isAnimationActive={false} />
         </BarChart>
       </ResponsiveContainer>
       {showLegend && (
-        <div className="flex gap-4 mt-2 px-1 text-[10px] text-muted-foreground">
-          <div className="flex items-center gap-1.5">
-            <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: "hsl(174 72% 46%)" }} />
+        <div className="flex gap-3 mt-1 px-1 text-[9px] text-muted-foreground">
+          <div className="flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: "hsl(174 72% 46%)" }} />
             <span>{"\u2193"} In</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: "hsl(174 72% 46%)", opacity: 0.4 }} />
+          <div className="flex items-center gap-1">
+            <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: "hsl(174 72% 46%)", opacity: 0.45 }} />
             <span>{"\u2191"} Out</span>
           </div>
         </div>
