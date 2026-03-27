@@ -226,13 +226,14 @@ func (s *ClickHouseStore) ASTimeSeries(ctx context.Context, asn uint32, p QueryP
 
 	table := pickASTable(p.From, p.To)
 
+	// Swap in/out: AS MV 'in'=upload-to-AS, 'out'=download-from-AS
 	query := fmt.Sprintf(`
 		SELECT
 			toStartOfInterval(ts, INTERVAL %d SECOND) AS period,
-			sumIf(bytes, direction = 'in') AS bytes_in,
-			sumIf(bytes, direction = 'out') AS bytes_out,
-			sumIf(packets, direction = 'in') AS packets_in,
-			sumIf(packets, direction = 'out') AS packets_out
+			sumIf(bytes, direction = 'out') AS bytes_in,
+			sumIf(bytes, direction = 'in') AS bytes_out,
+			sumIf(packets, direction = 'out') AS packets_in,
+			sumIf(packets, direction = 'in') AS packets_out
 		FROM %s
 		WHERE as_number = @asn
 		  AND ts >= @from AND ts < @to
@@ -262,14 +263,17 @@ func (s *ClickHouseStore) ASLinkSeries(ctx context.Context, asn uint32, p QueryP
 		ipvArgs = append(ipvArgs, clickhouse.Named("ipv", p.IPVersion))
 	}
 
+	// In the AS MVs, direction='in' means traffic TO the AS (our upload),
+	// direction='out' means traffic FROM the AS (our download).
+	// Swap so bytes_in = download (from AS to us), bytes_out = upload (from us to AS).
 	query := fmt.Sprintf(`
 		SELECT
 			toStartOfInterval(t.ts, INTERVAL %d SECOND) AS period,
 			t.link_tag,
-			sumIf(t.bytes, t.direction = 'in') AS bytes_in,
-			sumIf(t.bytes, t.direction = 'out') AS bytes_out,
-			sumIf(t.packets, t.direction = 'in') AS packets_in,
-			sumIf(t.packets, t.direction = 'out') AS packets_out
+			sumIf(t.bytes, t.direction = 'out') AS bytes_in,
+			sumIf(t.bytes, t.direction = 'in') AS bytes_out,
+			sumIf(t.packets, t.direction = 'out') AS packets_in,
+			sumIf(t.packets, t.direction = 'in') AS packets_out
 		FROM %s t
 		WHERE t.as_number = @asn
 		  AND t.ts >= @from AND t.ts < @to
@@ -324,12 +328,13 @@ func (s *ClickHouseStore) ASLinkSeries(ctx context.Context, asn uint32, p QueryP
 func (s *ClickHouseStore) ASTotals(ctx context.Context, asn uint32, p QueryParams) (v4In, v4Out, v6In, v6Out uint64, err error) {
 	table := pickASTable(p.From, p.To)
 
+	// Swap: AS MV 'out'=download-from-AS, 'in'=upload-to-AS
 	query := fmt.Sprintf(`
 		SELECT
-			sumIf(bytes, direction = 'in' AND ip_version = 4) AS v4_in,
-			sumIf(bytes, direction = 'out' AND ip_version = 4) AS v4_out,
-			sumIf(bytes, direction = 'in' AND ip_version = 6) AS v6_in,
-			sumIf(bytes, direction = 'out' AND ip_version = 6) AS v6_out
+			sumIf(bytes, direction = 'out' AND ip_version = 4) AS v4_in,
+			sumIf(bytes, direction = 'in' AND ip_version = 4) AS v4_out,
+			sumIf(bytes, direction = 'out' AND ip_version = 6) AS v6_in,
+			sumIf(bytes, direction = 'in' AND ip_version = 6) AS v6_out
 		FROM %s
 		WHERE as_number = @asn AND ts >= @from AND ts < @to
 	`, table)
@@ -889,10 +894,10 @@ func (s *ClickHouseStore) TopASTrafficSeries(ctx context.Context, p QueryParams)
 			t.as_number,
 			toStartOfInterval(t.ts, INTERVAL %d SECOND) AS period,
 			t.link_tag,
-			sumIf(t.bytes, t.direction = 'in') AS bytes_in,
-			sumIf(t.bytes, t.direction = 'out') AS bytes_out,
-			sumIf(t.packets, t.direction = 'in') AS packets_in,
-			sumIf(t.packets, t.direction = 'out') AS packets_out
+			sumIf(t.bytes, t.direction = 'out') AS bytes_in,
+			sumIf(t.bytes, t.direction = 'in') AS bytes_out,
+			sumIf(t.packets, t.direction = 'out') AS packets_in,
+			sumIf(t.packets, t.direction = 'in') AS packets_out
 		FROM %s t
 		WHERE t.ts >= @from AND t.ts < @to
 		  AND t.as_number IN (@asns)
