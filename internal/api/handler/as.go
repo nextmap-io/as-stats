@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nextmap-io/as-stats/internal/ripestat"
 )
 
 // ASDetail handles GET /api/v1/as/{asn}
@@ -88,7 +89,7 @@ func (h *Handler) ASTopIPs(w http.ResponseWriter, r *http.Request) {
 
 	scope := r.URL.Query().Get("scope")
 	if scope == "external" && h.LocalIPFilter != "" {
-		p.LocalIPFilter = "NOT " + h.LocalIPFilter
+		p.LocalIPFilter = "NOT " + h.LocalIPFilter + " AND NOT " + ripestat.PrivateIPFilter("ip_address")
 	} else if h.LocalIPFilter != "" {
 		p.LocalIPFilter = h.LocalIPFilter
 	}
