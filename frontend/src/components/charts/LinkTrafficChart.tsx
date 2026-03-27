@@ -120,21 +120,8 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
       )}
       <ResponsiveContainer width="100%" height={height}>
         <AreaChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
-          <defs>
-            {linkTags.map((tag) => (
-              <linearGradient key={`g_${tag}_in`} id={`g_${tag}_in`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={colors[tag].in} stopOpacity={0.8} />
-                <stop offset="100%" stopColor={colors[tag].in} stopOpacity={0.3} />
-              </linearGradient>
-            ))}
-            {linkTags.map((tag) => (
-              <linearGradient key={`g_${tag}_out`} id={`g_${tag}_out`} x1="0" y1="1" x2="0" y2="0">
-                <stop offset="0%" stopColor={colors[tag].out} stopOpacity={0.8} />
-                <stop offset="100%" stopColor={colors[tag].out} stopOpacity={0.3} />
-              </linearGradient>
-            ))}
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 16%)" opacity={0.4} />
+          {/* No gradients — solid fills like classic rrdtool */}
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 85%)" opacity={0.5} />
           <XAxis
             dataKey="time"
             tick={{ fontSize: 8, fill: "hsl(215 12% 50%)" }}
@@ -183,7 +170,7 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
               )
             }}
           />
-          {/* Inbound areas (positive, stacked upward) */}
+          {/* Inbound areas (positive, stacked upward) — solid fill */}
           {linkTags.map((tag) => (
             <Area
               key={`${tag}_in`}
@@ -191,13 +178,14 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
               dataKey={`${tag}_in`}
               stackId="up"
               stroke={colors[tag].in}
-              fill={`url(#g_${tag}_in)`}
-              strokeWidth={1.5}
+              fill={colors[tag].in}
+              fillOpacity={0.85}
+              strokeWidth={0.5}
               dot={false}
               isAnimationActive={false}
             />
           ))}
-          {/* Outbound areas (negative, stacked downward) */}
+          {/* Outbound areas (negative, stacked downward) — lighter solid fill */}
           {linkTags.map((tag) => (
             <Area
               key={`${tag}_out`}
@@ -205,8 +193,9 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
               dataKey={`${tag}_out`}
               stackId="down"
               stroke={colors[tag].out}
-              fill={`url(#g_${tag}_out)`}
-              strokeWidth={1.5}
+              fill={colors[tag].out}
+              fillOpacity={0.7}
+              strokeWidth={0.5}
               dot={false}
               isAnimationActive={false}
             />

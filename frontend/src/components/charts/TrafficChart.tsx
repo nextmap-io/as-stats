@@ -75,17 +75,7 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
       {title && <h3 className="text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wider">{title}</h3>}
       <ResponsiveContainer width="100%" height={height}>
         <AreaChart data={formatted} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
-          <defs>
-            <linearGradient id="gradIn" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="hsl(174 72% 46%)" stopOpacity={0.7} />
-              <stop offset="100%" stopColor="hsl(174 72% 46%)" stopOpacity={0.2} />
-            </linearGradient>
-            <linearGradient id="gradOut" x1="0" y1="1" x2="0" y2="0">
-              <stop offset="0%" stopColor="hsl(174 72% 46%)" stopOpacity={0.5} />
-              <stop offset="100%" stopColor="hsl(174 72% 46%)" stopOpacity={0.1} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 16%)" opacity={0.4} />
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 85%)" opacity={0.5} />
           <XAxis
             dataKey="time"
             tick={{ fontSize: 8, fill: "hsl(215 12% 50%)" }}
@@ -123,18 +113,19 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
             type="stepAfter"
             dataKey="inbound"
             stroke="hsl(174 72% 46%)"
-            fill="url(#gradIn)"
-            strokeWidth={1.5}
+            fill="hsl(174 72% 46%)"
+            fillOpacity={0.85}
+            strokeWidth={0.5}
             dot={false}
             isAnimationActive={false}
           />
           <Area
             type="stepAfter"
             dataKey="outbound"
-            stroke="hsl(174 72% 46%)"
-            fill="url(#gradOut)"
-            strokeWidth={1.5}
-            fillOpacity={0.5}
+            stroke="hsl(174 60% 56%)"
+            fill="hsl(174 60% 56%)"
+            fillOpacity={0.65}
+            strokeWidth={0.5}
             dot={false}
             isAnimationActive={false}
           />
