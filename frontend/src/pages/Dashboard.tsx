@@ -7,6 +7,7 @@ import { PageSkeleton } from "@/components/ui/skeleton"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
 import { formatNumber } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
+import { useState } from "react"
 import { BarChart3 } from "lucide-react"
 import type { LinkTraffic, ASTrafficDetail } from "@/lib/types"
 
@@ -42,9 +43,12 @@ export function Dashboard() {
     entry.name = as.as_name || entry.name
     asMap.set(as.as_number, entry)
   }
-  const topASList = Array.from(asMap.entries())
+  const allAS = Array.from(asMap.entries())
     .sort(([, a], [, b]) => b.total - a.total)
     .slice(0, 50)
+
+  const [showAll, setShowAll] = useState(false)
+  const topASList = showAll ? allAS : allAS.slice(0, 20)
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -132,6 +136,14 @@ export function Dashboard() {
               </CardContent>
             </Card>
           ))}
+          {!showAll && allAS.length > 20 && (
+            <button
+              onClick={() => setShowAll(true)}
+              className="w-full py-2 text-xs text-primary hover:underline"
+            >
+              Show all {allAS.length} AS
+            </button>
+          )}
         </div>
       )}
 

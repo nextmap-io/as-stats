@@ -44,10 +44,20 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
 
   const formatted: { time: string; inbound: number; outbound: number }[] = []
   if (timeBounds && stepMs > 0) {
-    const start = Math.floor(timeBounds.from / stepMs) * stepMs
-    for (let t = start; t <= timeBounds.to; t += stepMs) {
-      const existing = dataByTs.get(t)
-      formatted.push({ time: formatTimeShort(t), inbound: existing?.inbound || 0, outbound: existing?.outbound || 0 })
+    const maxSlots = 300
+    let fillStep = stepMs
+    const totalSlots = Math.ceil((timeBounds.to - timeBounds.from) / stepMs)
+    if (totalSlots > maxSlots) {
+      fillStep = Math.ceil((timeBounds.to - timeBounds.from) / maxSlots / stepMs) * stepMs
+    }
+    const start = Math.floor(timeBounds.from / fillStep) * fillStep
+    for (let t = start; t <= timeBounds.to; t += fillStep) {
+      let inbound = 0, outbound = 0
+      for (let s = t; s < t + fillStep && s <= timeBounds.to; s += stepMs) {
+        const existing = dataByTs.get(s)
+        if (existing) { inbound += existing.inbound; outbound += existing.outbound }
+      }
+      formatted.push({ time: formatTimeShort(t), inbound, outbound })
     }
   } else {
     for (const [t, vals] of Array.from(dataByTs.entries()).sort(([a], [b]) => a - b)) {
@@ -61,7 +71,7 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
     <div className="animate-fade-in">
       {title && <h3 className="text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wider">{title}</h3>}
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={formatted} margin={{ top: 2, right: 2, left: 0, bottom: 0 }} barCategoryGap={0} barGap={0}>
+        <BarChart data={formatted} margin={{ top: 2, right: 2, left: 0, bottom: 0 }} barCategoryGap={-1} barGap={0}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 16%)" opacity={0.4} />
           <XAxis
             dataKey="time"

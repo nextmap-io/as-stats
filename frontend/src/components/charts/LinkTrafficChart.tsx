@@ -86,12 +86,28 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
     }
   }
 
-  // Fill full time range
+  // Fill full time range (cap at 300 slots to avoid browser crash)
   const data: Record<string, unknown>[] = []
   if (timeBounds && stepMs > 0) {
-    const start = Math.floor(timeBounds.from / stepMs) * stepMs
-    for (let t = start; t <= timeBounds.to; t += stepMs) {
-      data.push({ time: formatTimeShort(t), ...(dataByTs.get(t) || {}) })
+    const maxSlots = 300
+    let fillStep = stepMs
+    const totalSlots = Math.ceil((timeBounds.to - timeBounds.from) / stepMs)
+    if (totalSlots > maxSlots) {
+      fillStep = Math.ceil((timeBounds.to - timeBounds.from) / maxSlots / stepMs) * stepMs
+    }
+    const start = Math.floor(timeBounds.from / fillStep) * fillStep
+    for (let t = start; t <= timeBounds.to; t += fillStep) {
+      // Collect data from all steps within this fill bucket
+      const row: Record<string, number> = {}
+      for (let s = t; s < t + fillStep && s <= timeBounds.to; s += stepMs) {
+        const existing = dataByTs.get(s)
+        if (existing) {
+          for (const [k, v] of Object.entries(existing)) {
+            row[k] = (row[k] || 0) + v
+          }
+        }
+      }
+      data.push({ time: formatTimeShort(t), ...row })
     }
   } else {
     for (const [t, vals] of Array.from(dataByTs.entries()).sort(([a], [b]) => a - b)) {
@@ -108,7 +124,7 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
         <h3 className="text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wider">{title}</h3>
       )}
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }} barCategoryGap={0}>
+        <BarChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }} barCategoryGap={-1}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 16%)" opacity={0.4} />
           <XAxis
             dataKey="time"
