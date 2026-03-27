@@ -28,7 +28,7 @@ export function Links() {
       {/* Traffic charts */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="overflow-visible">
-          <CardContent className="pt-5 pb-8">
+          <CardContent className="p-4">
             {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
               <ExpandableChart title="IPv4 Traffic by Link">
                 <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" linkColors={linkColors} />
@@ -39,7 +39,7 @@ export function Links() {
           </CardContent>
         </Card>
         <Card className="overflow-visible">
-          <CardContent className="pt-5 pb-8">
+          <CardContent className="p-4">
             {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
               <ExpandableChart title="IPv6 Traffic by Link">
                 <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" linkColors={linkColors} />

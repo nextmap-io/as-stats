@@ -119,7 +119,7 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
   return (
     <div className="animate-fade-in">
       {title && (
-        <h3 className="text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wider">{title}</h3>
+        <h3 className="text-[10px] font-medium text-muted-foreground mb-2 uppercase tracking-wider">{title}</h3>
       )}
       <ResponsiveContainer width="100%" height={height}>
         <AreaChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
