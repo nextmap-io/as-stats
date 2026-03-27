@@ -89,7 +89,7 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
   // Fill full time range (cap at 300 slots to avoid browser crash)
   const data: Record<string, unknown>[] = []
   if (timeBounds && stepMs > 0) {
-    const maxSlots = 300
+    const maxSlots = 150
     let fillStep = stepMs
     const totalSlots = Math.ceil((timeBounds.to - timeBounds.from) / stepMs)
     if (totalSlots > maxSlots) {

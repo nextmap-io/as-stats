@@ -48,7 +48,7 @@ export function Dashboard() {
     .slice(0, 50)
 
   const [showAll, setShowAll] = useState(false)
-  const topASList = showAll ? allAS : allAS.slice(0, 20)
+  const topASList = showAll ? allAS : allAS.slice(0, 10)
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -112,7 +112,6 @@ export function Dashboard() {
                         series={entry.v4.series}
                         title="IPv4"
                         height={140}
-                        timeBounds={timeBounds}
                         linkColors={linkColors}
                       />
                     ) : (
@@ -125,7 +124,6 @@ export function Dashboard() {
                         series={entry.v6.series}
                         title="IPv6"
                         height={140}
-                        timeBounds={timeBounds}
                         linkColors={linkColors}
                       />
                     ) : (
@@ -136,7 +134,7 @@ export function Dashboard() {
               </CardContent>
             </Card>
           ))}
-          {!showAll && allAS.length > 20 && (
+          {!showAll && allAS.length > 10 && (
             <button
               onClick={() => setShowAll(true)}
               className="w-full py-2 text-xs text-primary hover:underline"
