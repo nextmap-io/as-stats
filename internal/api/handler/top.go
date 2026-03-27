@@ -74,9 +74,18 @@ func (h *Handler) TopIP(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// TopPrefix handles GET /api/v1/top/prefix
+// TopPrefix handles GET /api/v1/top/prefix?scope=internal|external
 func (h *Handler) TopPrefix(w http.ResponseWriter, r *http.Request) {
 	p := parseQueryParams(r)
+
+	scope := r.URL.Query().Get("scope")
+	if scope == "internal" && len(h.LocalPrefixes) > 0 {
+		p.LocalPrefixes = h.LocalPrefixes
+		p.PrefixScope = "internal"
+	} else if scope == "external" && len(h.LocalPrefixes) > 0 {
+		p.LocalPrefixes = h.LocalPrefixes
+		p.PrefixScope = "external"
+	}
 
 	results, _, err := h.Store.TopPrefix(r.Context(), p)
 	if err != nil {

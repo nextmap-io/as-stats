@@ -145,13 +145,39 @@ func (s *ClickHouseStore) TopIP(ctx context.Context, p QueryParams) ([]model.IPT
 }
 
 // TopPrefix returns the top prefixes by traffic volume.
+// scope=internal groups sub-prefixes under their parent announced prefix.
+// scope=external excludes internal prefixes.
 func (s *ClickHouseStore) TopPrefix(ctx context.Context, p QueryParams) ([]model.PrefixTraffic, uint64, error) {
 	dirFilter, dirArgs := buildDirectionFilter(p.Direction)
 	linkFilter, linkArgs := buildLinkFilter(p.LinkTags)
 
+	// Build prefix scope filter and grouping
+	prefixFilter := ""
+	prefixExpr := "t.prefix"
+
+	if len(p.LocalPrefixes) > 0 {
+		// Build isIPAddressInRange conditions on the IP part of the prefix
+		var conditions []string
+		var caseWhen []string
+		for _, cidr := range p.LocalPrefixes {
+			cond := fmt.Sprintf("isIPAddressInRange(splitByChar('/', t.prefix)[1], '%s')", cidr)
+			conditions = append(conditions, cond)
+			caseWhen = append(caseWhen, fmt.Sprintf("WHEN %s THEN '%s'", cond, cidr))
+		}
+		internalCond := "(" + strings.Join(conditions, " OR ") + ")"
+
+		if p.PrefixScope == "internal" {
+			prefixFilter = "AND " + internalCond
+			// Group under parent prefix
+			prefixExpr = "CASE " + strings.Join(caseWhen, " ") + " ELSE t.prefix END"
+		} else if p.PrefixScope == "external" {
+			prefixFilter = "AND NOT " + internalCond
+		}
+	}
+
 	query := fmt.Sprintf(`
 		SELECT
-			t.prefix,
+			%s AS grouped_prefix,
 			t.as_number,
 			any(an.as_name) AS as_name,
 			sum(t.bytes) AS total_bytes,
@@ -160,11 +186,11 @@ func (s *ClickHouseStore) TopPrefix(ctx context.Context, p QueryParams) ([]model
 		FROM traffic_by_prefix t
 		LEFT JOIN as_names an ON t.as_number = an.as_number
 		WHERE t.ts >= @from AND t.ts < @to
-		%s %s
-		GROUP BY t.prefix, t.as_number
+		%s %s %s
+		GROUP BY grouped_prefix, t.as_number
 		ORDER BY total_bytes DESC
 		LIMIT @limit OFFSET @offset
-	`, dirFilter, linkFilter)
+	`, prefixExpr, dirFilter, linkFilter, prefixFilter)
 
 	args := append([]any{
 		clickhouse.Named("from", p.From),

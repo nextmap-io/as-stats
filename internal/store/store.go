@@ -62,7 +62,9 @@ type QueryParams struct {
 	Direction      string // "in", "out", or "" for both
 	IPVersion      uint8  // 0=all, 4=IPv4, 6=IPv6
 	LocalIPFilter  string // SQL filter for local IPs (from ripestat.PrefixesToSQL)
-	ExcludeAS      uint32 // AS to exclude from top results (local AS)
+	ExcludeAS      uint32   // AS to exclude from top results (local AS)
+	LocalPrefixes  []string // Local CIDR prefixes for prefix scope filtering
+	PrefixScope    string   // "internal" or "external"
 	Limit          int
 	Offset         int
 }

@@ -42,17 +42,21 @@ func main() {
 
 	// Load local IP filter for Top IPs queries
 	var localIPFilter string
+	var localPrefixStrs []string
 	if cfg.LocalAS > 0 {
 		log.Printf("LOCAL_AS=%d — fetching prefixes for IP filtering", cfg.LocalAS)
 		if prefixes, err := ripestat.FetchASPrefixes(cfg.LocalAS); err != nil {
 			log.Printf("warning: could not fetch prefixes for AS%d: %v", cfg.LocalAS, err)
 		} else {
 			localIPFilter = ripestat.PrefixesToSQL("ip_address", prefixes)
+			for _, p := range prefixes {
+				localPrefixStrs = append(localPrefixStrs, p.String())
+			}
 			log.Printf("Loaded %d local prefixes for IP filtering", len(prefixes))
 		}
 	}
 
-	router := api.NewRouter(chStore, cfg, localIPFilter)
+	router := api.NewRouter(chStore, cfg, localIPFilter, localPrefixStrs)
 
 	srv := &http.Server{
 		Addr:           cfg.ListenAddr,
