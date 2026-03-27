@@ -6,7 +6,7 @@ import { formatNumber } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 
 export function TopPrefixes() {
-  const { filters, setFilter, periodSeconds } = useFilters()
+  const { filters, setFilter, periodSeconds, filterSearch } = useFilters()
   const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useTopPrefix({ ...filters, limit: 50 })
 
@@ -41,7 +41,7 @@ export function TopPrefixes() {
                       <td className="py-2 font-mono text-xs">{pfx.prefix}</td>
                       <td className="py-2">
                         {pfx.as_number > 0 ? (
-                          <Link to={`/as/${pfx.as_number}`} className="hover:underline">
+                          <Link to={`/as/${pfx.as_number}${filterSearch}`} className="hover:underline">
                             <span className="font-mono text-xs">AS{pfx.as_number}</span>
                             {pfx.as_name && <span className="ml-1.5 text-muted-foreground">{pfx.as_name}</span>}
                           </Link>

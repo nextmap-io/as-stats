@@ -6,7 +6,7 @@ import { formatNumber, formatPercent } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 
 export function TopAS() {
-  const { filters, setFilter, periodSeconds } = useFilters()
+  const { filters, setFilter, periodSeconds, filterSearch } = useFilters()
   const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useTopAS({ ...filters, limit: 50 })
 
@@ -42,7 +42,7 @@ export function TopAS() {
                     <tr key={as.as_number} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
                       <td className="py-2 text-muted-foreground">{(filters.offset || 0) + i + 1}</td>
                       <td className="py-2">
-                        <Link to={`/as/${as.as_number}`} className="text-primary hover:underline font-mono">
+                        <Link to={`/as/${as.as_number}${filterSearch}`} className="text-primary hover:underline font-mono">
                           {as.as_number}
                         </Link>
                       </td>

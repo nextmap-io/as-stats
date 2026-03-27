@@ -124,6 +124,7 @@ export interface LinkConfig {
   snmp_index: number
   description: string
   capacity_mbps: number
+  color: string
 }
 
 export interface UserInfo {

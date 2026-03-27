@@ -94,6 +94,21 @@ export function useLinkDetail(tag: string, filters: QueryFilters) {
   })
 }
 
+export function useLinkColors() {
+  const { data } = useQuery({
+    queryKey: ["admin-links"],
+    queryFn: () => api.adminLinks(),
+    staleTime: 300_000,
+  })
+  const colors: Record<string, string> = {}
+  if (data?.data) {
+    for (const l of data.data) {
+      if (l.color) colors[l.tag] = l.color
+    }
+  }
+  return colors
+}
+
 export function useSearch(query: string) {
   return useQuery({
     queryKey: ["search", query],

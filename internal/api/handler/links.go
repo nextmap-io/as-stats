@@ -66,6 +66,7 @@ type LinkConfig struct {
 	SNMPIndex    uint32 `json:"snmp_index"`
 	Description  string `json:"description"`
 	CapacityMbps uint32 `json:"capacity_mbps"`
+	Color        string `json:"color"`
 }
 
 // LinksAdmin handles GET /api/v1/admin/links (list all configured links)
@@ -151,5 +152,6 @@ func linkConfigToModel(cfg LinkConfig, ip net.IP) model.Link {
 		SNMPIndex:    cfg.SNMPIndex,
 		Description:  cfg.Description,
 		CapacityMbps: cfg.CapacityMbps,
+		Color:        cfg.Color,
 	}
 }

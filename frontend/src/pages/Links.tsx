@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { useLinks, useLinksTraffic } from "@/hooks/useApi"
+import { useLinks, useLinksTraffic, useLinkColors } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { api } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,6 +16,7 @@ export function Links() {
   const { formatTraffic } = useUnit()
   const { data: ipv4Traffic } = useLinksTraffic(4, filters)
   const { data: ipv6Traffic } = useLinksTraffic(6, filters)
+  const linkColors = useLinkColors()
 
   return (
     <div className="space-y-6">
@@ -28,7 +29,7 @@ export function Links() {
         <Card>
           <CardContent className="pt-5">
             {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
-              <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" timeBounds={timeBounds} />
+              <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
             ) : (
               <EmptyState message="No IPv4 link traffic" icon={<BarChart3 className="h-8 w-8" />} />
             )}
@@ -37,7 +38,7 @@ export function Links() {
         <Card>
           <CardContent className="pt-5">
             {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
-              <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" timeBounds={timeBounds} />
+              <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
             ) : (
               <EmptyState message="No IPv6 link traffic" icon={<BarChart3 className="h-8 w-8" />} />
             )}
@@ -104,14 +105,14 @@ function LinkManager() {
   })
 
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ tag: "", router_ip: "", snmp_index: "", description: "", capacity_mbps: "" })
+  const [form, setForm] = useState({ tag: "", router_ip: "", snmp_index: "", description: "", capacity_mbps: "", color: "#e74c3c" })
 
   const createMutation = useMutation({
     mutationFn: (link: Record<string, unknown>) => api.createLink(link),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-links"] })
       queryClient.invalidateQueries({ queryKey: ["links"] })
-      setForm({ tag: "", router_ip: "", snmp_index: "", description: "", capacity_mbps: "" })
+      setForm({ tag: "", router_ip: "", snmp_index: "", description: "", capacity_mbps: "", color: "#e74c3c" })
       setShowForm(false)
     },
   })
@@ -124,6 +125,14 @@ function LinkManager() {
     },
   })
 
+  // Update a link (re-create with same data + new color)
+  const updateColorMutation = useMutation({
+    mutationFn: (link: Record<string, unknown>) => api.createLink(link),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-links"] })
+    },
+  })
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     createMutation.mutate({
@@ -132,6 +141,7 @@ function LinkManager() {
       snmp_index: Number(form.snmp_index) || 0,
       description: form.description,
       capacity_mbps: Number(form.capacity_mbps) || 0,
+      color: form.color,
     })
   }
 
@@ -187,6 +197,13 @@ function LinkManager() {
                 onChange={e => setForm(f => ({ ...f, capacity_mbps: e.target.value }))}
                 className="bg-background border border-border rounded px-2 py-1.5 text-xs flex-1"
               />
+              <input
+                type="color"
+                value={form.color}
+                onChange={e => setForm(f => ({ ...f, color: e.target.value }))}
+                className="w-8 h-8 rounded border border-border cursor-pointer p-0"
+                title="Link color"
+              />
               <button
                 type="submit"
                 disabled={createMutation.isPending}
@@ -205,6 +222,7 @@ function LinkManager() {
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-border">
+                <th className="pb-2 w-6"></th>
                 <th className="pb-2 text-left font-medium text-muted-foreground">Tag</th>
                 <th className="pb-2 text-left font-medium text-muted-foreground">Router IP</th>
                 <th className="pb-2 text-right font-medium text-muted-foreground">SNMP Index</th>
@@ -216,6 +234,19 @@ function LinkManager() {
             <tbody>
               {data.data.map((l) => (
                 <tr key={l.tag} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
+                  <td className="py-1.5">
+                    <input
+                      type="color"
+                      value={l.color || "#e74c3c"}
+                      onChange={e => updateColorMutation.mutate({
+                        tag: l.tag, router_ip: l.router_ip,
+                        snmp_index: l.snmp_index, description: l.description,
+                        capacity_mbps: l.capacity_mbps, color: e.target.value,
+                      })}
+                      className="w-5 h-5 rounded cursor-pointer border-0 p-0"
+                      title="Change link color"
+                    />
+                  </td>
                   <td className="py-1.5 font-medium">{l.tag}</td>
                   <td className="py-1.5 font-mono text-muted-foreground">{l.router_ip}</td>
                   <td className="py-1.5 text-right font-mono">{l.snmp_index}</td>

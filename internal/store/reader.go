@@ -681,7 +681,7 @@ func (s *ClickHouseStore) SearchAS(ctx context.Context, query string, limit int)
 // ListLinks returns all configured links.
 func (s *ClickHouseStore) ListLinks(ctx context.Context) ([]model.Link, error) {
 	rows, err := s.conn.Query(ctx, `
-		SELECT tag, toString(router_ip), snmp_index, description, capacity_mbps
+		SELECT tag, toString(router_ip), snmp_index, description, capacity_mbps, color
 		FROM links FINAL
 		ORDER BY tag
 	`)
@@ -694,7 +694,7 @@ func (s *ClickHouseStore) ListLinks(ctx context.Context) ([]model.Link, error) {
 	for rows.Next() {
 		var l model.Link
 		var routerIPStr string
-		if err := rows.Scan(&l.Tag, &routerIPStr, &l.SNMPIndex, &l.Description, &l.CapacityMbps); err != nil {
+		if err := rows.Scan(&l.Tag, &routerIPStr, &l.SNMPIndex, &l.Description, &l.CapacityMbps, &l.Color); err != nil {
 			return nil, err
 		}
 		l.RouterIP = parseIP(routerIPStr)
@@ -707,14 +707,15 @@ func (s *ClickHouseStore) ListLinks(ctx context.Context) ([]model.Link, error) {
 // UpsertLink inserts or replaces a link configuration.
 func (s *ClickHouseStore) UpsertLink(ctx context.Context, link model.Link) error {
 	return s.conn.Exec(ctx, `
-		INSERT INTO links (tag, router_ip, snmp_index, description, capacity_mbps)
-		VALUES (@tag, @router_ip, @snmp_index, @description, @capacity_mbps)
+		INSERT INTO links (tag, router_ip, snmp_index, description, capacity_mbps, color)
+		VALUES (@tag, @router_ip, @snmp_index, @description, @capacity_mbps, @color)
 	`,
 		clickhouse.Named("tag", link.Tag),
 		clickhouse.Named("router_ip", ipToIPv6(link.RouterIP)),
 		clickhouse.Named("snmp_index", link.SNMPIndex),
 		clickhouse.Named("description", link.Description),
 		clickhouse.Named("capacity_mbps", link.CapacityMbps),
+		clickhouse.Named("color", link.Color),
 	)
 }
 

@@ -1,0 +1,1 @@
+ALTER TABLE asstats.links DROP COLUMN IF EXISTS color;

@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom"
-import { useOverview, useLinksTraffic, useTopASTraffic } from "@/hooks/useApi"
+import { useOverview, useLinksTraffic, useTopASTraffic, useLinkColors } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
@@ -18,6 +18,7 @@ export function Dashboard() {
   const { data: topASv4 } = useTopASTraffic(4, filters)
   const { data: topASv6 } = useTopASTraffic(6, filters)
   const { formatTraffic } = useUnit()
+  const linkColors = useLinkColors()
 
   if (isLoading) return <PageSkeleton />
   if (error) return <ErrorDisplay error={error} onRetry={() => refetch()} />
@@ -62,7 +63,7 @@ export function Dashboard() {
           <Card>
             <CardContent className="pt-4">
               {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
-                <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" timeBounds={timeBounds} />
+                <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
               ) : (
                 <EmptyState message="No IPv4 link traffic" icon={<BarChart3 className="h-6 w-6" />} />
               )}
@@ -71,7 +72,7 @@ export function Dashboard() {
           <Card>
             <CardContent className="pt-4">
               {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
-                <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" timeBounds={timeBounds} />
+                <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
               ) : (
                 <EmptyState message="No IPv6 link traffic" icon={<BarChart3 className="h-6 w-6" />} />
               )}
@@ -108,6 +109,7 @@ export function Dashboard() {
                         title="IPv4"
                         height={140}
                         timeBounds={timeBounds}
+                        linkColors={linkColors}
                       />
                     ) : (
                       <div className="text-[10px] text-muted-foreground py-4 text-center">No IPv4 data</div>
@@ -120,6 +122,7 @@ export function Dashboard() {
                         title="IPv6"
                         height={140}
                         timeBounds={timeBounds}
+                        linkColors={linkColors}
                       />
                     ) : (
                       <div className="text-[10px] text-muted-foreground py-4 text-center">No IPv6 data</div>

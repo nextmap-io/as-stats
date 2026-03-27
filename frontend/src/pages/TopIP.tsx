@@ -6,7 +6,7 @@ import { formatNumber } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 
 export function TopIP() {
-  const { filters, setFilter, periodSeconds } = useFilters()
+  const { filters, setFilter, periodSeconds, filterSearch } = useFilters()
   const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useTopIP({ ...filters, limit: 50 })
 
@@ -39,13 +39,13 @@ export function TopIP() {
                     <tr key={ip.ip} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
                       <td className="py-2 text-muted-foreground">{(filters.offset || 0) + i + 1}</td>
                       <td className="py-2">
-                        <Link to={`/ip/${ip.ip}`} className="text-primary hover:underline font-mono text-xs">
+                        <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-xs">
                           {ip.ip}
                         </Link>
                       </td>
                       <td className="py-2">
                         {ip.as_number > 0 ? (
-                          <Link to={`/as/${ip.as_number}`} className="hover:underline">
+                          <Link to={`/as/${ip.as_number}${filterSearch}`} className="hover:underline">
                             <span className="font-mono text-xs">AS{ip.as_number}</span>
                             {ip.as_name && <span className="ml-1.5 text-muted-foreground">{ip.as_name}</span>}
                           </Link>

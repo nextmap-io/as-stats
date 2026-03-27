@@ -1,5 +1,5 @@
 import { Link, useParams } from "react-router-dom"
-import { useASDetail, useASPeers, useASTopIPs } from "@/hooks/useApi"
+import { useASDetail, useASPeers, useASTopIPs, useLinkColors } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
@@ -12,6 +12,7 @@ export function ASDetail() {
   const asnNum = Number(asn) || 0
   const { filters, filterSearch, periodSeconds, timeBounds } = useFilters()
   const { formatTraffic } = useUnit()
+  const linkColors = useLinkColors()
 
   const { data, isLoading, error } = useASDetail(asnNum, filters)
   const { data: peersData } = useASPeers(asnNum, { ...filters, limit: 20 })
@@ -49,7 +50,7 @@ export function ASDetail() {
         </div>
       </div>
 
-      {/* Volume summary — IPv4 / IPv6 totals */}
+      {/* Volume summary — IPv4 / IPv6 totals (always in bytes, this is volume not rate) */}
       <div className="flex gap-6 text-xs">
         <div>
           <span className="text-muted-foreground">IPv4:</span>{" "}
@@ -70,7 +71,7 @@ export function ASDetail() {
         <Card>
           <CardContent className="pt-4">
             {detail.v4_series && detail.v4_series.length > 0 ? (
-              <LinkTrafficChart series={detail.v4_series} title="IPv4 Traffic by Link" height={280} timeBounds={timeBounds} />
+              <LinkTrafficChart series={detail.v4_series} title="IPv4 Traffic by Link" height={280} timeBounds={timeBounds} linkColors={linkColors} />
             ) : (
               <p className="text-xs text-muted-foreground py-8 text-center">No IPv4 data</p>
             )}
@@ -79,7 +80,7 @@ export function ASDetail() {
         <Card>
           <CardContent className="pt-4">
             {detail.v6_series && detail.v6_series.length > 0 ? (
-              <LinkTrafficChart series={detail.v6_series} title="IPv6 Traffic by Link" height={280} timeBounds={timeBounds} />
+              <LinkTrafficChart series={detail.v6_series} title="IPv6 Traffic by Link" height={280} timeBounds={timeBounds} linkColors={linkColors} />
             ) : (
               <p className="text-xs text-muted-foreground py-8 text-center">No IPv6 data</p>
             )}

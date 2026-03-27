@@ -44,6 +44,7 @@ type Link struct {
 	SNMPIndex    uint32 `json:"snmp_index"`
 	Description  string `json:"description"`
 	CapacityMbps uint32 `json:"capacity_mbps"`
+	Color        string `json:"color,omitempty"`
 }
 
 // ASInfo holds AS number to name mapping.
