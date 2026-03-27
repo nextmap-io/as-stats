@@ -1186,10 +1186,12 @@ func (s *ClickHouseStore) LinksP95(ctx context.Context, p QueryParams) (inP95, o
 		`, int(step.Seconds()), table)
 	}
 
+	var fIn, fOut float64
 	err = s.conn.QueryRow(ctx, query,
 		clickhouse.Named("from", p.From),
 		clickhouse.Named("to", p.To),
-	).Scan(&inP95, &outP95)
+	).Scan(&fIn, &fOut)
+	inP95, outP95 = uint64(fIn), uint64(fOut)
 	if err != nil {
 		err = fmt.Errorf("query links p95: %w", err)
 	}
@@ -1221,11 +1223,13 @@ func (s *ClickHouseStore) LinkP95(ctx context.Context, tag string, p QueryParams
 			)`, int(step.Seconds()), table)
 	}
 
+	var fIn, fOut float64
 	err = s.conn.QueryRow(ctx, query,
 		clickhouse.Named("from", p.From),
 		clickhouse.Named("to", p.To),
 		clickhouse.Named("tag", tag),
-	).Scan(&inP95, &outP95)
+	).Scan(&fIn, &fOut)
+	inP95, outP95 = uint64(fIn), uint64(fOut)
 	return
 }
 
@@ -1266,11 +1270,13 @@ func (s *ClickHouseStore) ASP95(ctx context.Context, asn uint32, p QueryParams) 
 			)`, int(step.Seconds()), table)
 	}
 
+	var f1, f2, f3, f4 float64
 	err = s.conn.QueryRow(ctx, query,
 		clickhouse.Named("from", p.From),
 		clickhouse.Named("to", p.To),
 		clickhouse.Named("asn", asn),
-	).Scan(&v4In, &v4Out, &v6In, &v6Out)
+	).Scan(&f1, &f2, &f3, &f4)
+	v4In, v4Out, v6In, v6Out = uint64(f1), uint64(f2), uint64(f3), uint64(f4)
 	return
 }
 
