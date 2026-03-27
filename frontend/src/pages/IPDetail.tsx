@@ -9,7 +9,7 @@ import { useUnit } from "@/hooks/useUnit"
 
 export function IPDetail() {
   const { ip } = useParams<{ ip: string }>()
-  const { filters, periodSeconds, timeBounds } = useFilters()
+  const { filters, periodSeconds} = useFilters()
   const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useIPDetail(ip || "", filters)
 

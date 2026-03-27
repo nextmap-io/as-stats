@@ -11,7 +11,7 @@ import { ExternalLink } from "lucide-react"
 export function ASDetail() {
   const { asn } = useParams<{ asn: string }>()
   const asnNum = Number(asn) || 0
-  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds } = useFilters()
+  const { filters, filterSearch, periodSeconds, bucketSeconds} = useFilters()
   const { formatTraffic } = useUnit()
   const linkColors = useLinkColors()
 

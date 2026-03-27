@@ -12,7 +12,7 @@ import { Plus, Trash2, BarChart3 } from "lucide-react"
 import { EmptyState } from "@/components/ui/error"
 
 export function Links() {
-  const { filters, filterSearch, periodSeconds, timeBounds } = useFilters()
+  const { filters, filterSearch, periodSeconds} = useFilters()
   const { data, isLoading, error } = useLinks(filters)
   const { formatTraffic } = useUnit()
   const { data: ipv4Traffic } = useLinksTraffic(4, filters)

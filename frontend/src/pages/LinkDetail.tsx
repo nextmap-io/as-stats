@@ -1,5 +1,5 @@
 import { Link, useParams } from "react-router-dom"
-import { useLinkDetail, useLinkColors } from "@/hooks/useApi"
+import { useLinkDetail } from "@/hooks/useApi"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { useFilters } from "@/hooks/useFilters"
