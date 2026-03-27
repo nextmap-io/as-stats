@@ -1,16 +1,19 @@
 import { createContext, useContext, useState, useCallback } from "react"
 
-export type TrafficUnit = "bytes" | "bps"
+export type TrafficUnit = "bps" | "bytes" | "pps"
 
 interface UnitContextType {
   unit: TrafficUnit
   toggleUnit: () => void
   formatTraffic: (bytes: number, intervalSeconds?: number) => string
+  formatPackets: (packets: number, intervalSeconds?: number) => string
 }
 
 const UnitContext = createContext<UnitContextType | null>(null)
 
 export const UnitProvider = UnitContext.Provider
+
+const CYCLE: TrafficUnit[] = ["bps", "pps", "bytes"]
 
 export function useUnitState(): UnitContextType {
   const [unit, setUnit] = useState<TrafficUnit>(() => {
@@ -23,7 +26,8 @@ export function useUnitState(): UnitContextType {
 
   const toggleUnit = useCallback(() => {
     setUnit(prev => {
-      const next = prev === "bytes" ? "bps" : "bytes"
+      const idx = CYCLE.indexOf(prev)
+      const next = CYCLE[(idx + 1) % CYCLE.length]
       try { localStorage.setItem("as-stats-unit", next) } catch { /* noop */ }
       return next
     })
@@ -38,6 +42,14 @@ export function useUnitState(): UnitContextType {
       const val = bps / Math.pow(1000, i)
       return `${val.toFixed(val < 10 ? 2 : 1)} ${units[i]}`
     }
+    if (unit === "pps") {
+      const pps = bytes / intervalSeconds // bytes here is actually used as a generic counter
+      if (pps === 0) return "0 pps"
+      const units = ["pps", "Kpps", "Mpps", "Gpps"]
+      const i = Math.min(Math.floor(Math.log(pps) / Math.log(1000)), units.length - 1)
+      const val = pps / Math.pow(1000, i)
+      return `${val.toFixed(val < 10 ? 2 : 1)} ${units[i]}`
+    }
     if (bytes === 0) return "0 B"
     const units = ["B", "KB", "MB", "GB", "TB", "PB"]
     const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1000)), units.length - 1)
@@ -45,7 +57,19 @@ export function useUnitState(): UnitContextType {
     return `${val.toFixed(val < 10 ? 2 : 1)} ${units[i]}`
   }, [unit])
 
-  return { unit, toggleUnit, formatTraffic }
+  const formatPackets = useCallback((packets: number, intervalSeconds = 300) => {
+    if (unit === "pps" || unit === "bps") {
+      const pps = packets / intervalSeconds
+      if (pps === 0) return "0 pps"
+      const units = ["pps", "Kpps", "Mpps", "Gpps"]
+      const i = Math.min(Math.floor(Math.log(pps) / Math.log(1000)), units.length - 1)
+      const val = pps / Math.pow(1000, i)
+      return `${val.toFixed(val < 10 ? 2 : 1)} ${units[i]}`
+    }
+    return new Intl.NumberFormat().format(packets)
+  }, [unit])
+
+  return { unit, toggleUnit, formatTraffic, formatPackets }
 }
 
 export function useUnit(): UnitContextType {

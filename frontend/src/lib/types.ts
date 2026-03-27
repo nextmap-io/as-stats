@@ -76,6 +76,7 @@ export interface QueryFilters {
   link?: string
   direction?: string
   ip_version?: number
+  scope?: string
   limit?: number
   offset?: number
   q?: string

@@ -46,9 +46,16 @@ func (h *Handler) TopASTraffic(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// TopIP handles GET /api/v1/top/ip
+// TopIP handles GET /api/v1/top/ip?scope=internal|external
 func (h *Handler) TopIP(w http.ResponseWriter, r *http.Request) {
 	p := parseQueryParams(r)
+
+	scope := r.URL.Query().Get("scope")
+	if scope == "internal" && h.LocalIPFilter != "" {
+		p.LocalIPFilter = h.LocalIPFilter
+	} else if scope == "external" && h.LocalIPFilter != "" {
+		p.LocalIPFilter = "NOT " + h.LocalIPFilter
+	}
 
 	results, _, err := h.Store.TopIP(r.Context(), p)
 	if err != nil {

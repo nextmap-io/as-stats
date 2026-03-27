@@ -18,7 +18,7 @@ func (s *ClickHouseStore) TopAS(ctx context.Context, p QueryParams) ([]model.AST
 	excludeAS := ""
 	var excludeArgs []any
 	if p.ExcludeAS > 0 {
-		excludeAS = "AND t.as_number != @exclude_as"
+		excludeAS = "AND as_number != @exclude_as"
 		excludeArgs = append(excludeArgs, clickhouse.Named("exclude_as", p.ExcludeAS))
 	}
 
@@ -89,9 +89,16 @@ func (s *ClickHouseStore) TopAS(ctx context.Context, p QueryParams) ([]model.AST
 }
 
 // TopIP returns the top IPs by traffic volume.
+// If LocalIPFilter is set, only returns IPs matching that filter (internal).
+// If ExternalIPFilter is set (LocalIPFilter prefixed with NOT), returns external IPs.
 func (s *ClickHouseStore) TopIP(ctx context.Context, p QueryParams) ([]model.IPTraffic, uint64, error) {
 	dirFilter, dirArgs := buildDirectionFilter(p.Direction)
 	linkFilter, linkArgs := buildLinkFilter(p.LinkTags)
+
+	ipFilter := ""
+	if p.LocalIPFilter != "" {
+		ipFilter = "AND " + p.LocalIPFilter
+	}
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -104,11 +111,11 @@ func (s *ClickHouseStore) TopIP(ctx context.Context, p QueryParams) ([]model.IPT
 		FROM traffic_by_ip t
 		LEFT JOIN as_names an ON t.as_number = an.as_number
 		WHERE t.ts >= @from AND t.ts < @to
-		%s %s
+		%s %s %s
 		GROUP BY ip, t.as_number
 		ORDER BY total_bytes DESC
 		LIMIT @limit OFFSET @offset
-	`, dirFilter, linkFilter)
+	`, dirFilter, linkFilter, ipFilter)
 
 	args := append([]any{
 		clickhouse.Named("from", p.From),

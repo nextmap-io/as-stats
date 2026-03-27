@@ -113,6 +113,7 @@ export function Dashboard() {
                         title="IPv4"
                         height={140}
                         linkColors={linkColors}
+                        timeBounds={timeBounds}
                       />
                     ) : (
                       <div className="text-[10px] text-muted-foreground py-4 text-center">No IPv4 data</div>
@@ -125,6 +126,7 @@ export function Dashboard() {
                         title="IPv6"
                         height={140}
                         linkColors={linkColors}
+                        timeBounds={timeBounds}
                       />
                     ) : (
                       <div className="text-[10px] text-muted-foreground py-4 text-center">No IPv6 data</div>

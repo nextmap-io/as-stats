@@ -32,14 +32,17 @@ function formatTimeShort(ts: number): string {
 }
 
 export function TrafficChart({ data, height = 280, showLegend = true, title, timeBounds }: TrafficChartProps) {
-  const { formatTraffic } = useUnit()
+  const { formatTraffic, unit } = useUnit()
   const interval = getIntervalSeconds(data)
   const stepMs = interval * 1000
+  const usePps = unit === "pps"
 
   const dataByTs = new Map<number, { inbound: number; outbound: number }>()
   for (const d of data) {
     const ts = new Date(d.t).getTime()
-    dataByTs.set(ts, { inbound: d.bytes_in, outbound: -(d.bytes_out || 0) })
+    const inVal = usePps ? (d.packets_in || 0) : d.bytes_in
+    const outVal = usePps ? (d.packets_out || 0) : (d.bytes_out || 0)
+    dataByTs.set(ts, { inbound: inVal, outbound: -outVal })
   }
 
   const formatted: { time: string; inbound: number; outbound: number }[] = []

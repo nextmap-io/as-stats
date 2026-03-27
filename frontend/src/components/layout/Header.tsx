@@ -69,9 +69,9 @@ export function Header() {
             onClick={toggleUnit}
             className="inline-flex h-8 items-center justify-center rounded border border-input bg-muted/50 hover:bg-accent transition-colors px-2 text-[10px] font-bold tabular-nums tracking-tight"
             aria-label={`Switch unit (current: ${unit})`}
-            title={unit === "bps" ? "Showing bit rate — click for bytes" : "Showing bytes — click for bit rate"}
+            title={`Showing ${unit} — click to cycle`}
           >
-            {unit === "bps" ? "bps" : "B"}
+            {unit}
           </button>
 
           <button

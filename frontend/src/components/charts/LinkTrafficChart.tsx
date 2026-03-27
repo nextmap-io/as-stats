@@ -9,7 +9,7 @@ import {
   ReferenceLine,
 } from "recharts"
 import type { LinkTimeSeries } from "@/lib/types"
-import { useUnit } from "@/hooks/useUnit"
+import { useUnit, type TrafficUnit } from "@/hooks/useUnit"
 
 const DEFAULT_COLORS = [
   "#e74c3c",
@@ -57,8 +57,9 @@ function formatTimeShort(ts: number): string {
 }
 
 export function LinkTrafficChart({ series, height = 260, title, linkColors, timeBounds }: LinkTrafficChartProps) {
-  const { formatTraffic } = useUnit()
+  const { formatTraffic, unit } = useUnit()
   if (!series.length) return null
+  const usePps = unit === "pps"
   const interval = getIntervalSeconds(series)
   const stepMs = interval * 1000
 
@@ -81,15 +82,15 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
       const ts = new Date(pt.t).getTime()
       if (!dataByTs.has(ts)) dataByTs.set(ts, {})
       const row = dataByTs.get(ts)!
-      row[`${ls.link_tag}_in`] = pt.bytes_in || 0
-      row[`${ls.link_tag}_out`] = -(pt.bytes_out || 0)
+      row[`${ls.link_tag}_in`] = usePps ? (pt.packets_in || 0) : (pt.bytes_in || 0)
+      row[`${ls.link_tag}_out`] = -(usePps ? (pt.packets_out || 0) : (pt.bytes_out || 0))
     }
   }
 
   // Fill full time range (cap at 300 slots to avoid browser crash)
   const data: Record<string, unknown>[] = []
   if (timeBounds && stepMs > 0) {
-    const maxSlots = 150
+    const maxSlots = height <= 160 ? 50 : 150
     let fillStep = stepMs
     const totalSlots = Math.ceil((timeBounds.to - timeBounds.from) / stepMs)
     if (totalSlots > maxSlots) {
