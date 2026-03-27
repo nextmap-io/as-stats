@@ -74,13 +74,15 @@ func parseQueryParams(r *http.Request) store.QueryParams {
 		}
 	}
 
-	// Presets: 1h, 6h, 24h, 7d, 30d
+	// Presets: 1h, 3h, 6h, 24h, 7d, 30d
 	if preset := r.URL.Query().Get("period"); preset != "" {
 		now := time.Now().UTC()
 		p.To = now
 		switch preset {
 		case "1h":
 			p.From = now.Add(-1 * time.Hour)
+		case "3h":
+			p.From = now.Add(-3 * time.Hour)
 		case "6h":
 			p.From = now.Add(-6 * time.Hour)
 		case "24h":

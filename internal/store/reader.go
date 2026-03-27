@@ -224,23 +224,42 @@ func (s *ClickHouseStore) ASTimeSeries(ctx context.Context, asn uint32, p QueryP
 	step := autoStep(p.From, p.To)
 	linkFilter, linkArgs := buildLinkFilter(p.LinkTags)
 
-	table := pickASTable(p.From, p.To)
-
-	// Swap in/out: AS MV 'in'=upload-to-AS, 'out'=download-from-AS
-	query := fmt.Sprintf(`
-		SELECT
-			toStartOfInterval(ts, INTERVAL %d SECOND) AS period,
-			sumIf(bytes, direction = 'out') AS bytes_in,
-			sumIf(bytes, direction = 'in') AS bytes_out,
-			sumIf(packets, direction = 'out') AS packets_in,
-			sumIf(packets, direction = 'in') AS packets_out
-		FROM %s
-		WHERE as_number = @asn
-		  AND ts >= @from AND ts < @to
-		  %s
-		GROUP BY period
-		ORDER BY period
-	`, int(step.Seconds()), table, linkFilter)
+	var query string
+	if useRawTable(p.From, p.To) {
+		// On flows_raw: src_as=@asn → AS sends to us (download=bytes_in)
+		//               dst_as=@asn → we send to AS (upload=bytes_out)
+		query = fmt.Sprintf(`
+			SELECT
+				toStartOfInterval(timestamp, INTERVAL %d SECOND) AS period,
+				sumIf(bytes * sampling_rate, src_as = @asn) AS bytes_in,
+				sumIf(bytes * sampling_rate, dst_as = @asn) AS bytes_out,
+				sumIf(packets * sampling_rate, src_as = @asn) AS packets_in,
+				sumIf(packets * sampling_rate, dst_as = @asn) AS packets_out
+			FROM flows_raw
+			WHERE (src_as = @asn OR dst_as = @asn)
+			  AND timestamp >= @from AND timestamp < @to
+			  %s
+			GROUP BY period
+			ORDER BY period
+		`, int(step.Seconds()), linkFilter)
+	} else {
+		table := pickASTable(p.From, p.To)
+		// Swap in/out: AS MV 'in'=upload-to-AS, 'out'=download-from-AS
+		query = fmt.Sprintf(`
+			SELECT
+				toStartOfInterval(ts, INTERVAL %d SECOND) AS period,
+				sumIf(bytes, direction = 'out') AS bytes_in,
+				sumIf(bytes, direction = 'in') AS bytes_out,
+				sumIf(packets, direction = 'out') AS packets_in,
+				sumIf(packets, direction = 'in') AS packets_out
+			FROM %s
+			WHERE as_number = @asn
+			  AND ts >= @from AND ts < @to
+			  %s
+			GROUP BY period
+			ORDER BY period
+		`, int(step.Seconds()), table, linkFilter)
+	}
 
 	args := append([]any{
 		clickhouse.Named("asn", asn),
@@ -562,21 +581,38 @@ func (s *ClickHouseStore) LinkList(ctx context.Context, p QueryParams) ([]model.
 // LinkTimeSeries returns traffic time series for a specific link.
 func (s *ClickHouseStore) LinkTimeSeries(ctx context.Context, tag string, p QueryParams) ([]model.TrafficPoint, error) {
 	step := autoStep(p.From, p.To)
-	table := pickLinkTable(p.From, p.To)
 
-	query := fmt.Sprintf(`
-		SELECT
-			toStartOfInterval(ts, INTERVAL %d SECOND) AS period,
-			sum(bytes_in) AS bytes_in,
-			sum(bytes_out) AS bytes_out,
-			sum(packets_in) AS packets_in,
-			sum(packets_out) AS packets_out
-		FROM %s
-		WHERE link_tag = @tag
-		  AND ts >= @from AND ts < @to
-		GROUP BY period
-		ORDER BY period
-	`, int(step.Seconds()), table)
+	var query string
+	if useRawTable(p.From, p.To) {
+		query = fmt.Sprintf(`
+			SELECT
+				toStartOfInterval(timestamp, INTERVAL %d SECOND) AS period,
+				sumIf(bytes * sampling_rate, direction = 'in') AS bytes_in,
+				sumIf(bytes * sampling_rate, direction = 'out') AS bytes_out,
+				sumIf(packets * sampling_rate, direction = 'in') AS packets_in,
+				sumIf(packets * sampling_rate, direction = 'out') AS packets_out
+			FROM flows_raw
+			WHERE link_tag = @tag
+			  AND timestamp >= @from AND timestamp < @to
+			GROUP BY period
+			ORDER BY period
+		`, int(step.Seconds()))
+	} else {
+		table := pickLinkTable(p.From, p.To)
+		query = fmt.Sprintf(`
+			SELECT
+				toStartOfInterval(ts, INTERVAL %d SECOND) AS period,
+				sum(bytes_in) AS bytes_in,
+				sum(bytes_out) AS bytes_out,
+				sum(packets_in) AS packets_in,
+				sum(packets_out) AS packets_out
+			FROM %s
+			WHERE link_tag = @tag
+			  AND ts >= @from AND ts < @to
+			GROUP BY period
+			ORDER BY period
+		`, int(step.Seconds()), table)
+	}
 
 	return s.queryTimeSeries(ctx, query, []any{
 		clickhouse.Named("tag", tag),
@@ -816,6 +852,8 @@ func (s *ClickHouseStore) queryTimeSeries(ctx context.Context, query string, arg
 func autoStep(from, to time.Time) time.Duration {
 	dur := to.Sub(from)
 	switch {
+	case dur <= 3*time.Hour:
+		return 1 * time.Minute
 	case dur <= 36*time.Hour:
 		return 5 * time.Minute
 	case dur <= 7*24*time.Hour:
@@ -982,6 +1020,11 @@ func pickASTable(from, to time.Time) string {
 	}
 }
 
+// useRawTable returns true if the query should use flows_raw for finer granularity.
+func useRawTable(from, to time.Time) bool {
+	return to.Sub(from) <= 3*time.Hour
+}
+
 // pickLinkTable selects the best source table for link queries based on time range.
 func pickLinkTable(from, to time.Time) string {
 	dur := to.Sub(from)
@@ -1027,25 +1070,46 @@ func (s *ClickHouseStore) LinksTrafficSeries(ctx context.Context, p QueryParams)
 		ipvArgs = append(ipvArgs, clickhouse.Named("ipv", p.IPVersion))
 	}
 
-	table := pickLinkTable(p.From, p.To)
-
-	query := fmt.Sprintf(`
-		SELECT
-			toStartOfInterval(t.ts, INTERVAL %d SECOND) AS period,
-			t.link_tag,
-			any(l.description) AS description,
-			sum(t.bytes_in) AS bytes_in,
-			sum(t.bytes_out) AS bytes_out,
-			sum(t.packets_in) AS packets_in,
-			sum(t.packets_out) AS packets_out
-		FROM %s t
-		LEFT JOIN links l ON t.link_tag = l.tag
-		WHERE t.ts >= @from AND t.ts < @to
-		  AND t.link_tag != ''
-		  %s
-		GROUP BY period, t.link_tag
-		ORDER BY period, t.link_tag
-	`, int(step.Seconds()), table, ipvFilter)
+	var query string
+	if useRawTable(p.From, p.To) {
+		// Use flows_raw for per-minute granularity
+		query = fmt.Sprintf(`
+			SELECT
+				toStartOfInterval(t.timestamp, INTERVAL %d SECOND) AS period,
+				t.link_tag,
+				any(l.description) AS description,
+				sumIf(t.bytes * t.sampling_rate, t.direction = 'in') AS bytes_in,
+				sumIf(t.bytes * t.sampling_rate, t.direction = 'out') AS bytes_out,
+				sumIf(t.packets * t.sampling_rate, t.direction = 'in') AS packets_in,
+				sumIf(t.packets * t.sampling_rate, t.direction = 'out') AS packets_out
+			FROM flows_raw t
+			LEFT JOIN links l ON t.link_tag = l.tag
+			WHERE t.timestamp >= @from AND t.timestamp < @to
+			  AND t.link_tag != ''
+			  %s
+			GROUP BY period, t.link_tag
+			ORDER BY period, t.link_tag
+		`, int(step.Seconds()), ipvFilter)
+	} else {
+		table := pickLinkTable(p.From, p.To)
+		query = fmt.Sprintf(`
+			SELECT
+				toStartOfInterval(t.ts, INTERVAL %d SECOND) AS period,
+				t.link_tag,
+				any(l.description) AS description,
+				sum(t.bytes_in) AS bytes_in,
+				sum(t.bytes_out) AS bytes_out,
+				sum(t.packets_in) AS packets_in,
+				sum(t.packets_out) AS packets_out
+			FROM %s t
+			LEFT JOIN links l ON t.link_tag = l.tag
+			WHERE t.ts >= @from AND t.ts < @to
+			  AND t.link_tag != ''
+			  %s
+			GROUP BY period, t.link_tag
+			ORDER BY period, t.link_tag
+		`, int(step.Seconds()), table, ipvFilter)
+	}
 
 	args := append([]any{
 		clickhouse.Named("from", p.From),

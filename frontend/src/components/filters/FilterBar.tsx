@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils"
 
 const periods = [
   { label: "1h", value: "1h" },
+  { label: "3h", value: "3h" },
   { label: "6h", value: "6h" },
   { label: "24h", value: "24h" },
   { label: "7d", value: "7d" },

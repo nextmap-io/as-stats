@@ -60,7 +60,7 @@ export function useFilters() {
   const periodSeconds = useMemo(() => {
     const p = searchParams.get("period") || "24h"
     const map: Record<string, number> = {
-      "1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800, "30d": 2592000,
+      "1h": 3600, "3h": 10800, "6h": 21600, "24h": 86400, "7d": 604800, "30d": 2592000,
     }
     return map[p] || 86400
   }, [searchParams])
