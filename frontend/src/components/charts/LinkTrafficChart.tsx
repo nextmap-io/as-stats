@@ -40,6 +40,7 @@ interface LinkTrafficChartProps {
   timeBounds?: { from: number; to: number }
   p95In?: number
   p95Out?: number
+  hideLegend?: boolean
 }
 
 function getIntervalSeconds(series: LinkTimeSeries[]): number {
@@ -56,7 +57,7 @@ function formatTimeShort(ts: number): string {
   return new Date(ts).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" })
 }
 
-export function LinkTrafficChart({ series, height = 260, title, linkColors, timeBounds, p95In, p95Out }: LinkTrafficChartProps) {
+export function LinkTrafficChart({ series, height = 260, title, linkColors, timeBounds, p95In, p95Out, hideLegend }: LinkTrafficChartProps) {
   const { formatTraffic, formatAxis, unit } = useUnit()
   if (!series.length) return null
   const interval = getIntervalSeconds(series)
@@ -210,14 +211,16 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
           ))}
         </AreaChart>
       </ResponsiveContainer>
-      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 px-1">
-        {linkTags.map((tag) => (
-          <div key={tag} className="flex items-center gap-1 text-[9px] text-muted-foreground">
-            <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: colors[tag].in }} />
-            <span>{linkLabels[tag]}</span>
-          </div>
-        ))}
-      </div>
+      {!hideLegend && (
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 px-1">
+          {linkTags.map((tag) => (
+            <div key={tag} className="flex items-center gap-1 text-[9px] text-muted-foreground">
+              <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: colors[tag].in }} />
+              <span>{linkLabels[tag]}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

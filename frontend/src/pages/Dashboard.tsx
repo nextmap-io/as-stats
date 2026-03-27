@@ -12,8 +12,10 @@ import { useState } from "react"
 import { BarChart3 } from "lucide-react"
 import type { LinkTraffic, ASTrafficDetail } from "@/lib/types"
 
+const DEFAULT_LINK_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6", "#1abc9c", "#e67e22", "#2980b9"]
+
 export function Dashboard() {
-  const { filters, filterSearch, periodSeconds, timeBounds } = useFilters()
+  const { filters, filterSearch, periodSeconds, bucketSeconds } = useFilters()
   const { data, isLoading, error, refetch } = useOverview(filters)
   const { data: ipv4Traffic } = useLinksTraffic(4, filters)
   const { data: ipv6Traffic } = useLinksTraffic(6, filters)
@@ -50,6 +52,12 @@ export function Dashboard() {
     .slice(0, 50)
 
   const topASList = showAll ? allAS : allAS.slice(0, 10)
+
+  // Extract unique link tags from all series for the sidebar legend
+  const allLinkTags = Array.from(new Set([
+    ...(ipv4Traffic?.data || []).map(s => s.link_tag),
+    ...(ipv6Traffic?.data || []).map(s => s.link_tag),
+  ]))
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -92,7 +100,22 @@ export function Dashboard() {
 
       {/* Top AS with IPv4 + IPv6 graphs per AS */}
       {topASList.length > 0 && (
-        <div className="space-y-3">
+        <div className="flex gap-4">
+          {/* Sticky legend sidebar */}
+          <div className="hidden lg:block w-28 shrink-0">
+            <div className="sticky top-14 space-y-1.5 pt-6">
+              <h3 className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Legend</h3>
+              {allLinkTags.map((tag, i) => (
+                <div key={tag} className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
+                  <span className="inline-block w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: linkColors[tag] || DEFAULT_LINK_COLORS[i % DEFAULT_LINK_COLORS.length] }} />
+                  <span className="truncate">{tag}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* AS list */}
+          <div className="flex-1 space-y-3">
           <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
             Top {topASList.length} AS — IPv4 + IPv6
           </h2>
@@ -105,7 +128,10 @@ export function Dashboard() {
                   </Link>
                   <span className="text-[10px] text-muted-foreground truncate">{entry.name}</span>
                   <span className="text-[10px] text-muted-foreground ml-auto tabular-nums">
-                    {formatTraffic(entry.total, periodSeconds)}
+                    p95: {formatTraffic(
+                      Math.max(entry.v4?.p95_in || 0, entry.v4?.p95_out || 0) + Math.max(entry.v6?.p95_in || 0, entry.v6?.p95_out || 0),
+                      bucketSeconds
+                    )}
                   </span>
                 </div>
               </CardHeader>
@@ -119,6 +145,7 @@ export function Dashboard() {
                           title="IPv4"
                           height={140}
                           linkColors={linkColors}
+                          hideLegend
                          
                           p95In={entry.v4.p95_in}
                           p95Out={entry.v4.p95_out}
@@ -136,6 +163,7 @@ export function Dashboard() {
                           title="IPv6"
                           height={140}
                           linkColors={linkColors}
+                          hideLegend
                          
                           p95In={entry.v6?.p95_in}
                           p95Out={entry.v6?.p95_out}
@@ -157,6 +185,7 @@ export function Dashboard() {
               Show all {allAS.length} AS
             </button>
           )}
+          </div>
         </div>
       )}
 
