@@ -11,7 +11,7 @@ import { ExternalLink } from "lucide-react"
 export function ASDetail() {
   const { asn } = useParams<{ asn: string }>()
   const asnNum = Number(asn) || 0
-  const { filters, filterSearch, periodSeconds, timeBounds } = useFilters()
+  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds } = useFilters()
   const { formatTraffic } = useUnit()
   const linkColors = useLinkColors()
 
@@ -51,19 +51,31 @@ export function ASDetail() {
         </div>
       </div>
 
-      {/* Volume summary — IPv4 / IPv6 totals (always in bytes, this is volume not rate) */}
-      <div className="flex gap-6 text-xs">
+      {/* Volume + P95 summary */}
+      <div className="flex flex-wrap gap-x-8 gap-y-1 text-xs">
         <div>
           <span className="text-muted-foreground">IPv4:</span>{" "}
           <span className="text-traffic-in">{formatBytes(detail.v4_bytes_in || 0)} in</span>
           {" / "}
           <span className="text-traffic-out">{formatBytes(detail.v4_bytes_out || 0)} out</span>
+          {(detail.p95_v4_in || detail.p95_v4_out) ? (
+            <span className="ml-2 text-muted-foreground">
+              p95: <span className="text-traffic-in">{formatTraffic(detail.p95_v4_in || 0, bucketSeconds)}</span>
+              {" / "}<span className="text-traffic-out">{formatTraffic(detail.p95_v4_out || 0, bucketSeconds)}</span>
+            </span>
+          ) : null}
         </div>
         <div>
           <span className="text-muted-foreground">IPv6:</span>{" "}
           <span className="text-traffic-in">{formatBytes(detail.v6_bytes_in || 0)} in</span>
           {" / "}
           <span className="text-traffic-out">{formatBytes(detail.v6_bytes_out || 0)} out</span>
+          {(detail.p95_v6_in || detail.p95_v6_out) ? (
+            <span className="ml-2 text-muted-foreground">
+              p95: <span className="text-traffic-in">{formatTraffic(detail.p95_v6_in || 0, bucketSeconds)}</span>
+              {" / "}<span className="text-traffic-out">{formatTraffic(detail.p95_v6_out || 0, bucketSeconds)}</span>
+            </span>
+          ) : null}
         </div>
       </div>
 

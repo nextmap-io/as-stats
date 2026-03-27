@@ -73,5 +73,13 @@ export function useFilters() {
     return { from, to }
   }, [periodSeconds])
 
-  return { filters, setFilter, setFilters, filterSearch, periodSeconds, timeBounds }
+  // Bucket interval in seconds (matches backend autoStep)
+  const bucketSeconds = useMemo(() => {
+    if (periodSeconds <= 10800) return 60    // <= 3h: 1 min
+    if (periodSeconds <= 129600) return 300  // <= 36h: 5 min
+    if (periodSeconds <= 604800) return 3600 // <= 7d: 1h
+    return 86400                              // > 7d: 24h
+  }, [periodSeconds])
+
+  return { filters, setFilter, setFilters, filterSearch, periodSeconds, bucketSeconds, timeBounds }
 }
