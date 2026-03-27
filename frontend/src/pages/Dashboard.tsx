@@ -69,7 +69,7 @@ export function Dashboard() {
             <CardContent className="pt-6 pb-8">
               {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
                 <ExpandableChart title="IPv4 Traffic by Link">
-                  <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
+                  <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" linkColors={linkColors} />
                 </ExpandableChart>
               ) : (
                 <EmptyState message="No IPv4 link traffic" icon={<BarChart3 className="h-6 w-6" />} />
@@ -80,7 +80,7 @@ export function Dashboard() {
             <CardContent className="pt-6 pb-8">
               {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
                 <ExpandableChart title="IPv6 Traffic by Link">
-                  <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
+                  <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" linkColors={linkColors} />
                 </ExpandableChart>
               ) : (
                 <EmptyState message="No IPv6 link traffic" icon={<BarChart3 className="h-6 w-6" />} />
@@ -119,7 +119,7 @@ export function Dashboard() {
                           title="IPv4"
                           height={140}
                           linkColors={linkColors}
-                          timeBounds={timeBounds}
+                         
                           p95In={entry.v4.p95_in}
                           p95Out={entry.v4.p95_out}
                         />
@@ -136,7 +136,7 @@ export function Dashboard() {
                           title="IPv6"
                           height={140}
                           linkColors={linkColors}
-                          timeBounds={timeBounds}
+                         
                           p95In={entry.v6?.p95_in}
                           p95Out={entry.v6?.p95_out}
                         />

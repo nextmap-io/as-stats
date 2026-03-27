@@ -85,7 +85,7 @@ export function ASDetail() {
           <CardContent className="pt-5 pb-8">
             {detail.v4_series && detail.v4_series.length > 0 ? (
               <ExpandableChart title={`AS${detail.as_number} — IPv4`}>
-                <LinkTrafficChart series={detail.v4_series} title="IPv4 Traffic by Link" height={280} timeBounds={timeBounds} linkColors={linkColors} p95In={detail.p95_v4_in} p95Out={detail.p95_v4_out} />
+                <LinkTrafficChart series={detail.v4_series} title="IPv4 Traffic by Link" height={280} linkColors={linkColors} p95In={detail.p95_v4_in} p95Out={detail.p95_v4_out} />
               </ExpandableChart>
             ) : (
               <p className="text-xs text-muted-foreground py-8 text-center">No IPv4 data</p>
@@ -96,7 +96,7 @@ export function ASDetail() {
           <CardContent className="pt-5 pb-8">
             {detail.v6_series && detail.v6_series.length > 0 ? (
               <ExpandableChart title={`AS${detail.as_number} — IPv6`}>
-                <LinkTrafficChart series={detail.v6_series} title="IPv6 Traffic by Link" height={280} timeBounds={timeBounds} linkColors={linkColors} p95In={detail.p95_v6_in} p95Out={detail.p95_v6_out} />
+                <LinkTrafficChart series={detail.v6_series} title="IPv6 Traffic by Link" height={280} linkColors={linkColors} p95In={detail.p95_v6_in} p95Out={detail.p95_v6_out} />
               </ExpandableChart>
             ) : (
               <p className="text-xs text-muted-foreground py-8 text-center">No IPv6 data</p>

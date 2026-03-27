@@ -30,7 +30,7 @@ export function IPDetail() {
         <CardContent>
           {detail.time_series?.length > 0 ? (
             <ExpandableChart title="IP Traffic">
-              <TrafficChart data={detail.time_series} height={350} timeBounds={timeBounds} />
+              <TrafficChart data={detail.time_series} height={350} />
             </ExpandableChart>
           ) : (
             <p className="text-sm text-muted-foreground">No traffic data for this period</p>

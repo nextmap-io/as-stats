@@ -31,7 +31,7 @@ export function Links() {
           <CardContent className="pt-5 pb-8">
             {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
               <ExpandableChart title="IPv4 Traffic by Link">
-                <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
+                <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" linkColors={linkColors} />
               </ExpandableChart>
             ) : (
               <EmptyState message="No IPv4 link traffic" icon={<BarChart3 className="h-8 w-8" />} />
@@ -42,7 +42,7 @@ export function Links() {
           <CardContent className="pt-5 pb-8">
             {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
               <ExpandableChart title="IPv6 Traffic by Link">
-                <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
+                <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" linkColors={linkColors} />
               </ExpandableChart>
             ) : (
               <EmptyState message="No IPv6 link traffic" icon={<BarChart3 className="h-8 w-8" />} />
