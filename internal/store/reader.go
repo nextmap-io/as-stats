@@ -178,9 +178,12 @@ func (s *ClickHouseStore) TopPrefix(ctx context.Context, p QueryParams) ([]model
 }
 
 // ASTimeSeries returns traffic time series for a specific AS.
+// Picks the best source table based on the time range.
 func (s *ClickHouseStore) ASTimeSeries(ctx context.Context, asn uint32, p QueryParams) ([]model.TrafficPoint, error) {
 	step := autoStep(p.From, p.To)
 	linkFilter, linkArgs := buildLinkFilter(p.LinkTags)
+
+	table := pickASTable(p.From, p.To)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -189,13 +192,13 @@ func (s *ClickHouseStore) ASTimeSeries(ctx context.Context, asn uint32, p QueryP
 			sumIf(bytes, direction = 'out') AS bytes_out,
 			sumIf(packets, direction = 'in') AS packets_in,
 			sumIf(packets, direction = 'out') AS packets_out
-		FROM traffic_by_as
+		FROM %s
 		WHERE as_number = @asn
 		  AND ts >= @from AND ts < @to
 		  %s
 		GROUP BY period
 		ORDER BY period
-	`, int(step.Seconds()), linkFilter)
+	`, int(step.Seconds()), table, linkFilter)
 
 	args := append([]any{
 		clickhouse.Named("asn", asn),
@@ -418,6 +421,7 @@ func (s *ClickHouseStore) LinkList(ctx context.Context, p QueryParams) ([]model.
 // LinkTimeSeries returns traffic time series for a specific link.
 func (s *ClickHouseStore) LinkTimeSeries(ctx context.Context, tag string, p QueryParams) ([]model.TrafficPoint, error) {
 	step := autoStep(p.From, p.To)
+	table := pickLinkTable(p.From, p.To)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -426,12 +430,12 @@ func (s *ClickHouseStore) LinkTimeSeries(ctx context.Context, tag string, p Quer
 			sum(bytes_out) AS bytes_out,
 			sum(packets_in) AS packets_in,
 			sum(packets_out) AS packets_out
-		FROM traffic_by_link
+		FROM %s
 		WHERE link_tag = @tag
 		  AND ts >= @from AND ts < @to
 		GROUP BY period
 		ORDER BY period
-	`, int(step.Seconds()))
+	`, int(step.Seconds()), table)
 
 	return s.queryTimeSeries(ctx, query, []any{
 		clickhouse.Named("tag", tag),
@@ -681,6 +685,35 @@ func autoStep(from, to time.Time) time.Duration {
 	}
 }
 
+// pickASTable selects the best source table for AS queries based on time range.
+//   <= 90 days: traffic_by_as (5-min granularity)
+//   <= 2 years: traffic_by_as_hourly (1-hour granularity)
+//   > 2 years:  traffic_by_as_daily (1-day granularity)
+func pickASTable(from, to time.Time) string {
+	dur := to.Sub(from)
+	switch {
+	case dur <= 90*24*time.Hour:
+		return "traffic_by_as"
+	case dur <= 730*24*time.Hour:
+		return "traffic_by_as_hourly"
+	default:
+		return "traffic_by_as_daily"
+	}
+}
+
+// pickLinkTable selects the best source table for link queries based on time range.
+func pickLinkTable(from, to time.Time) string {
+	dur := to.Sub(from)
+	switch {
+	case dur <= 90*24*time.Hour:
+		return "traffic_by_link"
+	case dur <= 730*24*time.Hour:
+		return "traffic_by_link_hourly"
+	default:
+		return "traffic_by_link_daily"
+	}
+}
+
 func buildDirectionFilter(dir string) (string, []any) {
 	switch dir {
 	case "in":
@@ -713,6 +746,8 @@ func (s *ClickHouseStore) LinksTrafficSeries(ctx context.Context, p QueryParams)
 		ipvArgs = append(ipvArgs, clickhouse.Named("ipv", p.IPVersion))
 	}
 
+	table := pickLinkTable(p.From, p.To)
+
 	query := fmt.Sprintf(`
 		SELECT
 			toStartOfInterval(t.ts, INTERVAL %d SECOND) AS period,
@@ -722,14 +757,14 @@ func (s *ClickHouseStore) LinksTrafficSeries(ctx context.Context, p QueryParams)
 			sum(t.bytes_out) AS bytes_out,
 			sum(t.packets_in) AS packets_in,
 			sum(t.packets_out) AS packets_out
-		FROM traffic_by_link t
+		FROM %s t
 		LEFT JOIN links l ON t.link_tag = l.tag
 		WHERE t.ts >= @from AND t.ts < @to
 		  AND t.link_tag != ''
 		  %s
 		GROUP BY period, t.link_tag
 		ORDER BY period, t.link_tag
-	`, int(step.Seconds()), ipvFilter)
+	`, int(step.Seconds()), table, ipvFilter)
 
 	args := append([]any{
 		clickhouse.Named("from", p.From),
