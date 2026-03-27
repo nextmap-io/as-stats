@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { ThemeProvider } from "@/providers/ThemeProvider"
 import { UnitProvider, useUnitState } from "@/hooks/useUnit"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { AppLayout } from "@/components/layout/AppLayout"
 import { Dashboard } from "@/pages/Dashboard"
 import { TopAS } from "@/pages/TopAS"
@@ -48,10 +49,12 @@ function AppWithProviders() {
 
 export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <AppWithProviders />
-      </ThemeProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <AppWithProviders />
+        </ThemeProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   )
 }

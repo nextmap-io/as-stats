@@ -20,6 +20,7 @@ export function Dashboard() {
   const { data: topASv6 } = useTopASTraffic(6, filters)
   const { formatTraffic } = useUnit()
   const linkColors = useLinkColors()
+  const [showAll, setShowAll] = useState(false)
 
   if (isLoading) return <PageSkeleton />
   if (error) return <ErrorDisplay error={error} onRetry={() => refetch()} />
@@ -47,7 +48,6 @@ export function Dashboard() {
     .sort(([, a], [, b]) => b.total - a.total)
     .slice(0, 50)
 
-  const [showAll, setShowAll] = useState(false)
   const topASList = showAll ? allAS : allAS.slice(0, 10)
 
   return (
