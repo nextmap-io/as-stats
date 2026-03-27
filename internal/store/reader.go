@@ -282,25 +282,45 @@ func (s *ClickHouseStore) ASLinkSeries(ctx context.Context, asn uint32, p QueryP
 		ipvArgs = append(ipvArgs, clickhouse.Named("ipv", p.IPVersion))
 	}
 
-	// In the AS MVs, direction='in' means traffic TO the AS (our upload),
-	// direction='out' means traffic FROM the AS (our download).
-	// Swap so bytes_in = download (from AS to us), bytes_out = upload (from us to AS).
-	query := fmt.Sprintf(`
-		SELECT
-			toStartOfInterval(t.ts, INTERVAL %d SECOND) AS period,
-			t.link_tag,
-			sumIf(t.bytes, t.direction = 'out') AS bytes_in,
-			sumIf(t.bytes, t.direction = 'in') AS bytes_out,
-			sumIf(t.packets, t.direction = 'out') AS packets_in,
-			sumIf(t.packets, t.direction = 'in') AS packets_out
-		FROM %s t
-		WHERE t.as_number = @asn
-		  AND t.ts >= @from AND t.ts < @to
-		  AND t.link_tag != ''
-		  %s
-		GROUP BY period, t.link_tag
-		ORDER BY period, t.link_tag
-	`, int(step.Seconds()), table, ipvFilter)
+	var query string
+	if useRawTable(p.From, p.To) {
+		// flows_raw: src_as=@asn → download (bytes_in), dst_as=@asn → upload (bytes_out)
+		query = fmt.Sprintf(`
+			SELECT
+				toStartOfInterval(t.timestamp, INTERVAL %d SECOND) AS period,
+				t.link_tag,
+				sumIf(t.bytes * t.sampling_rate, t.src_as = @asn) AS bytes_in,
+				sumIf(t.bytes * t.sampling_rate, t.dst_as = @asn) AS bytes_out,
+				sumIf(t.packets * t.sampling_rate, t.src_as = @asn) AS packets_in,
+				sumIf(t.packets * t.sampling_rate, t.dst_as = @asn) AS packets_out
+			FROM flows_raw t
+			WHERE (t.src_as = @asn OR t.dst_as = @asn)
+			  AND t.timestamp >= @from AND t.timestamp < @to
+			  AND t.link_tag != ''
+			  %s
+			GROUP BY period, t.link_tag
+			ORDER BY period, t.link_tag
+		`, int(step.Seconds()), ipvFilter)
+	} else {
+		table := pickASTable(p.From, p.To)
+		// Swap in/out: AS MV 'in'=upload-to-AS, 'out'=download-from-AS
+		query = fmt.Sprintf(`
+			SELECT
+				toStartOfInterval(t.ts, INTERVAL %d SECOND) AS period,
+				t.link_tag,
+				sumIf(t.bytes, t.direction = 'out') AS bytes_in,
+				sumIf(t.bytes, t.direction = 'in') AS bytes_out,
+				sumIf(t.packets, t.direction = 'out') AS packets_in,
+				sumIf(t.packets, t.direction = 'in') AS packets_out
+			FROM %s t
+			WHERE t.as_number = @asn
+			  AND t.ts >= @from AND t.ts < @to
+			  AND t.link_tag != ''
+			  %s
+			GROUP BY period, t.link_tag
+			ORDER BY period, t.link_tag
+		`, int(step.Seconds()), table, ipvFilter)
+	}
 
 	args := append([]any{
 		clickhouse.Named("asn", asn),
@@ -884,15 +904,35 @@ func (s *ClickHouseStore) TopASTrafficSeries(ctx context.Context, p QueryParams)
 	}
 
 	// Get top ASes by total bytes
-	topQuery := fmt.Sprintf(`
-		SELECT as_number, any(an.as_name) AS as_name, sum(t.bytes) AS total_bytes
-		FROM %s t
-		LEFT JOIN as_names an ON t.as_number = an.as_number
-		WHERE t.ts >= @from AND t.ts < @to %s %s
-		GROUP BY as_number
-		ORDER BY total_bytes DESC
-		LIMIT @limit
-	`, table, excludeAS, ipvFilter)
+	var topQuery string
+	if useRawTable(p.From, p.To) {
+		// From flows_raw, consider both src_as and dst_as
+		topQuery = fmt.Sprintf(`
+			SELECT as_number, any(an.as_name) AS as_name, sum(total_bytes) AS total_bytes FROM (
+				SELECT src_as AS as_number, sum(bytes * sampling_rate) AS total_bytes
+				FROM flows_raw WHERE timestamp >= @from AND timestamp < @to AND src_as > 0 %s %s
+				GROUP BY src_as
+				UNION ALL
+				SELECT dst_as AS as_number, sum(bytes * sampling_rate) AS total_bytes
+				FROM flows_raw WHERE timestamp >= @from AND timestamp < @to AND dst_as > 0 %s %s
+				GROUP BY dst_as
+			) t
+			LEFT JOIN as_names an ON t.as_number = an.as_number
+			GROUP BY as_number
+			ORDER BY total_bytes DESC
+			LIMIT @limit
+		`, excludeAS, ipvFilter, excludeAS, ipvFilter)
+	} else {
+		topQuery = fmt.Sprintf(`
+			SELECT as_number, any(an.as_name) AS as_name, sum(t.bytes) AS total_bytes
+			FROM %s t
+			LEFT JOIN as_names an ON t.as_number = an.as_number
+			WHERE t.ts >= @from AND t.ts < @to %s %s
+			GROUP BY as_number
+			ORDER BY total_bytes DESC
+			LIMIT @limit
+		`, table, excludeAS, ipvFilter)
+	}
 
 	topArgs := append([]any{
 		clickhouse.Named("from", p.From),
@@ -927,22 +967,44 @@ func (s *ClickHouseStore) TopASTrafficSeries(ctx context.Context, p QueryParams)
 	}
 
 	// Get per-link time series for these ASes
-	tsQuery := fmt.Sprintf(`
-		SELECT
-			t.as_number,
-			toStartOfInterval(t.ts, INTERVAL %d SECOND) AS period,
-			t.link_tag,
-			sumIf(t.bytes, t.direction = 'out') AS bytes_in,
-			sumIf(t.bytes, t.direction = 'in') AS bytes_out,
-			sumIf(t.packets, t.direction = 'out') AS packets_in,
-			sumIf(t.packets, t.direction = 'in') AS packets_out
-		FROM %s t
-		WHERE t.ts >= @from AND t.ts < @to
-		  AND t.as_number IN (@asns)
-		  %s
-		GROUP BY t.as_number, period, t.link_tag
-		ORDER BY t.as_number, period, t.link_tag
-	`, int(step.Seconds()), table, ipvFilter)
+	var tsQuery string
+	if useRawTable(p.From, p.To) {
+		// flows_raw: src_as=ASN → download, dst_as=ASN → upload
+		tsQuery = fmt.Sprintf(`
+			SELECT
+				multiIf(t.src_as IN (@asns), t.src_as, t.dst_as) AS as_num,
+				toStartOfInterval(t.timestamp, INTERVAL %d SECOND) AS period,
+				t.link_tag,
+				sumIf(t.bytes * t.sampling_rate, t.src_as IN (@asns)) AS bytes_in,
+				sumIf(t.bytes * t.sampling_rate, t.dst_as IN (@asns)) AS bytes_out,
+				sumIf(t.packets * t.sampling_rate, t.src_as IN (@asns)) AS packets_in,
+				sumIf(t.packets * t.sampling_rate, t.dst_as IN (@asns)) AS packets_out
+			FROM flows_raw t
+			WHERE t.timestamp >= @from AND t.timestamp < @to
+			  AND (t.src_as IN (@asns) OR t.dst_as IN (@asns))
+			  AND t.link_tag != ''
+			  %s
+			GROUP BY as_num, period, t.link_tag
+			ORDER BY as_num, period, t.link_tag
+		`, int(step.Seconds()), ipvFilter)
+	} else {
+		tsQuery = fmt.Sprintf(`
+			SELECT
+				t.as_number,
+				toStartOfInterval(t.ts, INTERVAL %d SECOND) AS period,
+				t.link_tag,
+				sumIf(t.bytes, t.direction = 'out') AS bytes_in,
+				sumIf(t.bytes, t.direction = 'in') AS bytes_out,
+				sumIf(t.packets, t.direction = 'out') AS packets_in,
+				sumIf(t.packets, t.direction = 'in') AS packets_out
+			FROM %s t
+			WHERE t.ts >= @from AND t.ts < @to
+			  AND t.as_number IN (@asns)
+			  %s
+			GROUP BY t.as_number, period, t.link_tag
+			ORDER BY t.as_number, period, t.link_tag
+		`, int(step.Seconds()), table, ipvFilter)
+	}
 
 	tsArgs := append([]any{
 		clickhouse.Named("from", p.From),
