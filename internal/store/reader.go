@@ -785,10 +785,8 @@ func (s *ClickHouseStore) queryTimeSeries(ctx context.Context, query string, arg
 func autoStep(from, to time.Time) time.Duration {
 	dur := to.Sub(from)
 	switch {
-	case dur <= 6*time.Hour:
+	case dur <= 36*time.Hour:
 		return 5 * time.Minute
-	case dur <= 2*24*time.Hour:
-		return 15 * time.Minute
 	case dur <= 7*24*time.Hour:
 		return 1 * time.Hour
 	default:
