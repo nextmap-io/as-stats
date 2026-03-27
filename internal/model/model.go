@@ -39,11 +39,11 @@ const (
 
 // Link represents a known network link (router interface).
 type Link struct {
-	Tag         string
-	RouterIP    net.IP
-	SNMPIndex   uint32
-	Description string
-	CapacityMbps uint32
+	Tag          string `json:"tag"`
+	RouterIP     net.IP `json:"router_ip"`
+	SNMPIndex    uint32 `json:"snmp_index"`
+	Description  string `json:"description"`
+	CapacityMbps uint32 `json:"capacity_mbps"`
 }
 
 // ASInfo holds AS number to name mapping.

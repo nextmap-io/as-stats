@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/nextmap-io/as-stats/internal/collector"
 	"github.com/nextmap-io/as-stats/internal/config"
@@ -41,6 +42,32 @@ func main() {
 	log.Println("Connected to ClickHouse")
 
 	c := collector.New(cfg, chStore)
+
+	// Load link configuration from ClickHouse
+	links, err := chStore.ListLinks(ctx)
+	if err != nil {
+		log.Printf("warning: could not load links: %v", err)
+	} else {
+		c.Enricher().LoadLinks(links)
+	}
+
+	// Periodically reload link config (picks up links added via API)
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if links, err := chStore.ListLinks(ctx); err != nil {
+					log.Printf("warning: link reload failed: %v", err)
+				} else {
+					c.Enricher().LoadLinks(links)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	if err := c.Run(ctx); err != nil {
 		log.Fatalf("collector error: %v", err)

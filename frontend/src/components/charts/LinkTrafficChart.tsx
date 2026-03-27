@@ -9,7 +9,7 @@ import {
   Legend,
 } from "recharts"
 import type { LinkTimeSeries } from "@/lib/types"
-import { formatBytes } from "@/lib/utils"
+import { useUnit } from "@/hooks/useUnit"
 
 const COLORS = [
   "hsl(174 72% 46%)",  // teal
@@ -28,8 +28,20 @@ interface LinkTrafficChartProps {
   title?: string
 }
 
+function getIntervalSeconds(series: LinkTimeSeries[]): number {
+  for (const s of series) {
+    if (s.points.length >= 2) {
+      const diff = (new Date(s.points[1].t).getTime() - new Date(s.points[0].t).getTime()) / 1000
+      if (diff > 0) return diff
+    }
+  }
+  return 300
+}
+
 export function LinkTrafficChart({ series, height = 260, title }: LinkTrafficChartProps) {
+  const { formatTraffic } = useUnit()
   if (!series.length) return null
+  const interval = getIntervalSeconds(series)
 
   // Build a unified time axis with one key per link
   const timeMap = new Map<string, Record<string, number>>()
@@ -88,7 +100,7 @@ export function LinkTrafficChart({ series, height = 260, title }: LinkTrafficCha
             tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
             tickLine={false}
             axisLine={false}
-            tickFormatter={(v) => formatBytes(v)}
+            tickFormatter={(v) => formatTraffic(v, interval)}
             width={56}
           />
           <Tooltip
@@ -101,7 +113,7 @@ export function LinkTrafficChart({ series, height = 260, title }: LinkTrafficCha
               boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
             }}
             formatter={(value, name) => [
-              formatBytes(Number(value)),
+              formatTraffic(Number(value), interval),
               linkLabels[String(name)] || String(name),
             ]}
             labelStyle={{ color: "var(--color-muted-foreground)", marginBottom: 4 }}

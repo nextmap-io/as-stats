@@ -9,7 +9,7 @@ import {
   Legend,
 } from "recharts"
 import type { TrafficPoint } from "@/lib/types"
-import { formatBytes } from "@/lib/utils"
+import { useUnit } from "@/hooks/useUnit"
 
 interface TrafficChartProps {
   data: TrafficPoint[]
@@ -18,7 +18,18 @@ interface TrafficChartProps {
   title?: string
 }
 
+function getIntervalSeconds(data: TrafficPoint[]): number {
+  if (data.length < 2) return 300
+  const t0 = new Date(data[0].t).getTime()
+  const t1 = new Date(data[1].t).getTime()
+  const diff = (t1 - t0) / 1000
+  return diff > 0 ? diff : 300
+}
+
 export function TrafficChart({ data, height = 280, showLegend = true, title }: TrafficChartProps) {
+  const { formatTraffic } = useUnit()
+  const interval = getIntervalSeconds(data)
+
   const formatted = data.map(d => ({
     ...d,
     time: new Date(d.t).toLocaleString(undefined, {
@@ -56,8 +67,8 @@ export function TrafficChart({ data, height = 280, showLegend = true, title }: T
             tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
             tickLine={false}
             axisLine={false}
-            tickFormatter={(v) => formatBytes(v)}
-            width={56}
+            tickFormatter={(v) => formatTraffic(v, interval)}
+            width={64}
           />
           <Tooltip
             contentStyle={{
@@ -69,7 +80,7 @@ export function TrafficChart({ data, height = 280, showLegend = true, title }: T
               boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
             }}
             formatter={(value, name) => [
-              formatBytes(Number(value)),
+              formatTraffic(Number(value), interval),
               name === "bytes_in" ? "Inbound" : "Outbound",
             ]}
             labelStyle={{ color: "var(--color-muted-foreground)", marginBottom: 4 }}

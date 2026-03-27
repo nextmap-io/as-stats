@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import { useTheme } from "@/hooks/useTheme"
+import { useUnit } from "@/hooks/useUnit"
 import { Search, Sun, Moon, Monitor, Activity, Menu, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -14,6 +15,7 @@ const navItems = [
 
 export function Header() {
   const { theme, setTheme } = useTheme()
+  const { unit, toggleUnit } = useUnit()
   const [searchQuery, setSearchQuery] = useState("")
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const navigate = useNavigate()
@@ -62,6 +64,15 @@ export function Header() {
               className="h-8 w-40 lg:w-56 rounded border border-input bg-muted/50 pl-7 pr-3 text-xs placeholder:text-muted-foreground/60 outline-none focus-visible:ring-1 focus-visible:ring-ring transition-all"
             />
           </form>
+
+          <button
+            onClick={toggleUnit}
+            className="inline-flex h-8 items-center justify-center rounded border border-input bg-muted/50 hover:bg-accent transition-colors px-2 text-[10px] font-bold tabular-nums tracking-tight"
+            aria-label={`Switch unit (current: ${unit})`}
+            title={unit === "bps" ? "Showing bit rate — click for bytes" : "Showing bytes — click for bit rate"}
+          >
+            {unit === "bps" ? "bps" : "B"}
+          </button>
 
           <button
             onClick={cycleTheme}
