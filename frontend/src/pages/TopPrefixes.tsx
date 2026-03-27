@@ -51,8 +51,8 @@ export function TopPrefixes() {
                     <th className="pb-2 text-left font-medium text-muted-foreground">Prefix</th>
                     <th className="pb-2 text-left font-medium text-muted-foreground">AS</th>
                     <th className="pb-2 text-right font-medium text-muted-foreground">Traffic</th>
-                    <th className="pb-2 text-right font-medium text-muted-foreground">Packets</th>
-                    <th className="pb-2 text-right font-medium text-muted-foreground">Flows</th>
+                    <th className="pb-2 text-right font-medium text-muted-foreground hidden sm:table-cell">Packets</th>
+                    <th className="pb-2 text-right font-medium text-muted-foreground hidden sm:table-cell">Flows</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -69,8 +69,8 @@ export function TopPrefixes() {
                         ) : "-"}
                       </td>
                       <td className="py-1.5 text-right font-mono">{formatTraffic(pfx.bytes, periodSeconds)}</td>
-                      <td className="py-1.5 text-right font-mono text-muted-foreground">{formatNumber(pfx.packets)}</td>
-                      <td className="py-1.5 text-right font-mono text-muted-foreground">{formatNumber(pfx.flows)}</td>
+                      <td className="py-1.5 text-right font-mono text-muted-foreground hidden sm:table-cell">{formatNumber(pfx.packets)}</td>
+                      <td className="py-1.5 text-right font-mono text-muted-foreground hidden sm:table-cell">{formatNumber(pfx.flows)}</td>
                     </tr>
                   ))}
                 </tbody>

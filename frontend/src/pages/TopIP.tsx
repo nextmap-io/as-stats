@@ -50,8 +50,8 @@ export function TopIP() {
                     <th className="pb-2 text-left font-medium text-muted-foreground">IP Address</th>
                     <th className="pb-2 text-left font-medium text-muted-foreground">AS</th>
                     <th className="pb-2 text-right font-medium text-muted-foreground">Traffic</th>
-                    <th className="pb-2 text-right font-medium text-muted-foreground">Packets</th>
-                    <th className="pb-2 text-right font-medium text-muted-foreground">Flows</th>
+                    <th className="pb-2 text-right font-medium text-muted-foreground hidden sm:table-cell">Packets</th>
+                    <th className="pb-2 text-right font-medium text-muted-foreground hidden sm:table-cell">Flows</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -72,8 +72,8 @@ export function TopIP() {
                         ) : "-"}
                       </td>
                       <td className="py-1.5 text-right font-mono">{formatTraffic(ip.bytes, periodSeconds)}</td>
-                      <td className="py-1.5 text-right font-mono text-muted-foreground">{formatNumber(ip.packets)}</td>
-                      <td className="py-1.5 text-right font-mono text-muted-foreground">{formatNumber(ip.flows)}</td>
+                      <td className="py-1.5 text-right font-mono text-muted-foreground hidden sm:table-cell">{formatNumber(ip.packets)}</td>
+                      <td className="py-1.5 text-right font-mono text-muted-foreground hidden sm:table-cell">{formatNumber(ip.flows)}</td>
                     </tr>
                   ))}
                 </tbody>

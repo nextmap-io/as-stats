@@ -25,15 +25,16 @@ export function TopAS() {
           {error && <p className="text-destructive">{error.message}</p>}
           {data?.data && (
             <>
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto -mx-4 px-4">
+              <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="pb-2 text-left font-medium text-muted-foreground">#</th>
+                    <th className="pb-2 text-left font-medium text-muted-foreground w-6">#</th>
                     <th className="pb-2 text-left font-medium text-muted-foreground">ASN</th>
                     <th className="pb-2 text-left font-medium text-muted-foreground">Name</th>
                     <th className="pb-2 text-right font-medium text-muted-foreground">Traffic</th>
-                    <th className="pb-2 text-right font-medium text-muted-foreground">Packets</th>
-                    <th className="pb-2 text-right font-medium text-muted-foreground">Flows</th>
+                    <th className="pb-2 text-right font-medium text-muted-foreground hidden sm:table-cell">Packets</th>
+                    <th className="pb-2 text-right font-medium text-muted-foreground hidden sm:table-cell">Flows</th>
                     <th className="pb-2 text-right font-medium text-muted-foreground">%</th>
                   </tr>
                 </thead>
@@ -47,9 +48,9 @@ export function TopAS() {
                         </Link>
                       </td>
                       <td className="py-2 truncate max-w-64">{as.as_name || "-"}</td>
-                      <td className="py-2 text-right font-mono">{formatTraffic(as.bytes, periodSeconds)}</td>
-                      <td className="py-2 text-right font-mono text-muted-foreground">{formatNumber(as.packets)}</td>
-                      <td className="py-2 text-right font-mono text-muted-foreground">{formatNumber(as.flows)}</td>
+                      <td className="py-1.5 text-right font-mono">{formatTraffic(as.bytes, periodSeconds)}</td>
+                      <td className="py-1.5 text-right font-mono text-muted-foreground hidden sm:table-cell">{formatNumber(as.packets)}</td>
+                      <td className="py-1.5 text-right font-mono text-muted-foreground hidden sm:table-cell">{formatNumber(as.flows)}</td>
                       <td className="py-2 text-right font-mono">
                         <div className="flex items-center justify-end gap-2">
                           <div className="w-16 bg-muted rounded-full h-1.5">
@@ -65,6 +66,7 @@ export function TopAS() {
                   ))}
                 </tbody>
               </table>
+              </div>
 
               {/* Pagination */}
               <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
