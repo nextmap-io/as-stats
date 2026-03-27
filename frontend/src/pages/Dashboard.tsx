@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { PageSkeleton } from "@/components/ui/skeleton"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
+import { ExpandableChart } from "@/components/ExpandableChart"
 import { formatNumber } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 import { useState } from "react"
@@ -67,7 +68,9 @@ export function Dashboard() {
           <Card className="overflow-visible">
             <CardContent className="pt-5 pb-8">
               {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
-                <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
+                <ExpandableChart title="IPv4 Traffic by Link">
+                  <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
+                </ExpandableChart>
               ) : (
                 <EmptyState message="No IPv4 link traffic" icon={<BarChart3 className="h-6 w-6" />} />
               )}
@@ -76,7 +79,9 @@ export function Dashboard() {
           <Card className="overflow-visible">
             <CardContent className="pt-5 pb-8">
               {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
-                <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
+                <ExpandableChart title="IPv6 Traffic by Link">
+                  <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
+                </ExpandableChart>
               ) : (
                 <EmptyState message="No IPv6 link traffic" icon={<BarChart3 className="h-6 w-6" />} />
               )}
@@ -108,26 +113,30 @@ export function Dashboard() {
                 <div className="grid gap-4 lg:grid-cols-2">
                   <div>
                     {entry.v4 && entry.v4.series.length > 0 ? (
-                      <LinkTrafficChart
-                        series={entry.v4.series}
-                        title="IPv4"
-                        height={140}
-                        linkColors={linkColors}
-                        timeBounds={timeBounds}
-                      />
+                      <ExpandableChart title={`AS${asn} — IPv4`}>
+                        <LinkTrafficChart
+                          series={entry.v4.series}
+                          title="IPv4"
+                          height={140}
+                          linkColors={linkColors}
+                          timeBounds={timeBounds}
+                        />
+                      </ExpandableChart>
                     ) : (
                       <div className="text-[10px] text-muted-foreground py-4 text-center">No IPv4 data</div>
                     )}
                   </div>
                   <div>
                     {entry.v6 && entry.v6.series.length > 0 ? (
-                      <LinkTrafficChart
-                        series={entry.v6.series}
-                        title="IPv6"
-                        height={140}
-                        linkColors={linkColors}
-                        timeBounds={timeBounds}
-                      />
+                      <ExpandableChart title={`AS${asn} — IPv6`}>
+                        <LinkTrafficChart
+                          series={entry.v6.series}
+                          title="IPv6"
+                          height={140}
+                          linkColors={linkColors}
+                          timeBounds={timeBounds}
+                        />
+                      </ExpandableChart>
                     ) : (
                       <div className="text-[10px] text-muted-foreground py-4 text-center">No IPv6 data</div>
                     )}

@@ -6,6 +6,7 @@ import { useFilters } from "@/hooks/useFilters"
 import { api } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
+import { ExpandableChart } from "@/components/ExpandableChart"
 import { useUnit } from "@/hooks/useUnit"
 import { Plus, Trash2, BarChart3 } from "lucide-react"
 import { EmptyState } from "@/components/ui/error"
@@ -29,7 +30,9 @@ export function Links() {
         <Card className="overflow-visible">
           <CardContent className="pt-5 pb-8">
             {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
-              <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
+              <ExpandableChart title="IPv4 Traffic by Link">
+                <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
+              </ExpandableChart>
             ) : (
               <EmptyState message="No IPv4 link traffic" icon={<BarChart3 className="h-8 w-8" />} />
             )}
@@ -38,7 +41,9 @@ export function Links() {
         <Card className="overflow-visible">
           <CardContent className="pt-5 pb-8">
             {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
-              <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
+              <ExpandableChart title="IPv6 Traffic by Link">
+                <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" timeBounds={timeBounds} linkColors={linkColors} />
+              </ExpandableChart>
             ) : (
               <EmptyState message="No IPv6 link traffic" icon={<BarChart3 className="h-8 w-8" />} />
             )}

@@ -3,6 +3,7 @@ import { useASDetail, useASPeers, useASTopIPs, useLinkColors } from "@/hooks/use
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
+import { ExpandableChart } from "@/components/ExpandableChart"
 import { formatNumber, formatBytes } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 import { ExternalLink } from "lucide-react"
@@ -71,7 +72,9 @@ export function ASDetail() {
         <Card className="overflow-visible">
           <CardContent className="pt-5 pb-8">
             {detail.v4_series && detail.v4_series.length > 0 ? (
-              <LinkTrafficChart series={detail.v4_series} title="IPv4 Traffic by Link" height={280} timeBounds={timeBounds} linkColors={linkColors} />
+              <ExpandableChart title={`AS${detail.as_number} — IPv4`}>
+                <LinkTrafficChart series={detail.v4_series} title="IPv4 Traffic by Link" height={280} timeBounds={timeBounds} linkColors={linkColors} />
+              </ExpandableChart>
             ) : (
               <p className="text-xs text-muted-foreground py-8 text-center">No IPv4 data</p>
             )}
@@ -80,7 +83,9 @@ export function ASDetail() {
         <Card className="overflow-visible">
           <CardContent className="pt-5 pb-8">
             {detail.v6_series && detail.v6_series.length > 0 ? (
-              <LinkTrafficChart series={detail.v6_series} title="IPv6 Traffic by Link" height={280} timeBounds={timeBounds} linkColors={linkColors} />
+              <ExpandableChart title={`AS${detail.as_number} — IPv6`}>
+                <LinkTrafficChart series={detail.v6_series} title="IPv6 Traffic by Link" height={280} timeBounds={timeBounds} linkColors={linkColors} />
+              </ExpandableChart>
             ) : (
               <p className="text-xs text-muted-foreground py-8 text-center">No IPv6 data</p>
             )}

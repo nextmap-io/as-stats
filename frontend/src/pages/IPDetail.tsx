@@ -3,6 +3,7 @@ import { useIPDetail } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TrafficChart } from "@/components/charts/TrafficChart"
+import { ExpandableChart } from "@/components/ExpandableChart"
 import { formatNumber } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 
@@ -28,7 +29,9 @@ export function IPDetail() {
         </CardHeader>
         <CardContent>
           {detail.time_series?.length > 0 ? (
-            <TrafficChart data={detail.time_series} height={350} timeBounds={timeBounds} />
+            <ExpandableChart title="IP Traffic">
+              <TrafficChart data={detail.time_series} height={350} timeBounds={timeBounds} />
+            </ExpandableChart>
           ) : (
             <p className="text-sm text-muted-foreground">No traffic data for this period</p>
           )}
