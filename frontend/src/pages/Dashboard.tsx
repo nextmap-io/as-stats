@@ -1,9 +1,10 @@
 import { Link } from "react-router-dom"
-import { useOverview, useLinksTraffic } from "@/hooks/useApi"
+import { useOverview, useLinksTraffic, useASDetail } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { PageSkeleton } from "@/components/ui/skeleton"
+import { TrafficChart } from "@/components/charts/TrafficChart"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
 import { formatBytes, formatNumber } from "@/lib/utils"
 import { ArrowDownLeft, ArrowUpRight, Layers, Network, BarChart3 } from "lucide-react"
@@ -21,64 +22,52 @@ export function Dashboard() {
   const overview = data?.data
   if (!overview) return null
 
-  return (
-    <div className="space-y-5 animate-fade-in">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Dashboard</h1>
-        <span className="text-[10px] text-muted-foreground uppercase tracking-widest">Overview</span>
-      </div>
+  // Top 4 ASes for mini charts
+  const topASNs = (overview.top_as || []).slice(0, 4)
 
-      {/* Stat cards */}
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          title="Inbound"
-          value={formatBytes(overview.total_bytes_in)}
-          icon={<ArrowDownLeft className="h-3.5 w-3.5" />}
-          accent="in"
-          delay={0}
-        />
-        <StatCard
-          title="Outbound"
-          value={formatBytes(overview.total_bytes_out)}
-          icon={<ArrowUpRight className="h-3.5 w-3.5" />}
-          accent="out"
-          delay={1}
-        />
-        <StatCard
-          title="Active ASes"
-          value={formatNumber(overview.active_as_count)}
-          icon={<Network className="h-3.5 w-3.5" />}
-          delay={2}
-        />
-        <StatCard
-          title="Total Flows"
-          value={formatNumber(overview.total_flows)}
-          icon={<Layers className="h-3.5 w-3.5" />}
-          delay={3}
-        />
+  return (
+    <div className="space-y-4 animate-fade-in">
+      {/* Stat bar — compact single row */}
+      <div className="flex items-center gap-4 text-xs">
+        <span className="font-semibold text-sm tracking-tight mr-auto">Dashboard</span>
+        <StatPill label="In" value={formatBytes(overview.total_bytes_in)} accent="in" />
+        <StatPill label="Out" value={formatBytes(overview.total_bytes_out)} accent="out" />
+        <StatPill label="ASes" value={formatNumber(overview.active_as_count)} />
+        <StatPill label="Flows" value={formatNumber(overview.total_flows)} />
       </div>
 
       {/* Traffic charts: IPv4 / IPv6 by link */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardContent className="pt-5">
-            {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
-              <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" />
-            ) : (
-              <EmptyState message="No IPv4 link traffic data" icon={<BarChart3 className="h-8 w-8" />} />
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-5">
-            {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
-              <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" />
-            ) : (
-              <EmptyState message="No IPv6 link traffic data" icon={<BarChart3 className="h-8 w-8" />} />
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      {((ipv4Traffic?.data && ipv4Traffic.data.length > 0) || (ipv6Traffic?.data && ipv6Traffic.data.length > 0)) && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardContent className="pt-5">
+              {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
+                <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" />
+              ) : (
+                <EmptyState message="No IPv4 link traffic" icon={<BarChart3 className="h-8 w-8" />} />
+              )}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-5">
+              {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
+                <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" />
+              ) : (
+                <EmptyState message="No IPv6 link traffic" icon={<BarChart3 className="h-8 w-8" />} />
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Top AS traffic charts */}
+      {topASNs.length > 0 && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {topASNs.map((as) => (
+            <ASMiniChart key={as.as_number} asn={as.as_number} name={as.as_name} filterSearch={filterSearch} />
+          ))}
+        </div>
+      )}
 
       {/* Tables grid */}
       <div className="grid gap-4 lg:grid-cols-2">
@@ -236,32 +225,46 @@ export function Dashboard() {
   )
 }
 
-function StatCard({ title, value, icon, accent, delay = 0 }: {
-  title: string
+/** Compact stat pill for the top bar */
+function StatPill({ label, value, accent }: {
+  label: string
   value: string
-  icon: React.ReactNode
   accent?: "in" | "out"
-  delay?: number
 }) {
-  const accentClass = accent === "in"
-    ? "text-traffic-in border-l-2 border-l-traffic-in"
+  const color = accent === "in"
+    ? "text-traffic-in"
     : accent === "out"
-      ? "text-traffic-out border-l-2 border-l-traffic-out"
-      : "text-muted-foreground"
+      ? "text-traffic-out"
+      : "text-foreground"
 
   return (
-    <Card
-      className="animate-fade-in"
-      style={{ animationDelay: `${delay * 60}ms` }}
-    >
-      <CardContent className="p-3">
-        <div className="flex items-center justify-between mb-0.5">
-          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">{title}</p>
-          <span className={accentClass}>{icon}</span>
+    <div className="flex items-baseline gap-1.5">
+      <span className="text-muted-foreground uppercase tracking-widest text-[9px]">{label}</span>
+      <span className={`font-bold tabular-nums ${color}`}>{value}</span>
+    </div>
+  )
+}
+
+/** Mini traffic chart for a single AS on the dashboard */
+function ASMiniChart({ asn, name, filterSearch }: { asn: number; name: string; filterSearch: string }) {
+  const { filters } = useFilters()
+  const { data } = useASDetail(asn, filters)
+
+  const ts = data?.data?.time_series
+  if (!ts || ts.length === 0) return null
+
+  return (
+    <Card>
+      <CardHeader className="pb-1 pt-4 px-4">
+        <div className="flex items-baseline justify-between">
+          <Link to={`/as/${asn}${filterSearch}`} className="text-xs font-medium text-primary hover:underline">
+            AS{asn}
+          </Link>
+          <span className="text-[10px] text-muted-foreground truncate ml-2 max-w-48">{name}</span>
         </div>
-        <p className={`text-lg font-bold tabular-nums ${accent ? accentClass.split(" ")[0] : ""}`}>
-          {value}
-        </p>
+      </CardHeader>
+      <CardContent className="px-4 pb-3">
+        <TrafficChart data={ts} height={160} showLegend={false} />
       </CardContent>
     </Card>
   )
