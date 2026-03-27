@@ -85,7 +85,13 @@ func (h *Handler) ASTopIPs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p := parseQueryParams(r)
-	p.LocalIPFilter = h.LocalIPFilter
+
+	scope := r.URL.Query().Get("scope")
+	if scope == "external" && h.LocalIPFilter != "" {
+		p.LocalIPFilter = "NOT " + h.LocalIPFilter
+	} else if h.LocalIPFilter != "" {
+		p.LocalIPFilter = h.LocalIPFilter
+	}
 
 	ips, err := h.Store.ASTopIPs(r.Context(), asn, p)
 	if err != nil {

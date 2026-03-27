@@ -1,5 +1,5 @@
 import { Link, useParams } from "react-router-dom"
-import { useASDetail, useASPeers, useASTopIPs, useLinkColors } from "@/hooks/useApi"
+import { useASDetail, useASTopIPs, useASRemoteIPs, useLinkColors } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
@@ -16,8 +16,8 @@ export function ASDetail() {
   const linkColors = useLinkColors()
 
   const { data, isLoading, error } = useASDetail(asnNum, filters)
-  const { data: peersData } = useASPeers(asnNum, { ...filters, limit: 20 })
   const { data: topIPsData } = useASTopIPs(asnNum, { ...filters, limit: 20 })
+  const { data: remoteIPsData } = useASRemoteIPs(asnNum, { ...filters, limit: 20 })
 
   if (isLoading) return <p className="text-muted-foreground">Loading...</p>
   if (error) return <p className="text-destructive">{error.message}</p>
@@ -127,30 +127,30 @@ export function ASDetail() {
           </Card>
         )}
 
-        {peersData?.data && peersData.data.length > 0 && (
+        {remoteIPsData?.data && remoteIPsData.data.length > 0 && (
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Peers</CardTitle>
+              <CardTitle className="text-sm">Top Remote IPs</CardTitle>
             </CardHeader>
             <CardContent>
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="pb-1.5 text-left font-medium text-muted-foreground">ASN</th>
-                    <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
+                    <th className="pb-1.5 text-left font-medium text-muted-foreground">IP</th>
                     <th className="pb-1.5 text-right font-medium text-muted-foreground">Traffic</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Flows</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {peersData.data.map(peer => (
-                    <tr key={peer.as_number} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
+                  {remoteIPsData.data.map(ip => (
+                    <tr key={ip.ip} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
                       <td className="py-1">
-                        <Link to={`/as/${peer.as_number}${filterSearch}`} className="text-primary hover:underline font-mono">
-                          {peer.as_number}
+                        <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px]">
+                          {ip.ip}
                         </Link>
                       </td>
-                      <td className="py-1 text-muted-foreground truncate max-w-40">{peer.as_name || "-"}</td>
-                      <td className="py-1 text-right font-mono">{formatTraffic(peer.bytes, periodSeconds)}</td>
+                      <td className="py-1 text-right font-mono">{formatTraffic(ip.bytes, periodSeconds)}</td>
+                      <td className="py-1 text-right font-mono text-muted-foreground">{formatNumber(ip.flows)}</td>
                     </tr>
                   ))}
                 </tbody>

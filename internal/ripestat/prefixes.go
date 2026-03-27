@@ -57,7 +57,7 @@ func PrefixesToSQL(col string, prefixes []net.IPNet) string {
 		if i > 0 {
 			s += " OR "
 		}
-		s += fmt.Sprintf("isIPAddressInRange(toString(%s), '%s')", col, p.String())
+		s += fmt.Sprintf("isIPAddressInRange(replaceRegexpOne(toString(%s), '^::ffff:', ''), '%s')", col, p.String())
 	}
 	s += ")"
 	return s

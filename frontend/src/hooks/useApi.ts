@@ -55,6 +55,14 @@ export function useASPeers(asn: number, filters: QueryFilters) {
   })
 }
 
+export function useASRemoteIPs(asn: number, filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["as-remote-ips", asn, filters],
+    queryFn: () => api.asRemoteIPs(asn, filters),
+    enabled: asn > 0,
+  })
+}
+
 export function useASTopIPs(asn: number, filters: QueryFilters) {
   return useQuery({
     queryKey: ["as-top-ips", asn, filters],

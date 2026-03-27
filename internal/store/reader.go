@@ -497,7 +497,7 @@ func (s *ClickHouseStore) IPTopAS(ctx context.Context, ip string, p QueryParams)
 			sum(t.flow_count) AS total_flows
 		FROM traffic_by_ip_as t
 		LEFT JOIN as_names an ON t.as_number = an.as_number
-		WHERE toString(t.ip_address) = @ip
+		WHERE (toString(t.ip_address) = @ip OR toString(t.ip_address) = concat('::ffff:', @ip))
 		  AND t.ts >= @from AND t.ts < @to
 		  %s %s
 		GROUP BY t.as_number
@@ -544,7 +544,7 @@ func (s *ClickHouseStore) IPTimeSeries(ctx context.Context, ip string, p QueryPa
 			sumIf(packets, direction = 'in') AS packets_in,
 			sumIf(packets, direction = 'out') AS packets_out
 		FROM traffic_by_ip
-		WHERE toString(ip_address) = @ip
+		WHERE (toString(ip_address) = @ip OR toString(ip_address) = concat('::ffff:', @ip))
 		  AND ts >= @from AND ts < @to
 		  %s
 		GROUP BY period
