@@ -81,6 +81,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 
 		// Top endpoints
 		r.Get("/top/as", h.TopAS)
+		r.Get("/top/as/traffic", h.TopASTraffic)
 		r.Get("/top/ip", h.TopIP)
 		r.Get("/top/prefix", h.TopPrefix)
 

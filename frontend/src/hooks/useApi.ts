@@ -17,6 +17,14 @@ export function useTopAS(filters: QueryFilters) {
   })
 }
 
+export function useTopASTraffic(ipVersion: number, filters: QueryFilters) {
+  const f = { ...filters, ip_version: ipVersion, limit: 50 }
+  return useQuery({
+    queryKey: ["top-as-traffic", ipVersion, filters],
+    queryFn: () => api.topASTraffic(f),
+  })
+}
+
 export function useTopIP(filters: QueryFilters) {
   return useQuery({
     queryKey: ["top-ip", filters],

@@ -26,6 +26,26 @@ func (h *Handler) TopAS(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// TopASTraffic handles GET /api/v1/top/as/traffic
+func (h *Handler) TopASTraffic(w http.ResponseWriter, r *http.Request) {
+	p := parseQueryParams(r)
+	p.ExcludeAS = h.LocalAS
+	if p.Limit == 0 || p.Limit > 50 {
+		p.Limit = 50
+	}
+
+	results, err := h.Store.TopASTrafficSeries(r.Context(), p)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, Response{
+		Data: results,
+		Meta: &ResponseMeta{From: p.From, To: p.To, Limit: p.Limit},
+	})
+}
+
 // TopIP handles GET /api/v1/top/ip
 func (h *Handler) TopIP(w http.ResponseWriter, r *http.Request) {
 	p := parseQueryParams(r)

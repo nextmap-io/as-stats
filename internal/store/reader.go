@@ -693,6 +693,147 @@ func autoStep(from, to time.Time) time.Duration {
 	}
 }
 
+// TopASTrafficSeries returns the top N ASes with per-link time series.
+// Optionally filtered by ip_version. Used for the dashboard top AS graphs.
+func (s *ClickHouseStore) TopASTrafficSeries(ctx context.Context, p QueryParams) ([]model.ASTrafficDetail, error) {
+	table := pickASTable(p.From, p.To)
+	step := autoStep(p.From, p.To)
+
+	excludeAS := ""
+	var excludeArgs []any
+	if p.ExcludeAS > 0 {
+		excludeAS = "AND as_number != @exclude_as"
+		excludeArgs = append(excludeArgs, clickhouse.Named("exclude_as", p.ExcludeAS))
+	}
+
+	ipvFilter := ""
+	var ipvArgs []any
+	if p.IPVersion == 4 || p.IPVersion == 6 {
+		ipvFilter = "AND ip_version = @ipv"
+		ipvArgs = append(ipvArgs, clickhouse.Named("ipv", p.IPVersion))
+	}
+
+	// Get top ASes by total bytes
+	topQuery := fmt.Sprintf(`
+		SELECT as_number, any(an.as_name) AS as_name, sum(t.bytes) AS total_bytes
+		FROM %s t
+		LEFT JOIN as_names an ON t.as_number = an.as_number
+		WHERE t.ts >= @from AND t.ts < @to %s %s
+		GROUP BY as_number
+		ORDER BY total_bytes DESC
+		LIMIT @limit
+	`, table, excludeAS, ipvFilter)
+
+	topArgs := append([]any{
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+		clickhouse.Named("limit", p.Limit),
+	}, excludeArgs...)
+	topArgs = append(topArgs, ipvArgs...)
+
+	rows, err := s.conn.Query(ctx, topQuery, topArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("query top AS traffic: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var asns []uint32
+	asMap := make(map[uint32]*model.ASTrafficDetail)
+	var order []uint32
+	for rows.Next() {
+		var asn uint32
+		var name string
+		var bytes uint64
+		if err := rows.Scan(&asn, &name, &bytes); err != nil {
+			return nil, err
+		}
+		asns = append(asns, asn)
+		order = append(order, asn)
+		asMap[asn] = &model.ASTrafficDetail{ASNumber: asn, ASName: name, Bytes: bytes}
+	}
+
+	if len(asns) == 0 {
+		return nil, nil
+	}
+
+	// Get per-link time series for these ASes
+	tsQuery := fmt.Sprintf(`
+		SELECT
+			t.as_number,
+			toStartOfInterval(t.ts, INTERVAL %d SECOND) AS period,
+			t.link_tag,
+			sumIf(t.bytes, t.direction = 'in') AS bytes_in,
+			sumIf(t.bytes, t.direction = 'out') AS bytes_out,
+			sumIf(t.packets, t.direction = 'in') AS packets_in,
+			sumIf(t.packets, t.direction = 'out') AS packets_out
+		FROM %s t
+		WHERE t.ts >= @from AND t.ts < @to
+		  AND t.as_number IN (@asns)
+		  %s
+		GROUP BY t.as_number, period, t.link_tag
+		ORDER BY t.as_number, period, t.link_tag
+	`, int(step.Seconds()), table, ipvFilter)
+
+	tsArgs := append([]any{
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+		clickhouse.Named("asns", asns),
+	}, ipvArgs...)
+
+	tsRows, err := s.conn.Query(ctx, tsQuery, tsArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("query AS traffic series: %w", err)
+	}
+	defer func() { _ = tsRows.Close() }()
+
+	// Pivot into per-AS, per-link series
+	type linkKey struct {
+		asn uint32
+		tag string
+	}
+	linkSeries := make(map[linkKey]*model.LinkTimeSeries)
+
+	for tsRows.Next() {
+		var asn uint32
+		var ts time.Time
+		var tag string
+		var bytesIn, bytesOut, packetsIn, packetsOut uint64
+		if err := tsRows.Scan(&asn, &ts, &tag, &bytesIn, &bytesOut, &packetsIn, &packetsOut); err != nil {
+			return nil, err
+		}
+
+		lk := linkKey{asn: asn, tag: tag}
+		ls, ok := linkSeries[lk]
+		if !ok {
+			ls = &model.LinkTimeSeries{Tag: tag}
+			linkSeries[lk] = ls
+		}
+		ls.Points = append(ls.Points, model.TrafficPoint{
+			Timestamp:  ts,
+			BytesIn:    bytesIn,
+			BytesOut:   bytesOut,
+			PacketsIn:  packetsIn,
+			PacketsOut: packetsOut,
+		})
+	}
+
+	// Assemble results
+	for asn, detail := range asMap {
+		for lk, ls := range linkSeries {
+			if lk.asn == asn {
+				detail.Series = append(detail.Series, *ls)
+			}
+		}
+	}
+
+	results := make([]model.ASTrafficDetail, 0, len(order))
+	for _, asn := range order {
+		results = append(results, *asMap[asn])
+	}
+
+	return results, nil
+}
+
 // pickASTable selects the best source table for AS queries based on time range.
 //   <= 90 days: traffic_by_as (5-min granularity)
 //   <= 2 years: traffic_by_as_hourly (1-hour granularity)

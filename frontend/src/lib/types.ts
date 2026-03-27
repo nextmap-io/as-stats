@@ -105,6 +105,13 @@ export interface LinkTimeSeries {
   points: TrafficPoint[]
 }
 
+export interface ASTrafficDetail {
+  as_number: number
+  as_name: string
+  bytes: number
+  series: LinkTimeSeries[]
+}
+
 export interface LinkConfig {
   tag: string
   router_ip: string

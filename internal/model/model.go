@@ -108,6 +108,14 @@ type LinkTimeSeries struct {
 	Points      []TrafficPoint `json:"points"`
 }
 
+// ASTrafficDetail represents an AS with time series split by link and direction.
+type ASTrafficDetail struct {
+	ASNumber uint32         `json:"as_number"`
+	ASName   string         `json:"as_name"`
+	Bytes    uint64         `json:"bytes"`
+	Series   []LinkTimeSeries `json:"series"`
+}
+
 // Overview represents the dashboard overview data.
 type Overview struct {
 	TotalBytesIn  uint64       `json:"total_bytes_in"`

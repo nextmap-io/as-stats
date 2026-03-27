@@ -3,6 +3,7 @@ import type {
   ASDetailData,
   ASInfo,
   ASTraffic,
+  ASTrafficDetail,
   IPDetailData,
   IPTraffic,
   LinkConfig,
@@ -80,6 +81,7 @@ export const api = {
   overview: (filters?: QueryFilters) => fetchAPI<Overview>("/overview", filters),
 
   topAS: (filters?: QueryFilters) => fetchAPI<ASTraffic[]>("/top/as", filters),
+  topASTraffic: (filters?: QueryFilters) => fetchAPI<ASTrafficDetail[]>("/top/as/traffic", filters),
   topIP: (filters?: QueryFilters) => fetchAPI<IPTraffic[]>("/top/ip", filters),
   topPrefix: (filters?: QueryFilters) => fetchAPI<PrefixTraffic[]>("/top/prefix", filters),
 
