@@ -108,7 +108,7 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
         <h3 className="text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wider">{title}</h3>
       )}
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }} barCategoryGap={0} barGap={0}>
+        <BarChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }} barCategoryGap={0}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 16%)" opacity={0.4} />
           <XAxis
             dataKey="time"
@@ -158,13 +158,12 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
               )
             }}
           />
-          {/* In bars stacked upward */}
+          {/* All bars in one stack — positives go up, negatives go down */}
           {linkTags.map((tag) => (
-            <Bar key={`${tag}_in`} dataKey={`${tag}_in`} stackId="in" fill={colors[tag].in} isAnimationActive={false} />
+            <Bar key={`${tag}_in`} dataKey={`${tag}_in`} stackId="a" fill={colors[tag].in} isAnimationActive={false} />
           ))}
-          {/* Out bars stacked downward */}
           {linkTags.map((tag) => (
-            <Bar key={`${tag}_out`} dataKey={`${tag}_out`} stackId="out" fill={colors[tag].out} isAnimationActive={false} />
+            <Bar key={`${tag}_out`} dataKey={`${tag}_out`} stackId="a" fill={colors[tag].out} isAnimationActive={false} />
           ))}
         </BarChart>
       </ResponsiveContainer>
