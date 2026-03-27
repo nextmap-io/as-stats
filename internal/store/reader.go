@@ -15,6 +15,12 @@ import (
 func (s *ClickHouseStore) TopAS(ctx context.Context, p QueryParams) ([]model.ASTraffic, uint64, error) {
 	dirFilter, dirArgs := buildDirectionFilter(p.Direction)
 	linkFilter, linkArgs := buildLinkFilter(p.LinkTags)
+	excludeAS := ""
+	var excludeArgs []any
+	if p.ExcludeAS > 0 {
+		excludeAS = "AND t.as_number != @exclude_as"
+		excludeArgs = append(excludeArgs, clickhouse.Named("exclude_as", p.ExcludeAS))
+	}
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -26,11 +32,11 @@ func (s *ClickHouseStore) TopAS(ctx context.Context, p QueryParams) ([]model.AST
 		FROM traffic_by_as t
 		LEFT JOIN as_names an ON t.as_number = an.as_number
 		WHERE t.ts >= @from AND t.ts < @to
-		%s %s
+		%s %s %s
 		GROUP BY as_number
 		ORDER BY total_bytes DESC
 		LIMIT @limit OFFSET @offset
-	`, dirFilter, linkFilter)
+	`, dirFilter, linkFilter, excludeAS)
 
 	args := append([]any{
 		clickhouse.Named("from", p.From),
@@ -39,6 +45,7 @@ func (s *ClickHouseStore) TopAS(ctx context.Context, p QueryParams) ([]model.AST
 		clickhouse.Named("offset", p.Offset),
 	}, dirArgs...)
 	args = append(args, linkArgs...)
+	args = append(args, excludeArgs...)
 
 	rows, err := s.conn.Query(ctx, query, args...)
 	if err != nil {
@@ -58,13 +65,14 @@ func (s *ClickHouseStore) TopAS(ctx context.Context, p QueryParams) ([]model.AST
 	// Get total bytes for percentage calculation
 	totalQuery := fmt.Sprintf(`
 		SELECT sum(bytes) FROM traffic_by_as
-		WHERE ts >= @from AND ts < @to %s %s
-	`, dirFilter, linkFilter)
+		WHERE ts >= @from AND ts < @to %s %s %s
+	`, dirFilter, linkFilter, excludeAS)
 	totalArgs := append([]any{
 		clickhouse.Named("from", p.From),
 		clickhouse.Named("to", p.To),
 	}, dirArgs...)
 	totalArgs = append(totalArgs, linkArgs...)
+	totalArgs = append(totalArgs, excludeArgs...)
 
 	var totalBytes uint64
 	if err := s.conn.QueryRow(ctx, totalQuery, totalArgs...).Scan(&totalBytes); err != nil {

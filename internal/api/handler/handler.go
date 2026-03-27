@@ -14,6 +14,7 @@ import (
 type Handler struct {
 	Store         *store.ClickHouseStore
 	LocalIPFilter string // SQL filter for local IPs (empty = no filter)
+	LocalAS       uint32 // Local AS to exclude from top results
 }
 
 // New creates a new Handler.

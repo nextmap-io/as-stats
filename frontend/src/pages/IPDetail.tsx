@@ -8,7 +8,7 @@ import { useUnit } from "@/hooks/useUnit"
 
 export function IPDetail() {
   const { ip } = useParams<{ ip: string }>()
-  const { filters, periodSeconds } = useFilters()
+  const { filters, periodSeconds, timeBounds } = useFilters()
   const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useIPDetail(ip || "", filters)
 
@@ -28,7 +28,7 @@ export function IPDetail() {
         </CardHeader>
         <CardContent>
           {detail.time_series?.length > 0 ? (
-            <TrafficChart data={detail.time_series} height={350} />
+            <TrafficChart data={detail.time_series} height={350} timeBounds={timeBounds} />
           ) : (
             <p className="text-sm text-muted-foreground">No traffic data for this period</p>
           )}

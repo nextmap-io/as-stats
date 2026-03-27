@@ -46,6 +46,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 
 	h := handler.New(s)
 	h.LocalIPFilter = localIPFilter
+	h.LocalAS = cfg.LocalAS
 	sessions := middleware.NewSessionStore()
 
 	// Health check (no auth, no rate limit)

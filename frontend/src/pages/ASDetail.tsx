@@ -10,7 +10,7 @@ import { ExternalLink } from "lucide-react"
 export function ASDetail() {
   const { asn } = useParams<{ asn: string }>()
   const asnNum = Number(asn) || 0
-  const { filters, filterSearch, periodSeconds } = useFilters()
+  const { filters, filterSearch, periodSeconds, timeBounds } = useFilters()
   const { formatTraffic } = useUnit()
 
   const { data, isLoading, error } = useASDetail(asnNum, filters)
@@ -67,7 +67,7 @@ export function ASDetail() {
         </CardHeader>
         <CardContent>
           {detail.time_series?.length > 0 ? (
-            <TrafficChart data={detail.time_series} height={350} />
+            <TrafficChart data={detail.time_series} height={350} timeBounds={timeBounds} />
           ) : (
             <p className="text-sm text-muted-foreground">No traffic data for this period</p>
           )}

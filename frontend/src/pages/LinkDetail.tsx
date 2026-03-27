@@ -8,7 +8,7 @@ import { useUnit } from "@/hooks/useUnit"
 
 export function LinkDetail() {
   const { tag } = useParams<{ tag: string }>()
-  const { filters, periodSeconds } = useFilters()
+  const { filters, periodSeconds, timeBounds } = useFilters()
   const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useLinkDetail(tag || "", filters)
 
@@ -28,7 +28,7 @@ export function LinkDetail() {
         </CardHeader>
         <CardContent>
           {detail.time_series?.length > 0 ? (
-            <TrafficChart data={detail.time_series} height={350} />
+            <TrafficChart data={detail.time_series} height={350} timeBounds={timeBounds} />
           ) : (
             <p className="text-sm text-muted-foreground">No traffic data for this period</p>
           )}

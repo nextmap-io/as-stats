@@ -6,7 +6,6 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
   ReferenceLine,
 } from "recharts"
 import type { TrafficPoint } from "@/lib/types"
@@ -30,115 +29,88 @@ function getIntervalSeconds(data: TrafficPoint[]): number {
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
   })
 }
 
 export function TrafficChart({ data, height = 280, showLegend = true, title, timeBounds }: TrafficChartProps) {
   const { formatTraffic } = useUnit()
   const interval = getIntervalSeconds(data)
-
-  // Build data with numeric timestamps; fill the full period range
   const stepMs = interval * 1000
+
   const dataByTs = new Map<number, { inbound: number; outbound: number }>()
   for (const d of data) {
     const ts = new Date(d.t).getTime()
     dataByTs.set(ts, { inbound: d.bytes_in, outbound: -(d.bytes_out || 0) })
   }
 
-  // Fill empty time slots if bounds provided
-  const formatted: { ts: number; time: string; inbound: number; outbound: number }[] = []
+  const formatted: { time: string; inbound: number; outbound: number }[] = []
   if (timeBounds && stepMs > 0) {
     const start = Math.floor(timeBounds.from / stepMs) * stepMs
     for (let t = start; t <= timeBounds.to; t += stepMs) {
       const existing = dataByTs.get(t)
-      formatted.push({
-        ts: t,
-        time: formatTime(t),
-        inbound: existing?.inbound || 0,
-        outbound: existing?.outbound || 0,
-      })
+      formatted.push({ time: formatTime(t), inbound: existing?.inbound || 0, outbound: existing?.outbound || 0 })
     }
   } else {
-    for (const d of data) {
-      const ts = new Date(d.t).getTime()
-      formatted.push({
-        ts,
-        time: formatTime(ts),
-        inbound: d.bytes_in,
-        outbound: -(d.bytes_out || 0),
-      })
+    for (const [t, vals] of Array.from(dataByTs.entries()).sort(([a], [b]) => a - b)) {
+      formatted.push({ time: formatTime(t), ...vals })
     }
   }
 
   return (
     <div className="animate-fade-in">
-      {title && <h3 className="text-xs font-medium text-muted-foreground mb-3 uppercase tracking-wider">{title}</h3>}
+      {title && <h3 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">{title}</h3>}
       <ResponsiveContainer width="100%" height={height}>
         <BarChart data={formatted} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="10%">
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" opacity={0.5} />
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 16%)" opacity={0.5} />
           <XAxis
             dataKey="time"
-            tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
+            tick={{ fontSize: 9, fill: "hsl(215 12% 50%)" }}
             tickLine={false}
-            axisLine={{ stroke: "var(--color-border)" }}
+            axisLine={{ stroke: "hsl(220 15% 16%)" }}
             interval="preserveStartEnd"
           />
           <YAxis
-            tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
+            tick={{ fontSize: 9, fill: "hsl(215 12% 50%)" }}
             tickLine={false}
             axisLine={false}
             tickFormatter={(v) => formatTraffic(Math.abs(v), interval)}
-            width={64}
+            width={60}
           />
-          <ReferenceLine y={0} stroke="var(--color-muted-foreground)" strokeOpacity={0.5} />
+          <ReferenceLine y={0} stroke="hsl(215 12% 50%)" strokeOpacity={0.5} />
           <Tooltip
             contentStyle={{
               backgroundColor: "hsl(220 18% 10%)",
               border: "1px solid hsl(220 15% 16%)",
               borderRadius: "0.375rem",
               fontSize: "10px",
-              fontFamily: "inherit",
               boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
               padding: "6px 10px",
             }}
-            itemStyle={{ padding: 0 }}
+            itemStyle={{ padding: 0, color: "hsl(210 20% 88%)" }}
             formatter={(value, name) => {
               const abs = Math.abs(Number(value))
-              if (abs === 0) return null
-              return [
-                formatTraffic(abs, interval),
-                name === "inbound" ? "In" : "Out",
-              ]
+              if (abs === 0) return [null, null]
+              return [formatTraffic(abs, interval), name === "inbound" ? "\u2193 In" : "\u2191 Out"]
             }}
             labelStyle={{ color: "hsl(215 12% 50%)", marginBottom: 2, fontSize: "10px" }}
           />
-          {showLegend && (
-            <Legend
-              formatter={(v) => (
-                <span className="text-xs">{v === "inbound" ? "Inbound" : "Outbound"}</span>
-              )}
-              iconType="square"
-              wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
-            />
-          )}
-          <Bar
-            dataKey="inbound"
-            stackId="traffic"
-            fill="var(--color-traffic-in)"
-            fillOpacity={0.9}
-          />
-          <Bar
-            dataKey="outbound"
-            stackId="traffic"
-            fill="var(--color-traffic-in)"
-            fillOpacity={0.45}
-          />
+          <Bar dataKey="inbound" stackId="traffic" fill="hsl(174 72% 46%)" fillOpacity={0.9} />
+          <Bar dataKey="outbound" stackId="traffic" fill="hsl(174 72% 46%)" fillOpacity={0.4} />
         </BarChart>
       </ResponsiveContainer>
+      {showLegend && (
+        <div className="flex gap-4 mt-2 px-1 text-[10px] text-muted-foreground">
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: "hsl(174 72% 46%)" }} />
+            <span>{"\u2193"} In</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: "hsl(174 72% 46%)", opacity: 0.4 }} />
+            <span>{"\u2191"} Out</span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

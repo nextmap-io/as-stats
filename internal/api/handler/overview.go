@@ -7,6 +7,7 @@ import (
 // Overview handles GET /api/v1/overview
 func (h *Handler) Overview(w http.ResponseWriter, r *http.Request) {
 	p := parseQueryParams(r)
+	p.ExcludeAS = h.LocalAS
 
 	ov, err := h.Store.Overview(r.Context(), p)
 	if err != nil {

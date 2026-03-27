@@ -7,6 +7,7 @@ import (
 // TopAS handles GET /api/v1/top/as
 func (h *Handler) TopAS(w http.ResponseWriter, r *http.Request) {
 	p := parseQueryParams(r)
+	p.ExcludeAS = h.LocalAS
 
 	results, totalBytes, err := h.Store.TopAS(r.Context(), p)
 	if err != nil {
