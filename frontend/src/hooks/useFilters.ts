@@ -56,5 +56,14 @@ export function useFilters() {
     return s ? `?${s}` : ""
   }, [searchParams])
 
-  return { filters, setFilter, setFilters, filterSearch }
+  // Full period duration in seconds (for average bps calculations on totals)
+  const periodSeconds = useMemo(() => {
+    const p = searchParams.get("period") || "24h"
+    const map: Record<string, number> = {
+      "1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800, "30d": 2592000,
+    }
+    return map[p] || 86400
+  }, [searchParams])
+
+  return { filters, setFilter, setFilters, filterSearch, periodSeconds }
 }

@@ -12,7 +12,7 @@ import { BarChart3 } from "lucide-react"
 import type { ASTraffic, IPTraffic, LinkTraffic } from "@/lib/types"
 
 export function Dashboard() {
-  const { filters, filterSearch } = useFilters()
+  const { filters, filterSearch, periodSeconds } = useFilters()
   const { data, isLoading, error, refetch } = useOverview(filters)
   const { data: ipv4Traffic } = useLinksTraffic(4, filters)
   const { data: ipv6Traffic } = useLinksTraffic(6, filters)
@@ -32,8 +32,8 @@ export function Dashboard() {
       {/* Stat bar — compact single row */}
       <div className="flex items-center gap-4 text-xs">
         <span className="font-semibold text-sm tracking-tight mr-auto">Dashboard</span>
-        <StatPill label="In" value={formatTraffic(overview.total_bytes_in)} accent="in" />
-        <StatPill label="Out" value={formatTraffic(overview.total_bytes_out)} accent="out" />
+        <StatPill label="In" value={formatTraffic(overview.total_bytes_in, periodSeconds)} accent="in" />
+        <StatPill label="Out" value={formatTraffic(overview.total_bytes_out, periodSeconds)} accent="out" />
         <StatPill label="ASes" value={formatNumber(overview.active_as_count)} />
         <StatPill label="Flows" value={formatNumber(overview.total_flows)} />
       </div>
@@ -109,7 +109,7 @@ export function Dashboard() {
                         <td className="py-1.5 text-muted-foreground truncate max-w-36" title={as.as_name}>
                           {as.as_name || "-"}
                         </td>
-                        <td className="py-1.5 text-right">{formatTraffic(as.bytes)}</td>
+                        <td className="py-1.5 text-right">{formatTraffic(as.bytes, periodSeconds)}</td>
                         <td className="py-1.5 text-right text-muted-foreground hidden sm:table-cell">
                           {as.pct?.toFixed(1)}%
                         </td>
@@ -163,7 +163,7 @@ export function Dashboard() {
                             </Link>
                           ) : "-"}
                         </td>
-                        <td className="py-1.5 text-right">{formatTraffic(ip.bytes)}</td>
+                        <td className="py-1.5 text-right">{formatTraffic(ip.bytes, periodSeconds)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -213,8 +213,8 @@ export function Dashboard() {
                       <td className="py-1.5 text-muted-foreground truncate max-w-48 hidden md:table-cell" title={l.description}>
                         {l.description || "-"}
                       </td>
-                      <td className="py-1.5 text-right text-traffic-in">{formatTraffic(l.bytes_in)}</td>
-                      <td className="py-1.5 text-right text-traffic-out">{formatTraffic(l.bytes_out)}</td>
+                      <td className="py-1.5 text-right text-traffic-in">{formatTraffic(l.bytes_in, periodSeconds)}</td>
+                      <td className="py-1.5 text-right text-traffic-out">{formatTraffic(l.bytes_out, periodSeconds)}</td>
                     </tr>
                   ))}
                 </tbody>
