@@ -20,9 +20,11 @@ type linkInfo struct {
 
 // Enricher maps flows to known links and determines traffic direction.
 type Enricher struct {
-	mu      sync.RWMutex
-	links   map[linkKey]linkInfo
-	asNames map[uint32]string
+	mu           sync.RWMutex
+	links        map[linkKey]linkInfo
+	asNames      map[uint32]string
+	localAS      uint32
+	localNets    []net.IPNet
 }
 
 // New creates a new Enricher.
@@ -65,6 +67,16 @@ func (e *Enricher) LoadASNames(names []model.ASInfo) {
 	log.Printf("enricher: loaded %d AS names", len(newNames))
 }
 
+// SetLocalAS sets the local AS number and its announced prefixes.
+// Flows with src/dst IPs in these prefixes get their AS overridden.
+func (e *Enricher) SetLocalAS(asn uint32, prefixes []net.IPNet) {
+	e.mu.Lock()
+	e.localAS = asn
+	e.localNets = prefixes
+	e.mu.Unlock()
+	log.Printf("enricher: local AS%d with %d prefixes", asn, len(prefixes))
+}
+
 // Enrich sets the LinkTag and Direction fields on a flow based on known links.
 // If the input interface matches a known link, the flow is inbound on that link.
 // If the output interface matches, the flow is outbound on that link.
@@ -89,6 +101,16 @@ func (e *Enricher) Enrich(flow *model.FlowRecord) {
 		flow.Direction = model.DirectionOutbound
 		return
 	}
+
+	// Override private/missing AS for IPs in local prefixes
+	if e.localAS > 0 && len(e.localNets) > 0 {
+		if e.isLocalIP(flow.SrcIP) && (flow.SrcAS == 0 || isPrivateAS(flow.SrcAS)) {
+			flow.SrcAS = e.localAS
+		}
+		if e.isLocalIP(flow.DstIP) && (flow.DstAS == 0 || isPrivateAS(flow.DstAS)) {
+			flow.DstAS = e.localAS
+		}
+	}
 }
 
 // GetASName returns the AS name for the given AS number, or empty string.
@@ -97,6 +119,19 @@ func (e *Enricher) GetASName(asn uint32) string {
 	name := e.asNames[asn]
 	e.mu.RUnlock()
 	return name
+}
+
+func (e *Enricher) isLocalIP(ip net.IP) bool {
+	for i := range e.localNets {
+		if e.localNets[i].Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func isPrivateAS(asn uint32) bool {
+	return (asn >= 64512 && asn <= 65534) || (asn >= 4200000000 && asn <= 4294967294)
 }
 
 func normalizeIP(ip net.IP) [16]byte {

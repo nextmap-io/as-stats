@@ -8,7 +8,7 @@ import { TrafficChart } from "@/components/charts/TrafficChart"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
 import { formatNumber } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
-import { ArrowDownLeft, ArrowUpRight, Layers, Network, BarChart3 } from "lucide-react"
+import { BarChart3 } from "lucide-react"
 import type { ASTraffic, IPTraffic, LinkTraffic } from "@/lib/types"
 
 export function Dashboard() {

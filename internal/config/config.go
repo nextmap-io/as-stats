@@ -25,6 +25,7 @@ type CollectorConfig struct {
 	BatchSize     int
 	FlushInterval time.Duration
 	Workers       int
+	LocalAS       uint32
 }
 
 // APIConfig holds API server settings.
@@ -76,6 +77,8 @@ func LoadCollector() (*CollectorConfig, error) {
 		return nil, fmt.Errorf("invalid COLLECTOR_WORKERS: %w", err)
 	}
 
+	localAS, _ := strconv.ParseUint(envOr("LOCAL_AS", "0"), 10, 32)
+
 	return &CollectorConfig{
 		ClickHouse:    loadClickHouse(),
 		ListenNetFlow: envOr("COLLECTOR_LISTEN_NETFLOW", ":2055"),
@@ -83,6 +86,7 @@ func LoadCollector() (*CollectorConfig, error) {
 		BatchSize:     batchSize,
 		FlushInterval: flushInterval,
 		Workers:       workers,
+		LocalAS:       uint32(localAS),
 	}, nil
 }
 
