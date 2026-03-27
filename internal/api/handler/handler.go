@@ -12,7 +12,8 @@ import (
 
 // Handler holds shared dependencies for all HTTP handlers.
 type Handler struct {
-	Store *store.ClickHouseStore
+	Store         *store.ClickHouseStore
+	LocalIPFilter string // SQL filter for local IPs (empty = no filter)
 }
 
 // New creates a new Handler.

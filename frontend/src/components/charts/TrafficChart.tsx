@@ -17,6 +17,7 @@ interface TrafficChartProps {
   height?: number
   showLegend?: boolean
   title?: string
+  timeBounds?: { from: number; to: number }
 }
 
 function getIntervalSeconds(data: TrafficPoint[]): number {
@@ -27,27 +28,57 @@ function getIntervalSeconds(data: TrafficPoint[]): number {
   return diff > 0 ? diff : 300
 }
 
-export function TrafficChart({ data, height = 280, showLegend = true, title }: TrafficChartProps) {
+function formatTime(ts: number): string {
+  return new Date(ts).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+export function TrafficChart({ data, height = 280, showLegend = true, title, timeBounds }: TrafficChartProps) {
   const { formatTraffic } = useUnit()
   const interval = getIntervalSeconds(data)
 
-  // Transform: inbound positive, outbound negative
-  const formatted = data.map(d => ({
-    time: new Date(d.t).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
-    inbound: d.bytes_in,
-    outbound: -(d.bytes_out || 0),
-  }))
+  // Build data with numeric timestamps; fill the full period range
+  const stepMs = interval * 1000
+  const dataByTs = new Map<number, { inbound: number; outbound: number }>()
+  for (const d of data) {
+    const ts = new Date(d.t).getTime()
+    dataByTs.set(ts, { inbound: d.bytes_in, outbound: -(d.bytes_out || 0) })
+  }
+
+  // Fill empty time slots if bounds provided
+  const formatted: { ts: number; time: string; inbound: number; outbound: number }[] = []
+  if (timeBounds && stepMs > 0) {
+    const start = Math.floor(timeBounds.from / stepMs) * stepMs
+    for (let t = start; t <= timeBounds.to; t += stepMs) {
+      const existing = dataByTs.get(t)
+      formatted.push({
+        ts: t,
+        time: formatTime(t),
+        inbound: existing?.inbound || 0,
+        outbound: existing?.outbound || 0,
+      })
+    }
+  } else {
+    for (const d of data) {
+      const ts = new Date(d.t).getTime()
+      formatted.push({
+        ts,
+        time: formatTime(ts),
+        inbound: d.bytes_in,
+        outbound: -(d.bytes_out || 0),
+      })
+    }
+  }
 
   return (
     <div className="animate-fade-in">
       {title && <h3 className="text-xs font-medium text-muted-foreground mb-3 uppercase tracking-wider">{title}</h3>}
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={formatted} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barGap={0} barCategoryGap="10%">
+        <BarChart data={formatted} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barCategoryGap="10%">
           <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" opacity={0.5} />
           <XAxis
             dataKey="time"
@@ -63,7 +94,7 @@ export function TrafficChart({ data, height = 280, showLegend = true, title }: T
             tickFormatter={(v) => formatTraffic(Math.abs(v), interval)}
             width={64}
           />
-          <ReferenceLine y={0} stroke="var(--color-border)" />
+          <ReferenceLine y={0} stroke="var(--color-muted-foreground)" strokeOpacity={0.5} />
           <Tooltip
             contentStyle={{
               backgroundColor: "var(--color-card)",

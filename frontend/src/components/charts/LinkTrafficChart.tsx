@@ -146,22 +146,21 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors }: Li
             iconType="square"
             wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
           />
-          {/* Inbound bars (positive, stacked) */}
+          {/* All bars share one stackId — positive values stack up, negative stack down */}
           {linkTags.map((tag) => (
             <Bar
               key={`${tag}_in`}
               dataKey={`${tag}_in`}
-              stackId="in"
+              stackId="traffic"
               fill={colors[tag].in}
               fillOpacity={0.9}
             />
           ))}
-          {/* Outbound bars (negative, stacked) */}
           {linkTags.map((tag) => (
             <Bar
               key={`${tag}_out`}
               dataKey={`${tag}_out`}
-              stackId="out"
+              stackId="traffic"
               fill={colors[tag].out}
               fillOpacity={0.9}
               legendType="none"

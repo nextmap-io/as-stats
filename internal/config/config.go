@@ -33,6 +33,7 @@ type APIConfig struct {
 	ClickHouse   ClickHouseConfig
 	ListenAddr   string
 	CORSOrigins  []string
+	LocalAS      uint32
 	AuthEnabled  bool
 	OIDCIssuer   string
 	OIDCClientID string
@@ -95,11 +96,13 @@ func LoadAPI() (*APIConfig, error) {
 	origins := strings.Split(envOr("API_CORS_ORIGINS", "http://localhost:5173"), ",")
 	scopes := strings.Split(envOr("OIDC_SCOPES", "openid profile email"), " ")
 	authEnabled, _ := strconv.ParseBool(envOr("AUTH_ENABLED", "false"))
+	apiLocalAS, _ := strconv.ParseUint(envOr("LOCAL_AS", "0"), 10, 32)
 
 	cfg := &APIConfig{
 		ClickHouse:   loadClickHouse(),
 		ListenAddr:   envOr("API_LISTEN_ADDR", ":8080"),
 		CORSOrigins:  origins,
+		LocalAS:      uint32(apiLocalAS),
 		AuthEnabled:  authEnabled,
 		OIDCIssuer:   envOr("OIDC_ISSUER_URL", ""),
 		OIDCClientID: envOr("OIDC_CLIENT_ID", ""),

@@ -11,6 +11,7 @@ import (
 
 	"github.com/nextmap-io/as-stats/internal/api"
 	"github.com/nextmap-io/as-stats/internal/config"
+	"github.com/nextmap-io/as-stats/internal/ripestat"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
 
@@ -39,7 +40,19 @@ func main() {
 	}()
 	log.Println("Connected to ClickHouse")
 
-	router := api.NewRouter(chStore, cfg)
+	// Load local IP filter for Top IPs queries
+	var localIPFilter string
+	if cfg.LocalAS > 0 {
+		log.Printf("LOCAL_AS=%d — fetching prefixes for IP filtering", cfg.LocalAS)
+		if prefixes, err := ripestat.FetchASPrefixes(cfg.LocalAS); err != nil {
+			log.Printf("warning: could not fetch prefixes for AS%d: %v", cfg.LocalAS, err)
+		} else {
+			localIPFilter = ripestat.PrefixesToSQL("ip_address", prefixes)
+			log.Printf("Loaded %d local prefixes for IP filtering", len(prefixes))
+		}
+	}
+
+	router := api.NewRouter(chStore, cfg, localIPFilter)
 
 	srv := &http.Server{
 		Addr:           cfg.ListenAddr,

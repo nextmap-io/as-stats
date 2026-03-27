@@ -2,11 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log"
-	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,6 +10,7 @@ import (
 
 	"github.com/nextmap-io/as-stats/internal/collector"
 	"github.com/nextmap-io/as-stats/internal/config"
+	"github.com/nextmap-io/as-stats/internal/ripestat"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
 
@@ -50,7 +47,7 @@ func main() {
 	// Load local AS prefixes from RIPEstat
 	if cfg.LocalAS > 0 {
 		log.Printf("LOCAL_AS=%d — fetching announced prefixes from RIPEstat", cfg.LocalAS)
-		if prefixes, err := fetchASPrefixes(cfg.LocalAS); err != nil {
+		if prefixes, err := ripestat.FetchASPrefixes(cfg.LocalAS); err != nil {
 			log.Printf("warning: could not fetch prefixes for AS%d: %v", cfg.LocalAS, err)
 		} else {
 			c.Enricher().SetLocalAS(cfg.LocalAS, prefixes)
@@ -88,42 +85,4 @@ func main() {
 	}
 
 	log.Println("Collector stopped")
-}
-
-// fetchASPrefixes retrieves the announced prefixes for an AS from RIPEstat.
-func fetchASPrefixes(asn uint32) ([]net.IPNet, error) {
-	url := fmt.Sprintf("https://stat.ripe.net/data/announced-prefixes/data.json?resource=AS%d", asn)
-	client := &http.Client{Timeout: 15 * time.Second}
-
-	resp, err := client.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("RIPEstat request: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("RIPEstat returned %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Data struct {
-			Prefixes []struct {
-				Prefix string `json:"prefix"`
-			} `json:"prefixes"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode RIPEstat: %w", err)
-	}
-
-	var nets []net.IPNet
-	for _, p := range result.Data.Prefixes {
-		_, ipNet, err := net.ParseCIDR(p.Prefix)
-		if err != nil {
-			continue
-		}
-		nets = append(nets, *ipNet)
-	}
-
-	return nets, nil
 }

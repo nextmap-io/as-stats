@@ -67,6 +67,7 @@ func (h *Handler) ASTopIPs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p := parseQueryParams(r)
+	p.LocalIPFilter = h.LocalIPFilter
 
 	ips, err := h.Store.ASTopIPs(r.Context(), asn, p)
 	if err != nil {

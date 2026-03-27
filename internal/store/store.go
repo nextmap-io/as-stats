@@ -53,13 +53,14 @@ type ASNameStore interface {
 
 // QueryParams holds common query parameters for all read operations.
 type QueryParams struct {
-	From      time.Time
-	To        time.Time
-	LinkTags  []string
-	Direction string // "in", "out", or "" for both
-	IPVersion uint8  // 0=all, 4=IPv4, 6=IPv6
-	Limit     int
-	Offset    int
+	From           time.Time
+	To             time.Time
+	LinkTags       []string
+	Direction      string // "in", "out", or "" for both
+	IPVersion      uint8  // 0=all, 4=IPv4, 6=IPv6
+	LocalIPFilter  string // SQL filter for local IPs (from ripestat.PrefixesToSQL)
+	Limit          int
+	Offset         int
 }
 
 // DefaultQueryParams returns sensible defaults (last 24h, limit 20).

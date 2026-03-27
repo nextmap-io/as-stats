@@ -65,5 +65,13 @@ export function useFilters() {
     return map[p] || 86400
   }, [searchParams])
 
-  return { filters, setFilter, setFilters, filterSearch, periodSeconds }
+  // Time bounds for the current period (for chart X domain)
+  const timeBounds = useMemo(() => {
+    const now = new Date()
+    const to = now.getTime()
+    const from = to - periodSeconds * 1000
+    return { from, to }
+  }, [periodSeconds])
+
+  return { filters, setFilter, setFilters, filterSearch, periodSeconds, timeBounds }
 }

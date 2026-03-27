@@ -12,7 +12,7 @@ import { BarChart3 } from "lucide-react"
 import type { ASTraffic, IPTraffic, LinkTraffic } from "@/lib/types"
 
 export function Dashboard() {
-  const { filters, filterSearch, periodSeconds } = useFilters()
+  const { filters, filterSearch, periodSeconds, timeBounds } = useFilters()
   const { data, isLoading, error, refetch } = useOverview(filters)
   const { data: ipv4Traffic } = useLinksTraffic(4, filters)
   const { data: ipv6Traffic } = useLinksTraffic(6, filters)
@@ -25,7 +25,7 @@ export function Dashboard() {
   if (!overview) return null
 
   // Top 4 ASes for mini charts
-  const topASNs = (overview.top_as || []).slice(0, 4)
+  const topASNs = (overview.top_as || []).slice(0, 6)
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -66,7 +66,7 @@ export function Dashboard() {
       {topASNs.length > 0 && (
         <div className="grid gap-4 lg:grid-cols-2">
           {topASNs.map((as) => (
-            <ASMiniChart key={as.as_number} asn={as.as_number} name={as.as_name} filterSearch={filterSearch} />
+            <ASMiniChart key={as.as_number} asn={as.as_number} name={as.as_name} filterSearch={filterSearch} timeBounds={timeBounds} />
           ))}
         </div>
       )}
@@ -248,7 +248,7 @@ function StatPill({ label, value, accent }: {
 }
 
 /** Mini traffic chart for a single AS on the dashboard */
-function ASMiniChart({ asn, name, filterSearch }: { asn: number; name: string; filterSearch: string }) {
+function ASMiniChart({ asn, name, filterSearch, timeBounds }: { asn: number; name: string; filterSearch: string; timeBounds: { from: number; to: number } }) {
   const { filters } = useFilters()
   const { data } = useASDetail(asn, filters)
 
@@ -266,7 +266,7 @@ function ASMiniChart({ asn, name, filterSearch }: { asn: number; name: string; f
         </div>
       </CardHeader>
       <CardContent className="px-4 pb-3">
-        <TrafficChart data={ts} height={160} showLegend={false} />
+        <TrafficChart data={ts} height={160} showLegend={false} timeBounds={timeBounds} />
       </CardContent>
     </Card>
   )

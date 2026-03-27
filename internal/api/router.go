@@ -14,7 +14,7 @@ import (
 )
 
 // NewRouter creates the API router with all endpoints.
-func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig) http.Handler {
+func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter string) http.Handler {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -45,6 +45,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig) http.Handler {
 	}))
 
 	h := handler.New(s)
+	h.LocalIPFilter = localIPFilter
 	sessions := middleware.NewSessionStore()
 
 	// Health check (no auth, no rate limit)

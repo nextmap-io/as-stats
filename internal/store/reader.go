@@ -253,6 +253,11 @@ func (s *ClickHouseStore) ASTopIPs(ctx context.Context, asn uint32, p QueryParam
 	dirFilter, dirArgs := buildDirectionFilter(p.Direction)
 	linkFilter, linkArgs := buildLinkFilter(p.LinkTags)
 
+	localFilter := ""
+	if p.LocalIPFilter != "" {
+		localFilter = "AND " + p.LocalIPFilter
+	}
+
 	query := fmt.Sprintf(`
 		SELECT
 			toString(ip_address) AS ip,
@@ -262,11 +267,11 @@ func (s *ClickHouseStore) ASTopIPs(ctx context.Context, asn uint32, p QueryParam
 		FROM traffic_by_ip_as
 		WHERE as_number = @asn
 		  AND ts >= @from AND ts < @to
-		  %s %s
+		  %s %s %s
 		GROUP BY ip
 		ORDER BY total_bytes DESC
 		LIMIT @limit
-	`, dirFilter, linkFilter)
+	`, dirFilter, linkFilter, localFilter)
 
 	args := append([]any{
 		clickhouse.Named("asn", asn),
