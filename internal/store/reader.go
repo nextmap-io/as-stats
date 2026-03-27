@@ -166,11 +166,11 @@ func (s *ClickHouseStore) TopPrefix(ctx context.Context, p QueryParams) ([]model
 		}
 		internalCond := "(" + strings.Join(conditions, " OR ") + ")"
 
-		if p.PrefixScope == "internal" {
+		switch p.PrefixScope {
+		case "internal":
 			prefixFilter = "AND " + internalCond
-			// Group under parent prefix
 			prefixExpr = "CASE " + strings.Join(caseWhen, " ") + " ELSE t.prefix END"
-		} else if p.PrefixScope == "external" {
+		case "external":
 			prefixFilter = "AND NOT " + internalCond
 		}
 	}

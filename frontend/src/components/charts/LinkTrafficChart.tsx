@@ -9,7 +9,7 @@ import {
   ReferenceLine,
 } from "recharts"
 import type { LinkTimeSeries } from "@/lib/types"
-import { useUnit, type TrafficUnit } from "@/hooks/useUnit"
+import { useUnit } from "@/hooks/useUnit"
 
 const DEFAULT_COLORS = [
   "#e74c3c",
