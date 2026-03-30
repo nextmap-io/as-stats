@@ -37,7 +37,6 @@ interface LinkTrafficChartProps {
   height?: number
   title?: string
   linkColors?: Record<string, string>
-  timeBounds?: { from: number; to: number }
   p95In?: number
   p95Out?: number
   hideLegend?: boolean
@@ -61,7 +60,7 @@ function formatTimeShort(ts: number, multiDay: boolean): string {
   return new Date(ts).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" })
 }
 
-export function LinkTrafficChart({ series, height = 260, title, linkColors, timeBounds, p95In, p95Out, hideLegend }: LinkTrafficChartProps) {
+export function LinkTrafficChart({ series, height = 260, title, linkColors, p95In, p95Out, hideLegend }: LinkTrafficChartProps) {
   const { formatTraffic, formatAxis, unit } = useUnit()
   if (!series.length) return null
   const interval = getIntervalSeconds(series)
@@ -102,34 +101,18 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
     }
   }
 
-  // Always fill gaps with zeros so charts show flat line when no traffic
-  const rangeFrom = timeBounds ? timeBounds.from : minTs
-  const rangeTo = timeBounds ? timeBounds.to : maxTs
-
-  const maxSlots = 300
-  let fillStep = stepMs
-  if (stepMs > 0 && rangeTo > rangeFrom) {
-    const totalSlots = Math.ceil((rangeTo - rangeFrom) / stepMs)
-    if (totalSlots > maxSlots) {
-      fillStep = Math.ceil((rangeTo - rangeFrom) / maxSlots / stepMs) * stepMs
-    }
-  }
-
+  // Build data array from actual timestamps, inserting zeros for gaps
+  const sortedTs = Array.from(dataByTs.keys()).sort((a, b) => a - b)
   const data: Record<string, unknown>[] = []
-  if (fillStep > 0 && rangeTo > rangeFrom) {
-    const start = Math.floor(rangeFrom / fillStep) * fillStep
-    for (let t = start; t <= rangeTo; t += fillStep) {
-      const row: Record<string, number> = {}
-      for (let s = t; s < t + fillStep; s += stepMs) {
-        const existing = dataByTs.get(s)
-        if (existing) {
-          for (const [k, v] of Object.entries(existing)) {
-            row[k] = (row[k] || 0) + v
-          }
-        }
-      }
-      data.push({ time: formatTimeShort(t, multiDay), ...row })
+
+  for (let i = 0; i < sortedTs.length; i++) {
+    // Insert zero point before a gap (gap > 2x step)
+    if (i > 0 && stepMs > 0 && (sortedTs[i] - sortedTs[i - 1]) > stepMs * 2) {
+      data.push({ time: formatTimeShort(sortedTs[i - 1] + stepMs, multiDay) })
+      data.push({ time: formatTimeShort(sortedTs[i] - stepMs, multiDay) })
     }
+    const t = sortedTs[i]
+    data.push({ time: formatTimeShort(t, multiDay), ...dataByTs.get(t) })
   }
 
   const tickInterval = data.length > 0 ? Math.max(1, Math.floor(data.length / 8)) : 1

@@ -16,7 +16,6 @@ interface TrafficChartProps {
   height?: number
   showLegend?: boolean
   title?: string
-  timeBounds?: { from: number; to: number }
   p95In?: number
   p95Out?: number
 }
@@ -37,7 +36,7 @@ function formatTimeShort(ts: number, multiDay: boolean): string {
   return new Date(ts).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" })
 }
 
-export function TrafficChart({ data, height = 280, showLegend = true, title, timeBounds, p95In, p95Out }: TrafficChartProps) {
+export function TrafficChart({ data, height = 280, showLegend = true, title, p95In, p95Out }: TrafficChartProps) {
   const { formatTraffic, formatAxis, unit } = useUnit()
   const interval = getIntervalSeconds(data)
   const stepMs = interval * 1000
@@ -60,30 +59,18 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
     dataByTs.set(ts, { inbound: inVal, outbound: -outVal })
   }
 
-  // Always fill gaps with zeros
-  const rangeFrom = timeBounds ? timeBounds.from : minTs
-  const rangeTo = timeBounds ? timeBounds.to : maxTs
-
-  const maxSlots = 300
-  let fillStep = stepMs
-  if (stepMs > 0 && rangeTo > rangeFrom) {
-    const totalSlots = Math.ceil((rangeTo - rangeFrom) / stepMs)
-    if (totalSlots > maxSlots) {
-      fillStep = Math.ceil((rangeTo - rangeFrom) / maxSlots / stepMs) * stepMs
-    }
-  }
-
+  // Build data array from actual timestamps, inserting zeros for gaps
+  const sortedTs = Array.from(dataByTs.keys()).sort((a, b) => a - b)
   const formatted: { time: string; inbound: number; outbound: number }[] = []
-  if (fillStep > 0 && rangeTo > rangeFrom) {
-    const start = Math.floor(rangeFrom / fillStep) * fillStep
-    for (let t = start; t <= rangeTo; t += fillStep) {
-      let inbound = 0, outbound = 0
-      for (let s = t; s < t + fillStep; s += stepMs) {
-        const existing = dataByTs.get(s)
-        if (existing) { inbound += existing.inbound; outbound += existing.outbound }
-      }
-      formatted.push({ time: formatTimeShort(t, multiDay), inbound, outbound })
+
+  for (let i = 0; i < sortedTs.length; i++) {
+    if (i > 0 && stepMs > 0 && (sortedTs[i] - sortedTs[i - 1]) > stepMs * 2) {
+      formatted.push({ time: formatTimeShort(sortedTs[i - 1] + stepMs, multiDay), inbound: 0, outbound: 0 })
+      formatted.push({ time: formatTimeShort(sortedTs[i] - stepMs, multiDay), inbound: 0, outbound: 0 })
     }
+    const t = sortedTs[i]
+    const v = dataByTs.get(t)!
+    formatted.push({ time: formatTimeShort(t, multiDay), ...v })
   }
 
   const tickInterval = formatted.length > 0 ? Math.max(1, Math.floor(formatted.length / 8)) : 1
