@@ -996,8 +996,10 @@ func autoStep(from, to time.Time) time.Duration {
 		return 1 * time.Minute
 	case dur <= 36*time.Hour:
 		return 5 * time.Minute
-	case dur <= 7*24*time.Hour:
+	case dur <= 3*24*time.Hour:
 		return 15 * time.Minute
+	case dur <= 7*24*time.Hour:
+		return 30 * time.Minute
 	default:
 		return 1 * time.Hour
 	}

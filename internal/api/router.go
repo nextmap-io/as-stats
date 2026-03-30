@@ -23,7 +23,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 	r.Use(chimw.Logger)
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.Compress(5))
-	r.Use(chimw.Timeout(30 * time.Second))
+	r.Use(chimw.Timeout(120 * time.Second))
 
 	// Security headers
 	r.Use(func(next http.Handler) http.Handler {
