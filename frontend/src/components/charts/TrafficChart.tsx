@@ -60,26 +60,29 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
     dataByTs.set(ts, { inbound: inVal, outbound: -outVal })
   }
 
-  const formatted: { time: string; inbound: number; outbound: number }[] = []
-  if (timeBounds && stepMs > 0) {
-    const maxSlots = 300
-    let fillStep = stepMs
-    const totalSlots = Math.ceil((timeBounds.to - timeBounds.from) / stepMs)
+  // Always fill gaps with zeros
+  const rangeFrom = timeBounds ? timeBounds.from : minTs
+  const rangeTo = timeBounds ? timeBounds.to : maxTs
+
+  const maxSlots = 300
+  let fillStep = stepMs
+  if (stepMs > 0 && rangeTo > rangeFrom) {
+    const totalSlots = Math.ceil((rangeTo - rangeFrom) / stepMs)
     if (totalSlots > maxSlots) {
-      fillStep = Math.ceil((timeBounds.to - timeBounds.from) / maxSlots / stepMs) * stepMs
+      fillStep = Math.ceil((rangeTo - rangeFrom) / maxSlots / stepMs) * stepMs
     }
-    const start = Math.floor(timeBounds.from / fillStep) * fillStep
-    for (let t = start; t <= timeBounds.to; t += fillStep) {
+  }
+
+  const formatted: { time: string; inbound: number; outbound: number }[] = []
+  if (fillStep > 0 && rangeTo > rangeFrom) {
+    const start = Math.floor(rangeFrom / fillStep) * fillStep
+    for (let t = start; t <= rangeTo; t += fillStep) {
       let inbound = 0, outbound = 0
-      for (let s = t; s < t + fillStep && s <= timeBounds.to; s += stepMs) {
+      for (let s = t; s < t + fillStep; s += stepMs) {
         const existing = dataByTs.get(s)
         if (existing) { inbound += existing.inbound; outbound += existing.outbound }
       }
       formatted.push({ time: formatTimeShort(t, multiDay), inbound, outbound })
-    }
-  } else {
-    for (const [t, vals] of Array.from(dataByTs.entries()).sort(([a], [b]) => a - b)) {
-      formatted.push({ time: formatTimeShort(t, multiDay), ...vals })
     }
   }
 

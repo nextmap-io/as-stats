@@ -102,18 +102,25 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
     }
   }
 
-  const data: Record<string, unknown>[] = []
-  if (timeBounds && stepMs > 0) {
-    const maxSlots = 300
-    let fillStep = stepMs
-    const totalSlots = Math.ceil((timeBounds.to - timeBounds.from) / stepMs)
+  // Always fill gaps with zeros so charts show flat line when no traffic
+  const rangeFrom = timeBounds ? timeBounds.from : minTs
+  const rangeTo = timeBounds ? timeBounds.to : maxTs
+
+  const maxSlots = 300
+  let fillStep = stepMs
+  if (stepMs > 0 && rangeTo > rangeFrom) {
+    const totalSlots = Math.ceil((rangeTo - rangeFrom) / stepMs)
     if (totalSlots > maxSlots) {
-      fillStep = Math.ceil((timeBounds.to - timeBounds.from) / maxSlots / stepMs) * stepMs
+      fillStep = Math.ceil((rangeTo - rangeFrom) / maxSlots / stepMs) * stepMs
     }
-    const start = Math.floor(timeBounds.from / fillStep) * fillStep
-    for (let t = start; t <= timeBounds.to; t += fillStep) {
+  }
+
+  const data: Record<string, unknown>[] = []
+  if (fillStep > 0 && rangeTo > rangeFrom) {
+    const start = Math.floor(rangeFrom / fillStep) * fillStep
+    for (let t = start; t <= rangeTo; t += fillStep) {
       const row: Record<string, number> = {}
-      for (let s = t; s < t + fillStep && s <= timeBounds.to; s += stepMs) {
+      for (let s = t; s < t + fillStep; s += stepMs) {
         const existing = dataByTs.get(s)
         if (existing) {
           for (const [k, v] of Object.entries(existing)) {
@@ -122,10 +129,6 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
         }
       }
       data.push({ time: formatTimeShort(t, multiDay), ...row })
-    }
-  } else {
-    for (const [t, vals] of Array.from(dataByTs.entries()).sort(([a], [b]) => a - b)) {
-      data.push({ time: formatTimeShort(t, multiDay), ...vals })
     }
   }
 
