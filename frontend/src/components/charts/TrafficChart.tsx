@@ -29,7 +29,11 @@ function getIntervalSeconds(data: TrafficPoint[]): number {
   return diff > 0 ? diff : 300
 }
 
-function formatTimeShort(ts: number): string {
+function formatTimeShort(ts: number, multiDay: boolean): string {
+  if (multiDay) {
+    const d = new Date(ts)
+    return `${d.getDate()}/${d.getMonth() + 1} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`
+  }
   return new Date(ts).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" })
 }
 
@@ -38,6 +42,15 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
   const interval = getIntervalSeconds(data)
   const stepMs = interval * 1000
   const usePps = unit === "pps"
+
+  // Detect multi-day range
+  let minTs = Infinity, maxTs = -Infinity
+  for (const d of data) {
+    const t = new Date(d.t).getTime()
+    if (t < minTs) minTs = t
+    if (t > maxTs) maxTs = t
+  }
+  const multiDay = (maxTs - minTs) > 86400000
 
   const dataByTs = new Map<number, { inbound: number; outbound: number }>()
   for (const d of data) {
@@ -62,11 +75,11 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
         const existing = dataByTs.get(s)
         if (existing) { inbound += existing.inbound; outbound += existing.outbound }
       }
-      formatted.push({ time: formatTimeShort(t), inbound, outbound })
+      formatted.push({ time: formatTimeShort(t, multiDay), inbound, outbound })
     }
   } else {
     for (const [t, vals] of Array.from(dataByTs.entries()).sort(([a], [b]) => a - b)) {
-      formatted.push({ time: formatTimeShort(t), ...vals })
+      formatted.push({ time: formatTimeShort(t, multiDay), ...vals })
     }
   }
 

@@ -53,7 +53,11 @@ function getIntervalSeconds(series: LinkTimeSeries[]): number {
   return 300
 }
 
-function formatTimeShort(ts: number): string {
+function formatTimeShort(ts: number, multiDay: boolean): string {
+  if (multiDay) {
+    const d = new Date(ts)
+    return `${d.getDate()}/${d.getMonth() + 1} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`
+  }
   return new Date(ts).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" })
 }
 
@@ -63,6 +67,17 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
   const interval = getIntervalSeconds(series)
   const stepMs = interval * 1000
   const usePps = unit === "pps"
+
+  // Detect if data spans multiple days
+  let minTs = Infinity, maxTs = -Infinity
+  for (const ls of series) {
+    for (const pt of ls.points) {
+      const t = new Date(pt.t).getTime()
+      if (t < minTs) minTs = t
+      if (t > maxTs) maxTs = t
+    }
+  }
+  const multiDay = (maxTs - minTs) > 86400000
 
   const linkTags: string[] = []
   const linkLabels: Record<string, string> = {}
@@ -106,11 +121,11 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
           }
         }
       }
-      data.push({ time: formatTimeShort(t), ...row })
+      data.push({ time: formatTimeShort(t, multiDay), ...row })
     }
   } else {
     for (const [t, vals] of Array.from(dataByTs.entries()).sort(([a], [b]) => a - b)) {
-      data.push({ time: formatTimeShort(t), ...vals })
+      data.push({ time: formatTimeShort(t, multiDay), ...vals })
     }
   }
 
