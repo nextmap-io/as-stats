@@ -6,6 +6,8 @@ import { TrafficChart } from "@/components/charts/TrafficChart"
 import { ExpandableChart } from "@/components/ExpandableChart"
 import { formatNumber } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
+import { useReverseDNS } from "@/hooks/useDns"
+import { IPWithPTR } from "@/components/PTR"
 
 export function IPDetail() {
   const { ip } = useParams<{ ip: string }>()
@@ -21,7 +23,7 @@ export function IPDetail() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-lg font-bold tracking-tight font-mono">{detail.ip}</h1>
+      <IPHeader ip={detail.ip} />
 
       <Card>
         <CardHeader className="pb-2">
@@ -59,7 +61,7 @@ export function IPDetail() {
                     <tr key={peer.ip} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
                       <td className="py-1">
                         <Link to={`/ip/${peer.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px]">
-                          {peer.ip}
+                          <IPWithPTR ip={peer.ip} />
                         </Link>
                       </td>
                       <td className="py-1 text-right font-mono">{formatTraffic(peer.bytes, periodSeconds)}</td>
@@ -107,6 +109,16 @@ export function IPDetail() {
           </Card>
         )}
       </div>
+    </div>
+  )
+}
+
+function IPHeader({ ip }: { ip: string }) {
+  const ptr = useReverseDNS(ip)
+  return (
+    <div>
+      <h1 className="text-lg font-bold tracking-tight font-mono">{ip}</h1>
+      {ptr && <p className="text-xs text-muted-foreground mt-0.5">{ptr}</p>}
     </div>
   )
 }

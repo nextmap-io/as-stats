@@ -99,6 +99,9 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		r.Get("/links/traffic", h.LinksTraffic)
 		r.Get("/link/{tag}", h.LinkDetail)
 
+		// DNS
+		r.Get("/dns/ptr", h.DNSPtr)
+
 		// Search
 		r.Get("/search", h.Search)
 

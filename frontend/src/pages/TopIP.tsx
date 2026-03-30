@@ -5,6 +5,7 @@ import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatNumber } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
+import { IPWithPTR } from "@/components/PTR"
 
 type Scope = "all" | "internal" | "external"
 
@@ -60,7 +61,7 @@ export function TopIP() {
                       <td className="py-1.5 text-muted-foreground">{(filters.offset || 0) + i + 1}</td>
                       <td className="py-1.5">
                         <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px]">
-                          {ip.ip}
+                          <IPWithPTR ip={ip.ip} />
                         </Link>
                       </td>
                       <td className="py-1.5">

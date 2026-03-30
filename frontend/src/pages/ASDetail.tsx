@@ -7,6 +7,7 @@ import { ExpandableChart } from "@/components/ExpandableChart"
 import { formatNumber, formatBytes } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 import { ExternalLink } from "lucide-react"
+import { IPWithPTR } from "@/components/PTR"
 
 export function ASDetail() {
   const { asn } = useParams<{ asn: string }>()
@@ -126,7 +127,7 @@ export function ASDetail() {
                     <tr key={ip.ip} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
                       <td className="py-1">
                         <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px]">
-                          {ip.ip}
+                          <IPWithPTR ip={ip.ip} />
                         </Link>
                       </td>
                       <td className="py-1 text-right font-mono">{formatTraffic(ip.bytes, periodSeconds)}</td>
@@ -158,7 +159,7 @@ export function ASDetail() {
                     <tr key={ip.ip} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
                       <td className="py-1">
                         <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px]">
-                          {ip.ip}
+                          <IPWithPTR ip={ip.ip} />
                         </Link>
                       </td>
                       <td className="py-1 text-right font-mono">{formatTraffic(ip.bytes, periodSeconds)}</td>
