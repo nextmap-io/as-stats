@@ -21,11 +21,12 @@ interface TrafficChartProps {
 }
 
 function getIntervalSeconds(data: TrafficPoint[]): number {
-  if (data.length < 2) return 300
-  const t0 = new Date(data[0].t).getTime()
-  const t1 = new Date(data[1].t).getTime()
-  const diff = (t1 - t0) / 1000
-  return diff > 0 ? diff : 300
+  let minDiff = Infinity
+  for (let i = 1; i < data.length; i++) {
+    const diff = (new Date(data[i].t).getTime() - new Date(data[i - 1].t).getTime()) / 1000
+    if (diff > 0 && diff < minDiff) minDiff = diff
+  }
+  return minDiff === Infinity ? 300 : minDiff
 }
 
 function formatTimeShort(ts: number, multiDay: boolean): string {

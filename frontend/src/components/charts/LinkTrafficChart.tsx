@@ -43,13 +43,14 @@ interface LinkTrafficChartProps {
 }
 
 function getIntervalSeconds(series: LinkTimeSeries[]): number {
+  let minDiff = Infinity
   for (const s of series) {
-    if (s.points.length >= 2) {
-      const diff = (new Date(s.points[1].t).getTime() - new Date(s.points[0].t).getTime()) / 1000
-      if (diff > 0) return diff
+    for (let i = 1; i < s.points.length; i++) {
+      const diff = (new Date(s.points[i].t).getTime() - new Date(s.points[i - 1].t).getTime()) / 1000
+      if (diff > 0 && diff < minDiff) minDiff = diff
     }
   }
-  return 300
+  return minDiff === Infinity ? 300 : minDiff
 }
 
 function formatTimeShort(ts: number, multiDay: boolean): string {
