@@ -117,7 +117,7 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, time
   const tickInterval = data.length > 0 ? Math.max(1, Math.floor(data.length / 8)) : 1
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in overflow-hidden">
       {title && (
         <h3 className="text-[10px] font-medium text-muted-foreground mb-2 uppercase tracking-wider">{title}</h3>
       )}

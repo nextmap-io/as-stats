@@ -2,11 +2,13 @@ import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import type { QueryFilters } from "@/lib/types"
 
+const REFETCH = 300_000 // 5 minutes
+
 export function useOverview(filters: QueryFilters) {
   return useQuery({
     queryKey: ["overview", filters],
     queryFn: () => api.overview(filters),
-    refetchInterval: 60_000,
+    refetchInterval: REFETCH,
   })
 }
 
@@ -14,6 +16,7 @@ export function useTopAS(filters: QueryFilters) {
   return useQuery({
     queryKey: ["top-as", filters],
     queryFn: () => api.topAS(filters),
+    refetchInterval: REFETCH,
   })
 }
 
@@ -22,6 +25,7 @@ export function useTopASTraffic(ipVersion: number, filters: QueryFilters) {
   return useQuery({
     queryKey: ["top-as-traffic", ipVersion, filters],
     queryFn: () => api.topASTraffic(f),
+    refetchInterval: REFETCH,
   })
 }
 
@@ -29,6 +33,7 @@ export function useTopIP(filters: QueryFilters) {
   return useQuery({
     queryKey: ["top-ip", filters],
     queryFn: () => api.topIP(filters),
+    refetchInterval: REFETCH,
   })
 }
 
@@ -36,6 +41,7 @@ export function useTopPrefix(filters: QueryFilters) {
   return useQuery({
     queryKey: ["top-prefix", filters],
     queryFn: () => api.topPrefix(filters),
+    refetchInterval: REFETCH,
   })
 }
 
@@ -44,14 +50,7 @@ export function useASDetail(asn: number, filters: QueryFilters) {
     queryKey: ["as-detail", asn, filters],
     queryFn: () => api.asDetail(asn, filters),
     enabled: asn > 0,
-  })
-}
-
-export function useASPeers(asn: number, filters: QueryFilters) {
-  return useQuery({
-    queryKey: ["as-peers", asn, filters],
-    queryFn: () => api.asPeers(asn, filters),
-    enabled: asn > 0,
+    refetchInterval: REFETCH,
   })
 }
 
@@ -76,6 +75,7 @@ export function useIPDetail(ip: string, filters: QueryFilters) {
     queryKey: ["ip-detail", ip, filters],
     queryFn: () => api.ipDetail(ip, filters),
     enabled: !!ip,
+    refetchInterval: REFETCH,
   })
 }
 
@@ -83,6 +83,7 @@ export function useLinks(filters: QueryFilters) {
   return useQuery({
     queryKey: ["links", filters],
     queryFn: () => api.links(filters),
+    refetchInterval: REFETCH,
   })
 }
 
@@ -91,6 +92,7 @@ export function useLinksTraffic(ipVersion: number, filters: QueryFilters) {
   return useQuery({
     queryKey: ["links-traffic", ipVersion, filters],
     queryFn: () => api.linksTraffic(f),
+    refetchInterval: REFETCH,
   })
 }
 
@@ -99,6 +101,7 @@ export function useLinkDetail(tag: string, filters: QueryFilters) {
     queryKey: ["link-detail", tag, filters],
     queryFn: () => api.linkDetail(tag, filters),
     enabled: !!tag,
+    refetchInterval: REFETCH,
   })
 }
 

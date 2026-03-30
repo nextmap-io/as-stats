@@ -73,7 +73,7 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, tim
   const tickInterval = formatted.length > 0 ? Math.max(1, Math.floor(formatted.length / 8)) : 1
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in overflow-hidden">
       {title && <h3 className="text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wider">{title}</h3>}
       <ResponsiveContainer width="100%" height={height}>
         <AreaChart data={formatted} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
