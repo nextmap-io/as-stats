@@ -24,11 +24,18 @@ func (h *Handler) IPDetail(w http.ResponseWriter, r *http.Request) {
 
 	topAS, _ := h.Store.IPTopAS(r.Context(), ip, p)
 
+	peerP := p
+	if peerP.Limit == 0 || peerP.Limit > 20 {
+		peerP.Limit = 20
+	}
+	peerIPs, _ := h.Store.IPPeerIPs(r.Context(), ip, peerP)
+
 	writeJSON(w, http.StatusOK, Response{
 		Data: map[string]any{
 			"ip":          ip,
 			"time_series": ts,
 			"top_as":      topAS,
+			"peer_ips":    peerIPs,
 		},
 		Meta: &ResponseMeta{From: p.From, To: p.To},
 	})

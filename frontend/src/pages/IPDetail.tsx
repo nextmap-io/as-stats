@@ -9,7 +9,7 @@ import { useUnit } from "@/hooks/useUnit"
 
 export function IPDetail() {
   const { ip } = useParams<{ ip: string }>()
-  const { filters, periodSeconds} = useFilters()
+  const { filters, filterSearch, periodSeconds } = useFilters()
   const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useIPDetail(ip || "", filters)
 
@@ -20,12 +20,12 @@ export function IPDetail() {
   if (!detail) return null
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold tracking-tight font-mono">{detail.ip}</h1>
+    <div className="space-y-5">
+      <h1 className="text-lg font-bold tracking-tight font-mono">{detail.ip}</h1>
 
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Traffic</CardTitle>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Traffic</CardTitle>
         </CardHeader>
         <CardContent>
           {detail.time_series?.length > 0 ? (
@@ -38,40 +38,75 @@ export function IPDetail() {
         </CardContent>
       </Card>
 
-      {/* AS breakdown for this IP */}
-      {detail.top_as?.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Traffic by AS</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="pb-2 text-left font-medium text-muted-foreground">ASN</th>
-                  <th className="pb-2 text-left font-medium text-muted-foreground">Name</th>
-                  <th className="pb-2 text-right font-medium text-muted-foreground">Traffic</th>
-                  <th className="pb-2 text-right font-medium text-muted-foreground">Flows</th>
-                </tr>
-              </thead>
-              <tbody>
-                {detail.top_as.map(as => (
-                  <tr key={as.as_number} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
-                    <td className="py-1.5">
-                      <Link to={`/as/${as.as_number}`} className="text-primary hover:underline font-mono">
-                        {as.as_number}
-                      </Link>
-                    </td>
-                    <td className="py-1.5 truncate max-w-48">{as.as_name || "-"}</td>
-                    <td className="py-1.5 text-right font-mono">{formatTraffic(as.bytes, periodSeconds)}</td>
-                    <td className="py-1.5 text-right font-mono text-muted-foreground">{formatNumber(as.flows)}</td>
+      <div className="grid gap-5 lg:grid-cols-2">
+        {/* Peer IPs */}
+        {detail.peer_ips && detail.peer_ips.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Top Communicating IPs</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="pb-1.5 text-left font-medium text-muted-foreground">IP</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Traffic</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground hidden sm:table-cell">Flows</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      )}
+                </thead>
+                <tbody>
+                  {detail.peer_ips.map(peer => (
+                    <tr key={peer.ip} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
+                      <td className="py-1">
+                        <Link to={`/ip/${peer.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px]">
+                          {peer.ip}
+                        </Link>
+                      </td>
+                      <td className="py-1 text-right font-mono">{formatTraffic(peer.bytes, periodSeconds)}</td>
+                      <td className="py-1 text-right font-mono text-muted-foreground hidden sm:table-cell">{formatNumber(peer.flows)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* AS breakdown */}
+        {detail.top_as?.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Traffic by AS</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="pb-1.5 text-left font-medium text-muted-foreground">ASN</th>
+                    <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Traffic</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground hidden sm:table-cell">Flows</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.top_as.map(as => (
+                    <tr key={as.as_number} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
+                      <td className="py-1">
+                        <Link to={`/as/${as.as_number}${filterSearch}`} className="text-primary hover:underline font-mono">
+                          {as.as_number}
+                        </Link>
+                      </td>
+                      <td className="py-1 text-muted-foreground truncate max-w-40">{as.as_name || "-"}</td>
+                      <td className="py-1 text-right font-mono">{formatTraffic(as.bytes, periodSeconds)}</td>
+                      <td className="py-1 text-right font-mono text-muted-foreground hidden sm:table-cell">{formatNumber(as.flows)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   )
 }

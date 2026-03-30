@@ -102,6 +102,7 @@ export interface IPDetailData {
   ip: string
   time_series: TrafficPoint[]
   top_as: ASTraffic[]
+  peer_ips?: IPTraffic[]
 }
 
 export interface LinkDetailData {

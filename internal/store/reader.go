@@ -573,6 +573,52 @@ func (s *ClickHouseStore) IPTopAS(ctx context.Context, ip string, p QueryParams)
 	return results, nil
 }
 
+// IPPeerIPs returns the top IPs communicating with a given IP (from flows_raw).
+func (s *ClickHouseStore) IPPeerIPs(ctx context.Context, ip string, p QueryParams) ([]model.IPTraffic, error) {
+	query := `
+		SELECT
+			replaceRegexpOne(toString(peer_ip), '^::ffff:', '') AS ip,
+			sum(bytes * sampling_rate) AS total_bytes,
+			sum(packets * sampling_rate) AS total_packets,
+			count() AS total_flows
+		FROM (
+			SELECT dst_ip AS peer_ip, bytes, packets, sampling_rate
+			FROM flows_raw
+			WHERE (toString(src_ip) = @ip OR toString(src_ip) = concat('::ffff:', @ip))
+			  AND timestamp >= @from AND timestamp < @to
+			UNION ALL
+			SELECT src_ip AS peer_ip, bytes, packets, sampling_rate
+			FROM flows_raw
+			WHERE (toString(dst_ip) = @ip OR toString(dst_ip) = concat('::ffff:', @ip))
+			  AND timestamp >= @from AND timestamp < @to
+		)
+		GROUP BY ip
+		ORDER BY total_bytes DESC
+		LIMIT @limit
+	`
+
+	rows, err := s.conn.Query(ctx, query,
+		clickhouse.Named("ip", ip),
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+		clickhouse.Named("limit", p.Limit),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query IP peers: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []model.IPTraffic
+	for rows.Next() {
+		var r model.IPTraffic
+		if err := rows.Scan(&r.IP, &r.Bytes, &r.Packets, &r.Flows); err != nil {
+			return nil, err
+		}
+		results = append(results, r)
+	}
+	return results, nil
+}
+
 // IPTimeSeries returns traffic time series for a specific IP.
 func (s *ClickHouseStore) IPTimeSeries(ctx context.Context, ip string, p QueryParams) ([]model.TrafficPoint, error) {
 	step := autoStep(p.From, p.To)
