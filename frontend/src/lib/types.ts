@@ -100,6 +100,10 @@ export interface ASDetailData {
 
 export interface IPDetailData {
   ip: string
+  as_number?: number
+  as_name?: string
+  prefix?: string
+  ptr?: string
   time_series: TrafficPoint[]
   top_as: ASTraffic[]
   peer_ips?: IPTraffic[]

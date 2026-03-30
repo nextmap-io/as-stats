@@ -619,6 +619,39 @@ func (s *ClickHouseStore) IPPeerIPs(ctx context.Context, ip string, p QueryParam
 	return results, nil
 }
 
+// IPInfo returns the AS number, AS name, and prefix for an IP from recent flows.
+func (s *ClickHouseStore) IPInfo(ctx context.Context, ip string) (asn uint32, asName string, prefix string, err error) {
+	// Find the most common AS + prefix for this IP in recent flows
+	query := `
+		SELECT src_as, src_prefix, count() c FROM flows_raw
+		WHERE (toString(src_ip) = @ip OR toString(src_ip) = concat('::ffff:', @ip))
+		  AND src_as > 0 AND timestamp >= now() - INTERVAL 1 DAY
+		GROUP BY src_as, src_prefix ORDER BY c DESC LIMIT 1
+	`
+
+	var pfx string
+	if err = s.conn.QueryRow(ctx, query, clickhouse.Named("ip", ip)).Scan(&asn, &pfx, new(uint64)); err != nil {
+		// Try dst side
+		query2 := `
+			SELECT dst_as, dst_prefix, count() c FROM flows_raw
+			WHERE (toString(dst_ip) = @ip OR toString(dst_ip) = concat('::ffff:', @ip))
+			  AND dst_as > 0 AND timestamp >= now() - INTERVAL 1 DAY
+			GROUP BY dst_as, dst_prefix ORDER BY c DESC LIMIT 1
+		`
+		if err = s.conn.QueryRow(ctx, query2, clickhouse.Named("ip", ip)).Scan(&asn, &pfx, new(uint64)); err != nil {
+			return 0, "", "", nil // No data, not an error
+		}
+	}
+	prefix = pfx
+
+	// Get AS name
+	if asn > 0 {
+		asName, _ = s.GetASName(ctx, asn)
+	}
+
+	return asn, asName, prefix, nil
+}
+
 // IPTimeSeries returns traffic time series for a specific IP.
 func (s *ClickHouseStore) IPTimeSeries(ctx context.Context, ip string, p QueryParams) ([]model.TrafficPoint, error) {
 	step := autoStep(p.From, p.To)

@@ -6,7 +6,6 @@ import { TrafficChart } from "@/components/charts/TrafficChart"
 import { ExpandableChart } from "@/components/ExpandableChart"
 import { formatNumber } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
-import { useReverseDNS } from "@/hooks/useDns"
 import { IPWithPTR } from "@/components/PTR"
 
 export function IPDetail() {
@@ -23,7 +22,19 @@ export function IPDetail() {
 
   return (
     <div className="space-y-5">
-      <IPHeader ip={detail.ip} />
+      {/* Header with IP info */}
+      <div>
+        <h1 className="text-lg font-bold tracking-tight font-mono">{detail.ip}</h1>
+        <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-muted-foreground">
+          {detail.ptr && <span>{detail.ptr}</span>}
+          {detail.as_number ? (
+            <Link to={`/as/${detail.as_number}${filterSearch}`} className="hover:text-primary transition-colors">
+              AS{detail.as_number}{detail.as_name ? ` ${detail.as_name}` : ""}
+            </Link>
+          ) : null}
+          {detail.prefix && <span className="font-mono">{detail.prefix}</span>}
+        </div>
+      </div>
 
       <Card>
         <CardHeader className="pb-2">
@@ -109,16 +120,6 @@ export function IPDetail() {
           </Card>
         )}
       </div>
-    </div>
-  )
-}
-
-function IPHeader({ ip }: { ip: string }) {
-  const ptr = useReverseDNS(ip)
-  return (
-    <div>
-      <h1 className="text-lg font-bold tracking-tight font-mono">{ip}</h1>
-      {ptr && <p className="text-xs text-muted-foreground mt-0.5">{ptr}</p>}
     </div>
   )
 }
