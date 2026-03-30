@@ -23,10 +23,36 @@ export function Header() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
-    if (searchQuery.trim()) {
-      navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`)
+    const q = searchQuery.trim()
+    if (!q) return
+
+    // Direct navigation for known patterns
+    const asMatch = q.match(/^[Aa][Ss]?(\d+)$/)
+    if (asMatch) {
+      navigate(`/as/${asMatch[1]}`)
       setSearchQuery("")
+      return
     }
+
+    // IP address (v4 or v6)
+    if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(q) || q.includes(":")) {
+      // Strip /prefix if present for IP navigation
+      const ip = q.split("/")[0]
+      navigate(`/ip/${encodeURIComponent(ip)}`)
+      setSearchQuery("")
+      return
+    }
+
+    // Pure number = ASN
+    if (/^\d+$/.test(q)) {
+      navigate(`/as/${q}`)
+      setSearchQuery("")
+      return
+    }
+
+    // Text search
+    navigate(`/search?q=${encodeURIComponent(q)}`)
+    setSearchQuery("")
   }
 
   const cycleTheme = () => {
