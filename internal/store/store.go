@@ -31,6 +31,7 @@ type FlowReader interface {
 	IPPeerIPs(ctx context.Context, ip string, p QueryParams) ([]model.IPTraffic, error)
 	IPInfo(ctx context.Context, ip string) (asn uint32, asName string, prefix string, err error)
 
+	LinkASTimeSeries(ctx context.Context, tag string, p QueryParams) ([]model.ASTrafficDetail, error)
 	LinkList(ctx context.Context, p QueryParams) ([]model.LinkTraffic, error)
 	LinkTimeSeries(ctx context.Context, tag string, p QueryParams) ([]model.TrafficPoint, error)
 	LinkTopAS(ctx context.Context, tag string, p QueryParams) ([]model.ASTraffic, uint64, error)

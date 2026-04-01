@@ -52,11 +52,15 @@ func (h *Handler) LinkDetail(w http.ResponseWriter, r *http.Request) {
 	// P95 for this link
 	inP95, outP95, _ := h.Store.LinkP95(r.Context(), tag, p)
 
+	// Per-AS time series on this link
+	asSeries, _ := h.Store.LinkASTimeSeries(r.Context(), tag, p)
+
 	writeJSON(w, http.StatusOK, Response{
 		Data: map[string]any{
 			"tag":         tag,
 			"time_series": ts,
 			"top_as":      topAS,
+			"as_series":   asSeries,
 			"p95_in":      inP95,
 			"p95_out":     outP95,
 		},

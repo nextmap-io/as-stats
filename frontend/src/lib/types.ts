@@ -113,6 +113,7 @@ export interface LinkDetailData {
   tag: string
   time_series: TrafficPoint[]
   top_as: ASTraffic[]
+  as_series?: ASTrafficDetail[]
   p95_in?: number
   p95_out?: number
 }

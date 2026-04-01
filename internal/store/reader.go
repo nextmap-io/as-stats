@@ -762,6 +762,100 @@ func (s *ClickHouseStore) LinkTimeSeries(ctx context.Context, tag string, p Quer
 }
 
 // LinkTopAS returns the top ASes on a specific link.
+// LinkASTimeSeries returns the top 10 AS on a link with per-AS time series.
+func (s *ClickHouseStore) LinkASTimeSeries(ctx context.Context, tag string, p QueryParams) ([]model.ASTrafficDetail, error) {
+	step := autoStep(p.From, p.To)
+	table := pickASTable(p.From, p.To)
+
+	// Get top 10 AS on this link
+	topQuery := fmt.Sprintf(`
+		SELECT as_number, any(an.as_name) AS as_name, sum(t.bytes) AS total_bytes
+		FROM %s t LEFT JOIN as_names an ON t.as_number = an.as_number
+		WHERE t.link_tag = @tag AND t.ts >= @from AND t.ts < @to
+		GROUP BY as_number ORDER BY total_bytes DESC LIMIT 10
+	`, table)
+
+	rows, err := s.conn.Query(ctx, topQuery,
+		clickhouse.Named("tag", tag),
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("link AS top: %w", err)
+	}
+
+	var asns []uint32
+	asMap := make(map[uint32]*model.ASTrafficDetail)
+	var order []uint32
+	for rows.Next() {
+		var asn uint32
+		var name string
+		var bytes uint64
+		if err := rows.Scan(&asn, &name, &bytes); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		asns = append(asns, asn)
+		order = append(order, asn)
+		asMap[asn] = &model.ASTrafficDetail{ASNumber: asn, ASName: name, Bytes: bytes}
+	}
+	_ = rows.Close()
+
+	if len(asns) == 0 {
+		return nil, nil
+	}
+
+	// Get time series for these AS on this link
+	// Swap in/out: AS MV 'out' = download, 'in' = upload
+	tsQuery := fmt.Sprintf(`
+		SELECT
+			t.as_number,
+			toStartOfInterval(t.ts, INTERVAL %d SECOND) AS period,
+			sumIf(t.bytes, t.direction = 'out') AS bytes_in,
+			sumIf(t.bytes, t.direction = 'in') AS bytes_out
+		FROM %s t
+		WHERE t.link_tag = @tag AND t.ts >= @from AND t.ts < @to
+		  AND t.as_number IN (@asns)
+		GROUP BY t.as_number, period
+		ORDER BY t.as_number, period
+	`, int(step.Seconds()), table)
+
+	tsRows, err := s.conn.Query(ctx, tsQuery,
+		clickhouse.Named("tag", tag),
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+		clickhouse.Named("asns", asns),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("link AS series: %w", err)
+	}
+	defer func() { _ = tsRows.Close() }()
+
+	for tsRows.Next() {
+		var asn uint32
+		var ts time.Time
+		var bytesIn, bytesOut uint64
+		if err := tsRows.Scan(&asn, &ts, &bytesIn, &bytesOut); err != nil {
+			return nil, err
+		}
+		if d, ok := asMap[asn]; ok {
+			// Use a single "series" entry per AS (tag = AS name for chart label)
+			if len(d.Series) == 0 {
+				d.Series = []model.LinkTimeSeries{{Tag: fmt.Sprintf("AS%d", asn), Description: d.ASName}}
+			}
+			d.Series[0].Points = append(d.Series[0].Points, model.TrafficPoint{
+				Timestamp: ts, BytesIn: bytesIn, BytesOut: bytesOut,
+			})
+		}
+	}
+
+	results := make([]model.ASTrafficDetail, 0, len(order))
+	for _, asn := range order {
+		results = append(results, *asMap[asn])
+	}
+	return results, nil
+}
+
 func (s *ClickHouseStore) LinkTopAS(ctx context.Context, tag string, p QueryParams) ([]model.ASTraffic, uint64, error) {
 	dirFilter, dirArgs := buildDirectionFilter(p.Direction)
 
