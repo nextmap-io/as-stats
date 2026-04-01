@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import { useTheme } from "@/hooks/useTheme"
 import { useUnit } from "@/hooks/useUnit"
+import { useStatus } from "@/hooks/useApi"
 import { Search, Sun, Moon, Monitor, Activity, Menu, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -55,6 +56,13 @@ export function Header() {
     setSearchQuery("")
   }
 
+  const { data: statusData } = useStatus()
+  const routerCount = statusData?.data?.routers?.length || 0
+  const isHealthy = routerCount > 0
+  const statusTitle = statusData?.data?.routers
+    ?.map(r => `${r.router_ip}: ${r.flow_count} flows`)
+    .join("\n") || "No data"
+
   const cycleTheme = () => {
     const next = theme === "light" ? "dark" : theme === "dark" ? "system" : "light"
     setTheme(next)
@@ -69,6 +77,10 @@ export function Header() {
           <Activity className="h-4 w-4" />
           <span className="text-sm">AS-Stats</span>
         </Link>
+        <span
+          className={`w-2 h-2 rounded-full shrink-0 ${isHealthy ? "bg-success" : "bg-destructive"} animate-pulse`}
+          title={statusTitle}
+        />
 
         <nav className="hidden md:flex items-center gap-0.5 ml-4" aria-label="Main navigation">
           {navItems.map(item => (

@@ -10,6 +10,7 @@ import {
 } from "recharts"
 import type { LinkTimeSeries } from "@/lib/types"
 import { useUnit } from "@/hooks/useUnit"
+import { useChartColors } from "@/hooks/useChartColors"
 
 const DEFAULT_COLORS = [
   "#e74c3c",
@@ -63,6 +64,7 @@ function formatTimeShort(ts: number, multiDay: boolean): string {
 
 export function LinkTrafficChart({ series, height = 260, title, linkColors, p95In, p95Out, hideLegend }: LinkTrafficChartProps) {
   const { formatTraffic, formatAxis, unit } = useUnit()
+  const chartColors = useChartColors()
   if (!series.length) return null
   const interval = getIntervalSeconds(series)
   const stepMs = interval * 1000
@@ -126,22 +128,22 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
       <ResponsiveContainer width="100%" height={height}>
         <AreaChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
           {/* No gradients — solid fills like classic rrdtool */}
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 85%)" opacity={0.5} />
+          <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} opacity={0.5} />
           <XAxis
             dataKey="time"
-            tick={{ fontSize: 8, fill: "hsl(215 12% 50%)" }}
-            tickLine={{ stroke: "hsl(220 15% 16%)" }}
-            axisLine={{ stroke: "hsl(220 15% 16%)" }}
+            tick={{ fontSize: 8, fill: chartColors.text }}
+            tickLine={{ stroke: chartColors.grid }}
+            axisLine={{ stroke: chartColors.grid }}
             interval={tickInterval}
           />
           <YAxis
-            tick={{ fontSize: 8, fill: "hsl(215 12% 50%)" }}
+            tick={{ fontSize: 8, fill: chartColors.text }}
             tickLine={false}
             axisLine={false}
             tickFormatter={(v) => formatAxis(Math.abs(v), interval)}
             width={40}
           />
-          <ReferenceLine y={0} stroke="hsl(215 12% 40%)" strokeWidth={1} />
+          <ReferenceLine y={0} stroke={chartColors.text} strokeWidth={1} />
           {p95In != null && p95In > 0 && (
             <ReferenceLine y={p95In} stroke="#e74c3c" strokeDasharray="4 2" strokeWidth={1} label={{ value: `p95 in: ${formatTraffic(p95In, interval)}`, position: "right", fontSize: 8, fill: "#e74c3c" }} />
           )}
@@ -161,12 +163,12 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
                 else l.outVal = Math.abs(Number(e.value) || 0)
               }
               return (
-                <div style={{ backgroundColor: "hsl(220 18% 10%)", border: "1px solid hsl(220 15% 20%)", borderRadius: 4, fontSize: 10, boxShadow: "0 4px 12px rgba(0,0,0,0.5)", padding: "5px 8px" }}>
-                  <div style={{ color: "hsl(215 12% 50%)", marginBottom: 3, fontSize: 9 }}>{label}</div>
+                <div style={{ backgroundColor: chartColors.tooltipBg, border: `1px solid ${chartColors.tooltipBorder}`, borderRadius: 4, fontSize: 10, boxShadow: "0 4px 12px rgba(0,0,0,0.5)", padding: "5px 8px" }}>
+                  <div style={{ color: chartColors.text, marginBottom: 3, fontSize: 9 }}>{label}</div>
                   {Array.from(byLink.entries()).map(([tag, { inVal, outVal }]) => {
                     if (inVal === 0 && outVal === 0) return null
                     return (
-                      <div key={tag} style={{ display: "flex", alignItems: "center", gap: 4, lineHeight: 1.6, color: "hsl(210 20% 88%)" }}>
+                      <div key={tag} style={{ display: "flex", alignItems: "center", gap: 4, lineHeight: 1.6, color: chartColors.tooltipText }}>
                         <span style={{ width: 6, height: 6, borderRadius: 1, backgroundColor: colors[tag]?.in || "#888", flexShrink: 0 }} />
                         <span style={{ fontSize: 9 }}>{linkLabels[tag] || tag}</span>
                         <span style={{ marginLeft: "auto", paddingLeft: 8, whiteSpace: "nowrap", fontSize: 9 }}>

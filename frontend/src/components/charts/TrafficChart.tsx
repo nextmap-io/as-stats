@@ -10,6 +10,7 @@ import {
 } from "recharts"
 import type { TrafficPoint } from "@/lib/types"
 import { useUnit } from "@/hooks/useUnit"
+import { useChartColors } from "@/hooks/useChartColors"
 
 interface TrafficChartProps {
   data: TrafficPoint[]
@@ -39,6 +40,7 @@ function formatTimeShort(ts: number, multiDay: boolean): string {
 
 export function TrafficChart({ data, height = 280, showLegend = true, title, p95In, p95Out }: TrafficChartProps) {
   const { formatTraffic, formatAxis, unit } = useUnit()
+  const chartColors = useChartColors()
   const interval = getIntervalSeconds(data)
   const stepMs = interval * 1000
   const usePps = unit === "pps"
@@ -81,22 +83,22 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, p95
       {title && <h3 className="text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wider">{title}</h3>}
       <ResponsiveContainer width="100%" height={height}>
         <AreaChart data={formatted} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 85%)" opacity={0.5} />
+          <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} opacity={0.5} />
           <XAxis
             dataKey="time"
-            tick={{ fontSize: 8, fill: "hsl(215 12% 50%)" }}
-            tickLine={{ stroke: "hsl(220 15% 16%)" }}
-            axisLine={{ stroke: "hsl(220 15% 16%)" }}
+            tick={{ fontSize: 8, fill: chartColors.text }}
+            tickLine={{ stroke: chartColors.grid }}
+            axisLine={{ stroke: chartColors.grid }}
             interval={tickInterval}
           />
           <YAxis
-            tick={{ fontSize: 8, fill: "hsl(215 12% 50%)" }}
+            tick={{ fontSize: 8, fill: chartColors.text }}
             tickLine={false}
             axisLine={false}
             tickFormatter={(v) => formatAxis(Math.abs(v), interval)}
             width={40}
           />
-          <ReferenceLine y={0} stroke="hsl(215 12% 40%)" strokeWidth={1} />
+          <ReferenceLine y={0} stroke={chartColors.text} strokeWidth={1} />
           {p95In != null && p95In > 0 && (
             <ReferenceLine y={p95In} stroke="#e74c3c" strokeDasharray="4 2" strokeWidth={1} label={{ value: `p95: ${formatTraffic(p95In, interval)}`, position: "right", fontSize: 8, fill: "#e74c3c" }} />
           )}
@@ -106,20 +108,20 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, p95
           <Tooltip
             cursor={{ stroke: "hsl(215 12% 50%)", strokeOpacity: 0.3 }}
             contentStyle={{
-              backgroundColor: "hsl(220 18% 10%)",
-              border: "1px solid hsl(220 15% 20%)",
+              backgroundColor: chartColors.tooltipBg,
+              border: `1px solid ${chartColors.tooltipBorder}`,
               borderRadius: 4,
               fontSize: 10,
               boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
               padding: "5px 8px",
             }}
-            itemStyle={{ padding: 0, color: "hsl(210 20% 88%)" }}
+            itemStyle={{ padding: 0, color: chartColors.tooltipText }}
             formatter={(value, name) => {
               const abs = Math.abs(Number(value))
               if (abs === 0) return [null, null]
               return [formatTraffic(abs, interval), name === "inbound" ? "\u2193 In" : "\u2191 Out"]
             }}
-            labelStyle={{ color: "hsl(215 12% 50%)", marginBottom: 2, fontSize: 9 }}
+            labelStyle={{ color: chartColors.text, marginBottom: 2, fontSize: 9 }}
           />
           <Area
             type="stepAfter"

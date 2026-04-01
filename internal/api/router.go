@@ -77,14 +77,17 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		authH := handler.NewAuthHandler(cfg, sessions)
 		r.Get("/auth/me", authH.Me)
 
-		// Overview
-		r.Get("/overview", h.Overview)
-
-		// Top endpoints
-		r.Get("/top/as", h.TopAS)
-		r.Get("/top/as/traffic", h.TopASTraffic)
-		r.Get("/top/ip", h.TopIP)
-		r.Get("/top/prefix", h.TopPrefix)
+		// Cached read routes (30s TTL)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.Cache(30 * time.Second))
+			r.Get("/overview", h.Overview)
+			r.Get("/top/as", h.TopAS)
+			r.Get("/top/as/traffic", h.TopASTraffic)
+			r.Get("/top/ip", h.TopIP)
+			r.Get("/top/prefix", h.TopPrefix)
+			r.Get("/links", h.Links)
+			r.Get("/links/traffic", h.LinksTraffic)
+		})
 
 		// AS detail
 		r.Get("/as/{asn}", h.ASDetail)
@@ -94,10 +97,11 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		// IP detail
 		r.Get("/ip/{ip}", h.IPDetail)
 
-		// Links
-		r.Get("/links", h.Links)
-		r.Get("/links/traffic", h.LinksTraffic)
+		// Link detail (not cached — specific to one link)
 		r.Get("/link/{tag}", h.LinkDetail)
+
+		// Status
+		r.Get("/status", h.Status)
 
 		// DNS
 		r.Get("/dns/ptr", h.DNSPtr)

@@ -96,6 +96,7 @@ export const api = {
   linksTraffic: (filters?: QueryFilters) => fetchAPI<LinkTimeSeries[]>("/links/traffic", filters),
   linkDetail: (tag: string, filters?: QueryFilters) => fetchAPI<LinkDetailData>(`/link/${tag}`, filters),
 
+  status: () => fetchAPI<{ routers: { router_ip: string; last_seen: string; flow_count: number }[]; total_rows: number; db_size: number }>("/status"),
   dnsPtr: (ip: string) => fetchAPI<{ ip: string; ptr: string }>("/dns/ptr", { ip } as QueryFilters),
   search: (q: string) => fetchAPI<ASInfo[]>("/search", { q }),
 

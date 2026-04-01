@@ -120,6 +120,14 @@ export function useLinkColors() {
   return colors
 }
 
+export function useStatus() {
+  return useQuery({
+    queryKey: ["status"],
+    queryFn: () => api.status(),
+    refetchInterval: 30_000,
+  })
+}
+
 export function useSearch(query: string) {
   return useQuery({
     queryKey: ["search", query],

@@ -102,6 +102,16 @@ func (s *ClickHouseStore) WriteBatch(ctx context.Context, flows []*model.FlowRec
 	return batch.Send()
 }
 
+// Query executes a raw query and returns rows.
+func (s *ClickHouseStore) Query(ctx context.Context, query string, args ...any) (driver.Rows, error) {
+	return s.conn.Query(ctx, query, args...)
+}
+
+// QueryRow executes a query that returns a single row.
+func (s *ClickHouseStore) QueryRow(ctx context.Context, query string, args ...any) driver.Row {
+	return s.conn.QueryRow(ctx, query, args...)
+}
+
 // Close closes the ClickHouse connection.
 func (s *ClickHouseStore) Close() error {
 	return s.conn.Close()
