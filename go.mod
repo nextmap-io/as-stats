@@ -1,15 +1,13 @@
 module github.com/nextmap-io/as-stats
 
-go 1.24.1
-
-toolchain go1.24.7
+go 1.25.0
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.44.0
 	github.com/coreos/go-oidc/v3 v3.17.0
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-chi/cors v1.2.2
-	golang.org/x/oauth2 v0.28.0
+	golang.org/x/oauth2 v0.36.0
 )
 
 require (
