@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"time"
 )
 
 // Status handles GET /api/v1/status
@@ -29,11 +30,11 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	var routers []routerStatus
 	for rows.Next() {
 		var r routerStatus
-		var ts string
+		var ts time.Time
 		if err := rows.Scan(&r.RouterIP, &ts, &r.FlowCount); err != nil {
 			continue
 		}
-		r.LastSeen = ts
+		r.LastSeen = ts.UTC().Format(time.RFC3339)
 		routers = append(routers, r)
 	}
 
