@@ -26,21 +26,6 @@ services:
         limits:
           memory: 8G
 
-  redis:
-    restart: unless-stopped
-    # Remove public port exposure
-    ports: !override []
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes --requirepass "${REDIS_PASSWORD:-changeme}"
-    environment:
-      REDIS_PASSWORD: "${REDIS_PASSWORD:-changeme}"
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" ping | grep PONG"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   collector:
     image: ghcr.io/nextmap-io/as-stats-collector:${IMAGE_TAG:-latest}
     restart: unless-stopped
@@ -65,7 +50,6 @@ services:
       OIDC_REDIRECT_URL: "${OIDC_REDIRECT_URL:-}"
       OIDC_SCOPES: "${OIDC_SCOPES:-openid profile email}"
       API_CORS_ORIGINS: "${API_CORS_ORIGINS:-https://asstats.example.com}"
-      REDIS_URL: "redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0"
     deploy:
       resources:
         limits:
@@ -80,4 +64,3 @@ services:
 volumes:
   clickhouse_data:
   clickhouse_logs:
-  redis_data:

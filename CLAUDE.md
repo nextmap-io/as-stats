@@ -140,7 +140,7 @@ All under `/api/v1/`. Common params: `from`, `to`, `period` (1h/6h/24h/7d/30d), 
 ## Running
 
 ```bash
-make docker-up          # ClickHouse + Redis
+make docker-up          # ClickHouse
 make run-collector      # Terminal 1
 make run-api            # Terminal 2
 cd frontend && npm run dev  # Terminal 3
