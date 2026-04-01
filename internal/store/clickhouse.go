@@ -27,11 +27,12 @@ func NewClickHouseStore(cfg config.ClickHouseConfig) (*ClickHouseStore, error) {
 			Password: cfg.Password,
 		},
 		Settings: clickhouse.Settings{
-			"max_execution_time": 60,
+			"max_execution_time": 120,
 		},
-		MaxOpenConns:    10,
-		MaxIdleConns:    5,
+		MaxOpenConns:    30,
+		MaxIdleConns:    15,
 		ConnMaxLifetime: 10 * time.Minute,
+		DialTimeout:     10 * time.Second,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse open: %w", err)
