@@ -16,7 +16,7 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.Store.Query(r.Context(), `
 		SELECT toString(router_ip), max(timestamp), count()
 		FROM flows_raw
-		WHERE timestamp >= now() - INTERVAL 10 MINUTE
+		WHERE timestamp >= now() - INTERVAL 30 MINUTE
 		GROUP BY router_ip
 		ORDER BY count() DESC
 	`)
