@@ -1,0 +1,101 @@
+# AS-Stats production deployment using pre-built GHCR images.
+# No build step required — just configure .env and run:
+#
+#   docker compose -f docker-compose.ghcr.yml up -d
+#
+# Prerequisites:
+# - Docker 24+ with Compose v2
+# - Copy .env.example to .env and configure passwords
+# - Forward UDP 2055 (NetFlow) and 6343 (sFlow) to this host
+# - Put a reverse proxy (Caddy/nginx) in front for HTTPS
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3-alpine
+    restart: unless-stopped
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+      - ./migrations:/docker-entrypoint-initdb.d
+    environment:
+      CLICKHOUSE_DB: asstats
+      CLICKHOUSE_USER: asstats
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in .env}"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+
+  collector:
+    image: ghcr.io/nextmap-io/as-stats-collector:latest
+    restart: unless-stopped
+    # Use host networking so the collector sees real router IPs
+    # (Docker NAT replaces source IPs, breaking link enrichment)
+    network_mode: host
+    environment:
+      CLICKHOUSE_ADDR: "127.0.0.1:9000"
+      CLICKHOUSE_DATABASE: asstats
+      CLICKHOUSE_USER: asstats
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD}"
+      COLLECTOR_LISTEN_NETFLOW: ":2055"
+      COLLECTOR_LISTEN_SFLOW: ":6343"
+      COLLECTOR_BATCH_SIZE: "10000"
+      COLLECTOR_FLUSH_INTERVAL: "5s"
+      COLLECTOR_WORKERS: "4"
+      LOCAL_AS: "${LOCAL_AS:-}"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  api:
+    image: ghcr.io/nextmap-io/as-stats-api:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      CLICKHOUSE_ADDR: clickhouse:9000
+      CLICKHOUSE_DATABASE: asstats
+      CLICKHOUSE_USER: asstats
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD}"
+      API_LISTEN_ADDR: ":8080"
+      API_CORS_ORIGINS: "${API_CORS_ORIGINS:-https://as-stats.example.com}"
+      AUTH_ENABLED: "${AUTH_ENABLED:-false}"
+      LOCAL_AS: "${LOCAL_AS:-}"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  frontend:
+    image: ghcr.io/nextmap-io/as-stats-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  clickhouse_data:
+  clickhouse_logs:

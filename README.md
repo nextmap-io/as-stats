@@ -24,7 +24,7 @@ Collects NetFlow/sFlow from routers and generates per-AS, per-IP, and per-prefix
                                              ┌────────┴─────────┐
                                              │  API Server (Go) │
                                              │  - REST endpoints│
-                                             │  - OIDC auth     │
+                                             │  - In-memory cache│
                                              └────────┬─────────┘
                                                       │
                                              ┌────────┴─────────┐
@@ -39,104 +39,221 @@ Collects NetFlow/sFlow from routers and generates per-AS, per-IP, and per-prefix
 
 - **Flow Collection**: NetFlow v5, v9, IPFIX, and sFlow v5
 - **High Performance**: Handles 100k+ flows/sec with batched writes
-- **ClickHouse Storage**: Pre-aggregated materialized views for fast queries
-- **REST API**: Full-featured API with filtering, pagination, and search
-- **Modern UI**: React + shadcn/ui with dark mode, real-time charts, and responsive design
+- **ClickHouse Storage**: Pre-aggregated materialized views (5min → hourly → daily)
+- **IPv4/IPv6 Split**: Separate graphs and stats per IP version
+- **Per-Link Breakdown**: Traffic split by transit/peering link with custom colors
+- **95th Percentile**: P95 lines on all charts, capacity utilization on links
+- **LOCAL_AS Enrichment**: Auto-fetch announced prefixes from RIPEstat, remap private ASes
+- **Smart Search**: AS number, IP address, or name — auto-redirect
+- **Reverse DNS**: PTR records displayed inline on IP tables
+- **REST API**: Full-featured with filtering, pagination, search, and in-memory cache
+- **Modern UI**: React with dark/light mode, expandable charts, responsive tables
 - **OIDC Auth**: Optional OpenID Connect authentication with RBAC
-- **Docker Ready**: Full Docker Compose setup for development and production
+- **Docker Ready**: Single-file deployment with pre-built images
 
-## Quick Start
+## Quick Start (Production)
 
-### Prerequisites
+### 1. Prerequisites
 
-- Go 1.24+
-- Node.js 20+
-- Docker and Docker Compose
+- Linux server with Docker 24+ and Compose v2
+- UDP ports 2055 (NetFlow) and 6343 (sFlow) open
+- A reverse proxy for HTTPS (Caddy recommended)
 
-### Development Setup
+### 2. Deploy
 
-1. Start infrastructure:
-   ```bash
-   make docker-up
-   ```
+```bash
+git clone https://github.com/nextmap-io/as-stats.git
+cd as-stats
 
-2. Apply database migrations:
-   ```bash
-   make migrate
-   ```
+# Configure
+cp .env.example .env
+# Edit .env: set CLICKHOUSE_PASSWORD, API_CORS_ORIGINS, LOCAL_AS
 
-3. Start the collector:
-   ```bash
-   make run-collector
-   ```
+# Start with pre-built images (no build required)
+docker compose -f docker-compose.ghcr.yml up -d
+```
 
-4. Start the API server (in another terminal):
-   ```bash
-   make run-api
-   ```
+### 3. Configure your reverse proxy
 
-5. Start the frontend (in another terminal):
-   ```bash
-   make frontend-dev
-   ```
+Example with Caddy (`/etc/caddy/Caddyfile`):
 
-The UI is available at http://localhost:5173, the API at http://localhost:8080.
+```
+as-stats.example.com {
+    reverse_proxy 127.0.0.1:8081
+    encode gzip
+}
+```
 
-### Configuration
+### 4. Configure your routers
 
-All configuration is via environment variables. See [`.env.example`](.env.example) for the full list.
+**Junos (NetFlow v9)**:
+```
+set forwarding-options sampling instance AS-STATS input rate 1
+set forwarding-options sampling instance AS-STATS family inet output flow-server <COLLECTOR_IP> port 2055
+set forwarding-options sampling instance AS-STATS family inet output flow-server <COLLECTOR_IP> autonomous-system-type origin
+set forwarding-options sampling instance AS-STATS family inet output inline-jflow source-address <LOOPBACK_IP>
+```
 
-Key settings:
+**Cisco IOS-XE (NetFlow v9)**:
+```
+flow record AS-STATS-RECORD
+ match ipv4 source address
+ match ipv4 destination address
+ match interface input
+ match interface output
+ match flow direction
+ collect counter bytes long
+ collect counter packets long
+ collect routing source as 4-octet
+ collect routing destination as 4-octet
+ collect ipv4 source prefix
+ collect ipv4 destination prefix
+
+flow exporter AS-STATS-EXPORT
+ destination <COLLECTOR_IP>
+ source Loopback0
+ transport udp 2055
+
+flow monitor AS-STATS-MONITOR
+ exporter AS-STATS-EXPORT
+ record AS-STATS-RECORD
+
+interface <UPLINK>
+ ip flow monitor AS-STATS-MONITOR input
+ ip flow monitor AS-STATS-MONITOR output
+```
+
+### 5. Configure links
+
+Open the web UI → **Links** page → **Add link** to map router SNMP interfaces to named links.
+
+You need: router IP, SNMP ifindex (from `show snmp mib ifmib ifindex <interface>`), and a tag name.
+
+## Configuration
+
+All settings via environment variables. Key options:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CLICKHOUSE_ADDR` | `localhost:9000` | ClickHouse address |
-| `CLICKHOUSE_DATABASE` | `asstats` | Database name |
-| `COLLECTOR_LISTEN_NETFLOW` | `:2055` | NetFlow/IPFIX UDP listen address |
-| `COLLECTOR_LISTEN_SFLOW` | `:6343` | sFlow UDP listen address |
-| `COLLECTOR_BATCH_SIZE` | `10000` | Flows per batch insert |
-| `COLLECTOR_FLUSH_INTERVAL` | `5s` | Max time between batch writes |
-| `API_LISTEN_ADDR` | `:8080` | API HTTP listen address |
+| `CLICKHOUSE_PASSWORD` | *required* | Strong password for ClickHouse |
+| `COLLECTOR_LISTEN_NETFLOW` | `:2055` | NetFlow/IPFIX UDP listen |
+| `COLLECTOR_LISTEN_SFLOW` | `:6343` | sFlow UDP listen |
+| `COLLECTOR_BATCH_SIZE` | `10000` | Flows per batch write |
+| `LOCAL_AS` | *(none)* | Your AS number — auto-fetches prefixes from RIPEstat to remap private ASes |
+| `API_CORS_ORIGINS` | `http://localhost:5173` | Allowed CORS origins (set to your domain) |
 | `AUTH_ENABLED` | `false` | Enable OIDC authentication |
 
-### Production Deployment
+See [`.env.example`](.env.example) for the full list.
+
+## Hardware Sizing
+
+| Traffic Level | Flows/sec | CPU | RAM | Disk (1 year) |
+|---------------|-----------|-----|-----|---------------|
+| Small (< 1 Gbps) | < 5k | 2 vCPU | 4 GB | 50 GB |
+| Medium (1-10 Gbps) | 5k-50k | 4 vCPU | 8 GB | 200 GB |
+| Large (10-100 Gbps) | 50k-500k | 8 vCPU | 16 GB | 1 TB |
+| Very Large (100+ Gbps) | 500k+ | 16 vCPU | 32 GB | 2+ TB |
+
+**Notes**:
+- ClickHouse uses most of the RAM (configure `deploy.resources.limits.memory` in compose)
+- Disk is mainly ClickHouse data — SSD recommended for query performance
+- The collector is CPU-bound (flow parsing); the API is I/O-bound (ClickHouse queries)
+- With `LOCAL_AS` set, the collector does additional prefix lookups per flow
+
+### Data Retention (default)
+
+| Table | Granularity | Retention |
+|-------|-------------|-----------|
+| `flows_raw` | Per flow | 3 days |
+| `traffic_by_as` | 5 min | 90 days |
+| `traffic_by_as_hourly` | 1 hour | 2 years |
+| `traffic_by_as_daily` | 1 day | 5 years |
+| `traffic_by_link` | 5 min | 90 days |
+| `traffic_by_link_hourly` | 1 hour | 2 years |
+| `traffic_by_link_daily` | 1 day | 5 years |
+| `traffic_by_ip` | 5 min | 14 days |
+| `traffic_by_prefix` | 5 min | 30 days |
+
+## Networking Notes
+
+### Collector and Docker NAT
+
+The collector runs in **host networking mode** (`network_mode: host`) so it sees the real source IP of routers. Without this, Docker NAT replaces the router IP with a bridge IP, breaking link enrichment.
+
+If your router sends NetFlow with **source port 0** (common on Cisco IOS-XE), Linux conntrack may drop these packets. Add a NOTRACK rule:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+ip6tables -t raw -I PREROUTING -s <ROUTER_IP> -p udp --dport 2055 -j NOTRACK
 ```
 
-Ensure UDP ports 2055 and 6343 are open for flow reception.
+Make it persistent by adding to `/etc/ufw/before6.rules` or a `networkd-dispatcher` script.
+
+### Firewall
+
+Required ports:
+- **TCP 80/443** — HTTPS (reverse proxy)
+- **UDP 2055** — NetFlow/IPFIX
+- **UDP 6343** — sFlow
+- **TCP 22** — SSH (management)
+
+## Development Setup
+
+```bash
+# Start infrastructure
+make docker-up
+
+# Apply migrations
+make migrate
+
+# Terminal 1: collector
+make run-collector
+
+# Terminal 2: API
+make run-api
+
+# Terminal 3: frontend
+cd frontend && npm run dev
+```
+
+UI: http://localhost:5173 | API: http://localhost:8080
+
+Run all checks: `make ci`
 
 ## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/overview` | Dashboard overview |
+| GET | `/api/v1/status` | Collector status + DB info |
 | GET | `/api/v1/top/as` | Top ASes by traffic |
-| GET | `/api/v1/top/ip` | Top IPs by traffic |
-| GET | `/api/v1/top/prefix` | Top prefixes by traffic |
-| GET | `/api/v1/as/{asn}` | AS detail with time series |
-| GET | `/api/v1/as/{asn}/peers` | AS peers |
-| GET | `/api/v1/ip/{ip}` | IP detail with time series |
-| GET | `/api/v1/links` | Known links with traffic |
-| GET | `/api/v1/link/{tag}` | Link detail with top ASes |
-| GET | `/api/v1/search?q=...` | Search AS, IP, prefix |
+| GET | `/api/v1/top/as/traffic` | Top ASes with time series |
+| GET | `/api/v1/top/ip` | Top IPs (scope: all/internal/external) |
+| GET | `/api/v1/top/prefix` | Top prefixes (scope: all/internal/external) |
+| GET | `/api/v1/as/{asn}` | AS detail with IPv4/IPv6 charts |
+| GET | `/api/v1/as/{asn}/ips` | Top IPs for an AS (scope: internal/external) |
+| GET | `/api/v1/ip/{ip}` | IP detail with peers and AS info |
+| GET | `/api/v1/links` | Links with traffic summary |
+| GET | `/api/v1/links/traffic` | Link traffic time series (ip_version filter) |
+| GET | `/api/v1/link/{tag}` | Link detail with top AS chart |
+| GET | `/api/v1/dns/ptr?ip=X` | Reverse DNS lookup |
+| GET | `/api/v1/search?q=X` | Search AS/IP/prefix |
+| POST | `/api/v1/admin/links` | Create/update link config |
+| DELETE | `/api/v1/admin/links/{tag}` | Delete link config |
 
-All endpoints support filters: `from`, `to`, `link`, `direction`, `limit`.
+Common query params: `period` (1h/3h/6h/24h/7d/30d), `ip_version` (4/6), `scope` (internal/external), `limit`, `offset`.
 
 ## Tech Stack
 
 | Component | Technology |
 |-----------|-----------|
-| Collector | Go, custom UDP parsers |
-| API | Go, chi router |
-| Auth | OIDC (coreos/go-oidc) |
-| Storage | ClickHouse |
-| Cache | Redis (optional) |
-| Frontend | React, TypeScript, Vite |
-| UI Kit | shadcn/ui, Tailwind CSS |
-| Charts | Recharts |
-| Deploy | Docker Compose |
+| Collector | Go, custom NetFlow/sFlow/IPFIX parsers |
+| API | Go, chi router, in-memory cache |
+| Storage | ClickHouse (SummingMergeTree) |
+| Frontend | React 19, TypeScript 6, Vite, Recharts |
+| UI | Tailwind CSS, JetBrains Mono |
+| Auth | OIDC (optional, coreos/go-oidc) |
+| Deploy | Docker Compose, GHCR images |
+| CI/CD | GitHub Actions |
 
 ## License
 
