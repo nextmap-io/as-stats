@@ -109,13 +109,15 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		// Search
 		r.Get("/search", h.Search)
 
-		// Admin (link management, requires admin role when auth is enabled)
+		// Link config (read-only, accessible to all authenticated users)
+		r.Get("/admin/links", h.LinksAdmin)
+
+		// Admin (write operations, requires admin role when auth is enabled)
 		r.Route("/admin", func(r chi.Router) {
 			if cfg.AuthEnabled {
 				r.Use(middleware.RequireRole("admin"))
 			}
 			r.Use(middleware.CSRF())
-			r.Get("/links", h.LinksAdmin)
 			r.Post("/links", h.LinkCreate)
 			r.Delete("/links/{tag}", h.LinkDelete)
 		})
