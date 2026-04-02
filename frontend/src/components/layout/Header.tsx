@@ -3,7 +3,9 @@ import { Link, useLocation, useNavigate } from "react-router-dom"
 import { useTheme } from "@/hooks/useTheme"
 import { useUnit } from "@/hooks/useUnit"
 import { useStatus } from "@/hooks/useApi"
-import { Search, Sun, Moon, Monitor, Activity, Menu, X } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
+import { api } from "@/lib/api"
+import { Search, Sun, Moon, Monitor, Activity, Menu, X, LogOut } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const navItems = [
@@ -55,6 +57,14 @@ export function Header() {
     navigate(`/search?q=${encodeURIComponent(q)}`)
     setSearchQuery("")
   }
+
+  const { data: userData } = useQuery({
+    queryKey: ["auth-me"],
+    queryFn: () => api.me(),
+    staleTime: 300_000,
+    retry: false,
+  })
+  const user = userData?.data
 
   const { data: statusData } = useStatus()
   const routerCount = statusData?.data?.routers?.length || 0
@@ -119,6 +129,22 @@ export function Header() {
           >
             <ThemeIcon className="h-3.5 w-3.5" />
           </button>
+
+          {user && (
+            <button
+              onClick={() => {
+                api.logout().then(() => {
+                  window.location.href = "/auth/login"
+                })
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded border border-input bg-muted/50 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 transition-colors px-2"
+              title={`${user.name || user.email} — click to logout`}
+              aria-label="Logout"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span className="hidden lg:inline text-xs">{user.name || user.email}</span>
+            </button>
+          )}
 
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}

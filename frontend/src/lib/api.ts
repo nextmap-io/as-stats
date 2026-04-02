@@ -101,6 +101,7 @@ export const api = {
   search: (q: string) => fetchAPI<ASInfo[]>("/search", { q }),
 
   me: () => fetchAPI<UserInfo>("/auth/me"),
+  logout: () => fetchAPI<unknown>("/auth/logout", undefined, { method: "POST" }),
 
   // Admin endpoints (POST/DELETE — include CSRF token)
   adminLinks: () => fetchAPI<LinkConfig[]>("/admin/links"),
