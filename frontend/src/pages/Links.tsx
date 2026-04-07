@@ -12,7 +12,7 @@ import { Plus, Trash2, BarChart3 } from "lucide-react"
 import { EmptyState } from "@/components/ui/error"
 
 export function Links() {
-  const { filters, filterSearch, periodSeconds} = useFilters()
+  const { filters, filterSearch, periodSeconds, timeBounds } = useFilters()
   const { data, isLoading, error } = useLinks(filters)
   const { formatTraffic } = useUnit()
   const { data: ipv4Traffic } = useLinksTraffic(4, filters)
@@ -31,7 +31,7 @@ export function Links() {
           <CardContent className="px-4 pt-5 pb-4">
             {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
               <ExpandableChart title="IPv4 Traffic by Link">
-                <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" linkColors={linkColors} />
+                <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" linkColors={linkColors} timeBounds={timeBounds} />
               </ExpandableChart>
             ) : (
               <EmptyState message="No IPv4 link traffic" icon={<BarChart3 className="h-8 w-8" />} />
@@ -42,7 +42,7 @@ export function Links() {
           <CardContent className="px-4 pt-5 pb-4">
             {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
               <ExpandableChart title="IPv6 Traffic by Link">
-                <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" linkColors={linkColors} />
+                <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" linkColors={linkColors} timeBounds={timeBounds} />
               </ExpandableChart>
             ) : (
               <EmptyState message="No IPv6 link traffic" icon={<BarChart3 className="h-8 w-8" />} />

@@ -41,6 +41,7 @@ interface LinkTrafficChartProps {
   p95In?: number
   p95Out?: number
   hideLegend?: boolean
+  timeBounds?: { from: number; to: number }
 }
 
 function getIntervalSeconds(series: LinkTimeSeries[]): number {
@@ -62,7 +63,7 @@ function formatTimeShort(ts: number, multiDay: boolean): string {
   return new Date(ts).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" })
 }
 
-export function LinkTrafficChart({ series, height = 260, title, linkColors, p95In, p95Out, hideLegend }: LinkTrafficChartProps) {
+export function LinkTrafficChart({ series, height = 260, title, linkColors, p95In, p95Out, hideLegend, timeBounds }: LinkTrafficChartProps) {
   const { formatTraffic, formatAxis, unit } = useUnit()
   const chartColors = useChartColors()
   if (!series.length) return null
@@ -93,11 +94,34 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
     colors[ls.link_tag] = { in: base, out: lighten(base) }
   }
 
+  // Collect all unique timestamps across all series
+  const tsSet = new Set<number>()
+  for (const ls of series) {
+    for (const pt of ls.points) {
+      tsSet.add(new Date(pt.t).getTime())
+    }
+  }
+
+  // Initialize each timestamp with zero values for ALL link tags.
+  // This ensures stacked areas don't break when one link has data at a
+  // timestamp and another doesn't.
   const dataByTs = new Map<number, Record<string, number>>()
+  const makeZeroRow = (): Record<string, number> => {
+    const row: Record<string, number> = {}
+    for (const tag of linkTags) {
+      row[`${tag}_in`] = 0
+      row[`${tag}_out`] = 0
+    }
+    return row
+  }
+  for (const ts of tsSet) {
+    dataByTs.set(ts, makeZeroRow())
+  }
+
+  // Fill in actual values
   for (const ls of series) {
     for (const pt of ls.points) {
       const ts = new Date(pt.t).getTime()
-      if (!dataByTs.has(ts)) dataByTs.set(ts, {})
       const row = dataByTs.get(ts)!
       row[`${ls.link_tag}_in`] = usePps ? (pt.packets_in || 0) : (pt.bytes_in || 0)
       row[`${ls.link_tag}_out`] = -(usePps ? (pt.packets_out || 0) : (pt.bytes_out || 0))
@@ -108,14 +132,33 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
   const sortedTs = Array.from(dataByTs.keys()).sort((a, b) => a - b)
   const data: Record<string, unknown>[] = []
 
+  // Boundary padding: add zero points at the start of the time range if data
+  // begins late. Cheap (just 2 extra points) so it's safe for mobile.
+  if (timeBounds && sortedTs.length > 0 && stepMs > 0) {
+    const firstTs = sortedTs[0]
+    if (firstTs > timeBounds.from + stepMs) {
+      data.push({ time: formatTimeShort(timeBounds.from, multiDay), ...makeZeroRow() })
+      data.push({ time: formatTimeShort(firstTs - stepMs, multiDay), ...makeZeroRow() })
+    }
+  }
+
   for (let i = 0; i < sortedTs.length; i++) {
-    // Insert zero point before a gap (gap > 2x step)
+    // Insert zero rows before a gap (gap > 2x step) so the chart drops to 0
     if (i > 0 && stepMs > 0 && (sortedTs[i] - sortedTs[i - 1]) > stepMs * 2) {
-      data.push({ time: formatTimeShort(sortedTs[i - 1] + stepMs, multiDay) })
-      data.push({ time: formatTimeShort(sortedTs[i] - stepMs, multiDay) })
+      data.push({ time: formatTimeShort(sortedTs[i - 1] + stepMs, multiDay), ...makeZeroRow() })
+      data.push({ time: formatTimeShort(sortedTs[i] - stepMs, multiDay), ...makeZeroRow() })
     }
     const t = sortedTs[i]
     data.push({ time: formatTimeShort(t, multiDay), ...dataByTs.get(t) })
+  }
+
+  // Boundary padding at the end of the time range
+  if (timeBounds && sortedTs.length > 0 && stepMs > 0) {
+    const lastTs = sortedTs[sortedTs.length - 1]
+    if (lastTs < timeBounds.to - stepMs) {
+      data.push({ time: formatTimeShort(lastTs + stepMs, multiDay), ...makeZeroRow() })
+      data.push({ time: formatTimeShort(timeBounds.to, multiDay), ...makeZeroRow() })
+    }
   }
 
   const tickInterval = data.length > 0 ? Math.max(1, Math.floor(data.length / 8)) : 1

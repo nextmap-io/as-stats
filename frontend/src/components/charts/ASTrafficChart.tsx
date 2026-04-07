@@ -27,6 +27,7 @@ interface ASTrafficChartProps {
   data: ASTrafficDetail[]
   height?: number
   title?: string
+  timeBounds?: { from: number; to: number }
 }
 
 function formatTimeShort(ts: number, multiDay: boolean): string {
@@ -41,7 +42,7 @@ function formatTimeShort(ts: number, multiDay: boolean): string {
 // Use getASColorsFromData in the parent component
 
 
-export function ASTrafficChart({ data, height = 300, title }: ASTrafficChartProps) {
+export function ASTrafficChart({ data, height = 300, title, timeBounds }: ASTrafficChartProps) {
   const { formatTraffic, formatAxis } = useUnit()
   if (!data.length) return null
 
@@ -81,29 +82,69 @@ export function ASTrafficChart({ data, height = 300, title }: ASTrafficChartProp
     colors[d.as_number] = { in: base, out: lighten(base) }
   })
 
-  // Pivot: collect all timestamps → per-AS in/out
-  const dataByTs = new Map<number, Record<string, number>>()
+  // Collect all unique timestamps
+  const tsSet = new Set<number>()
   for (const as of data) {
     for (const s of as.series) {
       for (const pt of s.points) {
-        const ts = new Date(pt.t).getTime()
-        if (!dataByTs.has(ts)) dataByTs.set(ts, {})
-        const row = dataByTs.get(ts)!
-        row[`${as.as_number}_in`] = (row[`${as.as_number}_in`] || 0) + (pt.bytes_in || 0)
-        row[`${as.as_number}_out`] = (row[`${as.as_number}_out`] || 0) - (pt.bytes_out || 0)
+        tsSet.add(new Date(pt.t).getTime())
       }
     }
   }
 
-  // Build sorted data with gap fill
+  // Initialize each timestamp with zero values for ALL ASes (avoids stacked
+  // area gaps when one AS has data at a timestamp and another doesn't).
+  const makeZeroRow = (): Record<string, number> => {
+    const row: Record<string, number> = {}
+    for (const asn of asKeys) {
+      row[`${asn}_in`] = 0
+      row[`${asn}_out`] = 0
+    }
+    return row
+  }
+  const dataByTs = new Map<number, Record<string, number>>()
+  for (const ts of tsSet) {
+    dataByTs.set(ts, makeZeroRow())
+  }
+
+  // Fill in actual values
+  for (const as of data) {
+    for (const s of as.series) {
+      for (const pt of s.points) {
+        const ts = new Date(pt.t).getTime()
+        const row = dataByTs.get(ts)!
+        row[`${as.as_number}_in`] += (pt.bytes_in || 0)
+        row[`${as.as_number}_out`] -= (pt.bytes_out || 0)
+      }
+    }
+  }
+
+  // Build sorted data with gap fill and boundary padding
   const sortedTs = Array.from(dataByTs.keys()).sort((a, b) => a - b)
   const chartData: Record<string, unknown>[] = []
+
+  if (timeBounds && sortedTs.length > 0 && stepMs > 0) {
+    const firstTs = sortedTs[0]
+    if (firstTs > timeBounds.from + stepMs) {
+      chartData.push({ time: formatTimeShort(timeBounds.from, multiDay), ...makeZeroRow() })
+      chartData.push({ time: formatTimeShort(firstTs - stepMs, multiDay), ...makeZeroRow() })
+    }
+  }
+
   for (let i = 0; i < sortedTs.length; i++) {
     if (i > 0 && stepMs > 0 && (sortedTs[i] - sortedTs[i - 1]) > stepMs * 2) {
-      chartData.push({ time: formatTimeShort(sortedTs[i - 1] + stepMs, multiDay) })
-      chartData.push({ time: formatTimeShort(sortedTs[i] - stepMs, multiDay) })
+      chartData.push({ time: formatTimeShort(sortedTs[i - 1] + stepMs, multiDay), ...makeZeroRow() })
+      chartData.push({ time: formatTimeShort(sortedTs[i] - stepMs, multiDay), ...makeZeroRow() })
     }
     chartData.push({ time: formatTimeShort(sortedTs[i], multiDay), ...dataByTs.get(sortedTs[i]) })
+  }
+
+  if (timeBounds && sortedTs.length > 0 && stepMs > 0) {
+    const lastTs = sortedTs[sortedTs.length - 1]
+    if (lastTs < timeBounds.to - stepMs) {
+      chartData.push({ time: formatTimeShort(lastTs + stepMs, multiDay), ...makeZeroRow() })
+      chartData.push({ time: formatTimeShort(timeBounds.to, multiDay), ...makeZeroRow() })
+    }
   }
 
   const tickInterval = chartData.length > 0 ? Math.max(1, Math.floor(chartData.length / 8)) : 1

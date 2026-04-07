@@ -15,7 +15,7 @@ import type { LinkTraffic, ASTrafficDetail } from "@/lib/types"
 const DEFAULT_LINK_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6", "#1abc9c", "#e67e22", "#2980b9"]
 
 export function Dashboard() {
-  const { filters, filterSearch, periodSeconds, bucketSeconds } = useFilters()
+  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds } = useFilters()
   const { data, isLoading, error, refetch } = useOverview(filters)
   const { data: ipv4Traffic } = useLinksTraffic(4, filters)
   const { data: ipv6Traffic } = useLinksTraffic(6, filters)
@@ -77,7 +77,7 @@ export function Dashboard() {
             <CardContent className="px-4 pt-5 pb-4">
               {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
                 <ExpandableChart title="IPv4 Traffic by Link" fetchType="link-traffic" fetchParams={{ ip_version: 4 }} linkColors={linkColors} currentPeriod={filters.period}>
-                  <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" linkColors={linkColors} />
+                  <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" linkColors={linkColors} timeBounds={timeBounds} />
                 </ExpandableChart>
               ) : (
                 <EmptyState message="No IPv4 link traffic" icon={<BarChart3 className="h-6 w-6" />} />
@@ -88,7 +88,7 @@ export function Dashboard() {
             <CardContent className="px-4 pt-5 pb-4">
               {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
                 <ExpandableChart title="IPv6 Traffic by Link" fetchType="link-traffic" fetchParams={{ ip_version: 6 }} linkColors={linkColors} currentPeriod={filters.period}>
-                  <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" linkColors={linkColors} />
+                  <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" linkColors={linkColors} timeBounds={timeBounds} />
                 </ExpandableChart>
               ) : (
                 <EmptyState message="No IPv6 link traffic" icon={<BarChart3 className="h-6 w-6" />} />
@@ -146,7 +146,7 @@ export function Dashboard() {
                           height={140}
                           linkColors={linkColors}
                           hideLegend
-                         
+                          timeBounds={timeBounds}
                           p95In={entry.v4.p95_in}
                           p95Out={entry.v4.p95_out}
                         />
@@ -164,7 +164,7 @@ export function Dashboard() {
                           height={140}
                           linkColors={linkColors}
                           hideLegend
-                         
+                          timeBounds={timeBounds}
                           p95In={entry.v6?.p95_in}
                           p95Out={entry.v6?.p95_out}
                         />

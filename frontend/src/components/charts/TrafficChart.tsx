@@ -19,6 +19,7 @@ interface TrafficChartProps {
   title?: string
   p95In?: number
   p95Out?: number
+  timeBounds?: { from: number; to: number }
 }
 
 function getIntervalSeconds(data: TrafficPoint[]): number {
@@ -38,7 +39,7 @@ function formatTimeShort(ts: number, multiDay: boolean): string {
   return new Date(ts).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" })
 }
 
-export function TrafficChart({ data, height = 280, showLegend = true, title, p95In, p95Out }: TrafficChartProps) {
+export function TrafficChart({ data, height = 280, showLegend = true, title, p95In, p95Out, timeBounds }: TrafficChartProps) {
   const { formatTraffic, formatAxis, unit } = useUnit()
   const chartColors = useChartColors()
   const interval = getIntervalSeconds(data)
@@ -66,6 +67,15 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, p95
   const sortedTs = Array.from(dataByTs.keys()).sort((a, b) => a - b)
   const formatted: { time: string; inbound: number; outbound: number }[] = []
 
+  // Boundary padding at the start of the time range
+  if (timeBounds && sortedTs.length > 0 && stepMs > 0) {
+    const firstTs = sortedTs[0]
+    if (firstTs > timeBounds.from + stepMs) {
+      formatted.push({ time: formatTimeShort(timeBounds.from, multiDay), inbound: 0, outbound: 0 })
+      formatted.push({ time: formatTimeShort(firstTs - stepMs, multiDay), inbound: 0, outbound: 0 })
+    }
+  }
+
   for (let i = 0; i < sortedTs.length; i++) {
     if (i > 0 && stepMs > 0 && (sortedTs[i] - sortedTs[i - 1]) > stepMs * 2) {
       formatted.push({ time: formatTimeShort(sortedTs[i - 1] + stepMs, multiDay), inbound: 0, outbound: 0 })
@@ -74,6 +84,15 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, p95
     const t = sortedTs[i]
     const v = dataByTs.get(t)!
     formatted.push({ time: formatTimeShort(t, multiDay), ...v })
+  }
+
+  // Boundary padding at the end of the time range
+  if (timeBounds && sortedTs.length > 0 && stepMs > 0) {
+    const lastTs = sortedTs[sortedTs.length - 1]
+    if (lastTs < timeBounds.to - stepMs) {
+      formatted.push({ time: formatTimeShort(lastTs + stepMs, multiDay), inbound: 0, outbound: 0 })
+      formatted.push({ time: formatTimeShort(timeBounds.to, multiDay), inbound: 0, outbound: 0 })
+    }
   }
 
   const tickInterval = formatted.length > 0 ? Math.max(1, Math.floor(formatted.length / 8)) : 1

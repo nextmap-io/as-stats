@@ -12,7 +12,7 @@ import { IPWithPTR } from "@/components/PTR"
 export function ASDetail() {
   const { asn } = useParams<{ asn: string }>()
   const asnNum = Number(asn) || 0
-  const { filters, filterSearch, periodSeconds, bucketSeconds} = useFilters()
+  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds } = useFilters()
   const { formatTraffic } = useUnit()
   const linkColors = useLinkColors()
 
@@ -86,7 +86,7 @@ export function ASDetail() {
           <CardContent className="px-4 pt-5 pb-4">
             {detail.v4_series && detail.v4_series.length > 0 ? (
               <ExpandableChart title={`AS${detail.as_number} — IPv4`} fetchType="as-detail-v4" fetchParams={{ asn: asnNum }} linkColors={linkColors} currentPeriod={filters.period}>
-                <LinkTrafficChart series={detail.v4_series} title="IPv4 Traffic by Link" height={280} linkColors={linkColors} p95In={detail.p95_v4_in} p95Out={detail.p95_v4_out} />
+                <LinkTrafficChart series={detail.v4_series} title="IPv4 Traffic by Link" height={280} linkColors={linkColors} p95In={detail.p95_v4_in} p95Out={detail.p95_v4_out} timeBounds={timeBounds} />
               </ExpandableChart>
             ) : (
               <p className="text-xs text-muted-foreground py-8 text-center">No IPv4 data</p>
@@ -97,7 +97,7 @@ export function ASDetail() {
           <CardContent className="px-4 pt-5 pb-4">
             {detail.v6_series && detail.v6_series.length > 0 ? (
               <ExpandableChart title={`AS${detail.as_number} — IPv6`} fetchType="as-detail-v6" fetchParams={{ asn: asnNum }} linkColors={linkColors} currentPeriod={filters.period}>
-                <LinkTrafficChart series={detail.v6_series} title="IPv6 Traffic by Link" height={280} linkColors={linkColors} p95In={detail.p95_v6_in} p95Out={detail.p95_v6_out} />
+                <LinkTrafficChart series={detail.v6_series} title="IPv6 Traffic by Link" height={280} linkColors={linkColors} p95In={detail.p95_v6_in} p95Out={detail.p95_v6_out} timeBounds={timeBounds} />
               </ExpandableChart>
             ) : (
               <p className="text-xs text-muted-foreground py-8 text-center">No IPv6 data</p>

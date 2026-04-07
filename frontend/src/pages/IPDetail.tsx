@@ -10,7 +10,7 @@ import { IPWithPTR } from "@/components/PTR"
 
 export function IPDetail() {
   const { ip } = useParams<{ ip: string }>()
-  const { filters, filterSearch, periodSeconds } = useFilters()
+  const { filters, filterSearch, periodSeconds, timeBounds } = useFilters()
   const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useIPDetail(ip || "", filters)
 
@@ -43,7 +43,7 @@ export function IPDetail() {
         <CardContent>
           {detail.time_series?.length > 0 ? (
             <ExpandableChart title="IP Traffic">
-              <TrafficChart data={detail.time_series} height={350} />
+              <TrafficChart data={detail.time_series} height={350} timeBounds={timeBounds} />
             </ExpandableChart>
           ) : (
             <p className="text-sm text-muted-foreground">No traffic data for this period</p>

@@ -14,7 +14,7 @@ import { useUnit } from "@/hooks/useUnit"
 
 export function LinkDetail() {
   const { tag } = useParams<{ tag: string }>()
-  const { filters, filterSearch, periodSeconds, bucketSeconds } = useFilters()
+  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds } = useFilters()
   const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useLinkDetail(tag || "", filters)
 
@@ -72,7 +72,7 @@ export function LinkDetail() {
         <Card>
           <CardContent className="px-4 pt-5 pb-4">
             <ExpandableChart title={`Top AS on ${detail.tag}`} fetchType="link-detail" fetchParams={{ tag: tag || "" }} currentPeriod={filters.period}>
-              <ASTrafficChart data={detail.as_series} title="Traffic by AS" height={350} />
+              <ASTrafficChart data={detail.as_series} title="Traffic by AS" height={350} timeBounds={timeBounds} />
             </ExpandableChart>
           </CardContent>
         </Card>
@@ -84,7 +84,7 @@ export function LinkDetail() {
           <CardHeader className="pb-2"><CardTitle className="text-sm">Traffic</CardTitle></CardHeader>
           <CardContent>
             <ExpandableChart title="Link Traffic" fetchType="link-detail" fetchParams={{ tag: tag || "" }} currentPeriod={filters.period}>
-              <TrafficChart data={detail.time_series} height={350} p95In={detail.p95_in} p95Out={detail.p95_out} />
+              <TrafficChart data={detail.time_series} height={350} p95In={detail.p95_in} p95Out={detail.p95_out} timeBounds={timeBounds} />
             </ExpandableChart>
           </CardContent>
         </Card>
