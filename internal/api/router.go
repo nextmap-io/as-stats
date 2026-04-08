@@ -93,7 +93,19 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Get("/top/prefix", h.TopPrefix)
 			r.Get("/links", h.Links)
 			r.Get("/links/traffic", h.LinksTraffic)
+
+			// Port stats (gated by FEATURE_PORT_STATS)
+			if cfg.FeaturePortStats {
+				r.Get("/top/protocol", h.TopProtocols)
+				r.Get("/top/port", h.TopPortsHandler)
+			}
 		})
+
+		// Flow search (gated by FEATURE_FLOW_SEARCH, not cached)
+		if cfg.FeatureFlowSearch {
+			r.Get("/flows/search", h.FlowSearch)
+			r.Get("/flows/timeseries", h.FlowTimeSeries)
+		}
 
 		// AS detail
 		r.Get("/as/{asn}", h.ASDetail)
