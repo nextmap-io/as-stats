@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/nextmap-io/as-stats/internal/api/handler"
 	"github.com/nextmap-io/as-stats/internal/api/middleware"
+	"github.com/nextmap-io/as-stats/internal/bgp"
 	"github.com/nextmap-io/as-stats/internal/config"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
@@ -48,6 +49,10 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 	h.LocalIPFilter = localIPFilter
 	h.LocalPrefixes = localPrefixes
 	h.LocalAS = cfg.LocalAS
+	h.FeatureFlowSearch = cfg.FeatureFlowSearch
+	h.FeaturePortStats = cfg.FeaturePortStats
+	h.FeatureAlerts = cfg.FeatureAlerts
+	h.BGPBlocker = bgp.NewNoop() // phase 1: noop blocker
 	sessions := middleware.NewSessionStore()
 
 	// Health check (no auth, no rate limit)
@@ -73,9 +78,18 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Use(middleware.AuthMiddleware(cfg, sessions))
 		}
 
+		// Audit log middleware: records sensitive actions (only if alerts/audit
+		// features are available, since audit_log table is part of that migration)
+		if cfg.FeatureAlerts || cfg.FeatureFlowSearch {
+			r.Use(middleware.Audit(s, middleware.DefaultAuditActions()))
+		}
+
 		// Auth info
 		authH := handler.NewAuthHandler(cfg, sessions)
 		r.Get("/auth/me", authH.Me)
+
+		// Feature discovery (always available, no cache)
+		r.Get("/features", h.Features)
 
 		// Cached read routes (30s TTL)
 		r.Group(func(r chi.Router) {
@@ -87,7 +101,38 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Get("/top/prefix", h.TopPrefix)
 			r.Get("/links", h.Links)
 			r.Get("/links/traffic", h.LinksTraffic)
+
+			// Port stats (gated by FEATURE_PORT_STATS)
+			if cfg.FeaturePortStats {
+				r.Get("/top/protocol", h.TopProtocols)
+				r.Get("/top/port", h.TopPortsHandler)
+			}
 		})
+
+		// Flow search (gated by FEATURE_FLOW_SEARCH, not cached)
+		if cfg.FeatureFlowSearch {
+			r.Get("/flows/search", h.FlowSearch)
+			r.Get("/flows/timeseries", h.FlowTimeSeries)
+		}
+
+		// Alerts (gated by FEATURE_ALERTS)
+		if cfg.FeatureAlerts {
+			r.Get("/alerts", h.ListAlerts)
+			r.Get("/alerts/summary", h.AlertsSummary)
+			// Alert actions require CSRF + optional admin role
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.CSRF())
+				r.Post("/alerts/{id}/ack", h.AcknowledgeAlert)
+				r.Post("/alerts/{id}/resolve", h.ResolveAlert)
+				// Block action requires admin role
+				r.Group(func(r chi.Router) {
+					if cfg.AuthEnabled {
+						r.Use(middleware.RequireRole("admin"))
+					}
+					r.Post("/alerts/{id}/block", h.BlockAlertBGP)
+				})
+			})
+		}
 
 		// AS detail
 		r.Get("/as/{asn}", h.ASDetail)
@@ -109,17 +154,41 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		// Search
 		r.Get("/search", h.Search)
 
-		// Link config (read-only, accessible to all authenticated users)
+		// Read-only admin endpoint accessible to all authenticated users
+		// (UI shows link config in dropdowns, etc.). Webhook URLs and audit
+		// log are admin-only — see the role-gated group below.
 		r.Get("/admin/links", h.LinksAdmin)
 
-		// Admin (write operations, requires admin role when auth is enabled)
+		// All other /admin endpoints require admin role when auth is enabled.
+		// Both reads and writes are gated to prevent enumeration of webhook
+		// URLs, alert rules, and audit log entries by non-admin users.
 		r.Route("/admin", func(r chi.Router) {
 			if cfg.AuthEnabled {
 				r.Use(middleware.RequireRole("admin"))
 			}
-			r.Use(middleware.CSRF())
-			r.Post("/links", h.LinkCreate)
-			r.Delete("/links/{tag}", h.LinkDelete)
+
+			// Reads (no CSRF)
+			if cfg.FeatureAlerts {
+				r.Get("/rules", h.ListRules)
+				r.Get("/webhooks", h.ListWebhooks)
+				r.Get("/audit", h.ListAuditLog)
+			}
+
+			// Writes (CSRF required)
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.CSRF())
+				r.Post("/links", h.LinkCreate)
+				r.Delete("/links/{tag}", h.LinkDelete)
+
+				if cfg.FeatureAlerts {
+					r.Post("/rules", h.CreateRule)
+					r.Put("/rules/{id}", h.UpdateRule)
+					r.Delete("/rules/{id}", h.DeleteRule)
+					r.Post("/webhooks", h.CreateWebhook)
+					r.Put("/webhooks/{id}", h.UpdateWebhook)
+					r.Delete("/webhooks/{id}", h.DeleteWebhook)
+				}
+			})
 		})
 	})
 

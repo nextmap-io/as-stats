@@ -148,3 +148,169 @@ export interface UserInfo {
   email: string
   role: string
 }
+
+// =============================================================================
+// Feature flags
+// =============================================================================
+
+export interface Features {
+  flow_search: boolean
+  port_stats: boolean
+  alerts: boolean
+  local_as?: number
+  auth: boolean
+}
+
+// =============================================================================
+// Flow search
+// =============================================================================
+
+export interface FlowLogEntry {
+  ts: string
+  link_tag: string
+  src_ip: string
+  dst_ip: string
+  src_as: number
+  dst_as: number
+  protocol: number
+  protocol_name?: string
+  src_port: number
+  dst_port: number
+  service?: string
+  tcp_flags?: number
+  ip_version: number
+  bytes: number
+  packets: number
+  flow_count: number
+}
+
+export interface FlowSearchFilters {
+  from?: string
+  to?: string
+  period?: string
+  src_ip?: string
+  dst_ip?: string
+  src_as?: number
+  dst_as?: number
+  protocol?: number
+  src_port?: number
+  dst_port?: number
+  link?: string
+  min_bytes?: number
+  ip_version?: 4 | 6
+  limit?: number
+  offset?: number
+  order_by?: "ts" | "bytes"
+}
+
+// =============================================================================
+// Port / protocol stats
+// =============================================================================
+
+export interface ProtocolTraffic {
+  protocol: number
+  protocol_name: string
+  direction: string
+  bytes: number
+  packets: number
+  flows: number
+  pct: number
+}
+
+export interface PortTraffic {
+  protocol: number
+  protocol_name: string
+  port: number
+  service?: string
+  direction: string
+  bytes: number
+  packets: number
+  flows: number
+  pct: number
+}
+
+// =============================================================================
+// Alerts
+// =============================================================================
+
+export type AlertSeverity = "info" | "warning" | "critical"
+export type AlertStatus = "active" | "acknowledged" | "resolved" | "muted"
+
+export interface Alert {
+  id: string
+  rule_id: string
+  rule_name: string
+  severity: AlertSeverity
+  triggered_at: string
+  last_seen_at: string
+  resolved_at?: string
+  target_ip: string
+  target_as?: number
+  protocol?: number
+  metric_value: number
+  threshold: number
+  metric_type: "bps" | "pps" | "count"
+  details?: string
+  status: AlertStatus
+  acknowledged_by?: string
+  acknowledged_at?: string
+  action_taken?: string
+  action_by?: string
+  action_at?: string
+}
+
+export interface AlertRule {
+  id: string
+  name: string
+  description?: string
+  rule_type: "volume_in" | "volume_out" | "syn_flood" | "amplification" | "port_scan" | "custom"
+  enabled: boolean
+  threshold_bps?: number
+  threshold_pps?: number
+  threshold_count?: number
+  window_seconds: number
+  cooldown_seconds: number
+  severity: AlertSeverity
+  target_filter?: string
+  custom_sql?: string
+  action: "notify" | "ack_required" | "auto_block"
+  webhook_ids?: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface WebhookConfig {
+  id: string
+  name: string
+  webhook_type: "slack" | "teams" | "discord" | "generic"
+  url: string
+  enabled: boolean
+  min_severity: AlertSeverity
+  headers?: string
+  template?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AlertsSummary {
+  total: number
+  by_severity: Record<string, number>
+}
+
+// =============================================================================
+// Audit log
+// =============================================================================
+
+export interface AuditLogEntry {
+  ts: string
+  user_sub?: string
+  user_email?: string
+  user_role?: string
+  action: string
+  resource?: string
+  params?: string
+  client_ip: string
+  user_agent?: string
+  result: "success" | "denied" | "error"
+  error_message?: string
+}

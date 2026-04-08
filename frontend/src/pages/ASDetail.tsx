@@ -1,19 +1,21 @@
 import { Link, useParams } from "react-router-dom"
 import { useASDetail, useASTopIPs, useASRemoteIPs, useLinkColors } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
+import { useFeatureFlags } from "@/hooks/useFeatures"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
 import { ExpandableChart } from "@/components/ExpandableChart"
 import { formatNumber, formatBytes } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
-import { ExternalLink } from "lucide-react"
+import { ExternalLink, Search } from "lucide-react"
 import { IPWithPTR } from "@/components/PTR"
 
 export function ASDetail() {
   const { asn } = useParams<{ asn: string }>()
   const asnNum = Number(asn) || 0
-  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds } = useFilters()
+  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds, setFilter } = useFilters()
   const { formatTraffic } = useUnit()
+  const features = useFeatureFlags()
   const linkColors = useLinkColors()
 
   const { data, isLoading, error } = useASDetail(asnNum, filters)
@@ -26,6 +28,8 @@ export function ASDetail() {
   const detail = data?.data
   if (!detail) return null
 
+  const quickPeriods = ["1h", "6h", "24h", "7d"] as const
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -37,6 +41,22 @@ export function ASDetail() {
           )}
         </h1>
         <div className="flex items-center gap-3 text-[10px]">
+          <div className="hidden md:flex items-center gap-0.5 px-1 py-0.5 rounded border border-input bg-muted/30">
+            {quickPeriods.map(p => (
+              <button
+                key={p}
+                onClick={() => setFilter("period", p)}
+                className={`px-1.5 py-0.5 text-[10px] font-medium rounded transition-colors ${
+                  filters.period === p
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                }`}
+                title={`Switch to ${p} window`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
           <a href={`https://bgp.he.net/AS${detail.as_number}`} target="_blank" rel="noopener noreferrer"
             className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1">
             HE.net <ExternalLink className="h-2.5 w-2.5" />
@@ -49,6 +69,16 @@ export function ASDetail() {
             className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1">
             bgp.tools <ExternalLink className="h-2.5 w-2.5" />
           </a>
+          {features.flow_search && (
+            <Link
+              to={`/flows?period=${filters.period || "1h"}&dst_as=${detail.as_number}`}
+              className="text-primary hover:text-primary/80 transition-colors inline-flex items-center gap-1"
+              title="Search flows involving this AS"
+            >
+              <Search className="h-2.5 w-2.5" />
+              Flows
+            </Link>
+          )}
         </div>
       </div>
 

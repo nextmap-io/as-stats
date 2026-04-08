@@ -1,9 +1,16 @@
 import type {
+  Alert,
+  AlertRule,
+  AlertsSummary,
   ApiResponse,
   ASDetailData,
   ASInfo,
   ASTraffic,
   ASTrafficDetail,
+  AuditLogEntry,
+  Features,
+  FlowLogEntry,
+  FlowSearchFilters,
   IPDetailData,
   IPTraffic,
   LinkConfig,
@@ -11,9 +18,13 @@ import type {
   LinkTimeSeries,
   LinkTraffic,
   Overview,
+  PortTraffic,
   PrefixTraffic,
+  ProtocolTraffic,
   QueryFilters,
+  TrafficPoint,
   UserInfo,
+  WebhookConfig,
 } from "./types"
 
 const BASE = "/api/v1"
@@ -109,4 +120,62 @@ export const api = {
     fetchAPI<unknown>("/admin/links", undefined, { method: "POST", body: link }),
   deleteLink: (tag: string) =>
     fetchAPI<unknown>(`/admin/links/${tag}`, undefined, { method: "DELETE" }),
+
+  // ─── Features ────────────────────────────────────────────
+  features: () => fetchAPI<Features>("/features"),
+
+  // ─── Flow search ─────────────────────────────────────────
+  flowSearch: (filters: FlowSearchFilters) =>
+    fetchAPI<FlowLogEntry[]>("/flows/search", filters as QueryFilters),
+  flowTimeSeries: (filters: FlowSearchFilters) =>
+    fetchAPI<TrafficPoint[]>("/flows/timeseries", filters as QueryFilters),
+  flowExportCSV: (filters: FlowSearchFilters) => {
+    const url = new URL("/api/v1/flows/search", window.location.origin)
+    Object.entries({ ...filters, format: "csv" }).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v))
+    })
+    window.location.href = url.toString()
+  },
+
+  // ─── Port stats ──────────────────────────────────────────
+  topProtocol: (filters?: QueryFilters) =>
+    fetchAPI<ProtocolTraffic[]>("/top/protocol", filters),
+  topPort: (filters?: QueryFilters & { protocol?: number }) =>
+    fetchAPI<PortTraffic[]>("/top/port", filters as QueryFilters),
+
+  // ─── Alerts ──────────────────────────────────────────────
+  alerts: (status?: string, limit?: number) =>
+    fetchAPI<Alert[]>("/alerts", { ...(status && { status }), ...(limit && { limit }) } as QueryFilters),
+  alertsSummary: () => fetchAPI<AlertsSummary>("/alerts/summary"),
+  ackAlert: (id: string) =>
+    fetchAPI<unknown>(`/alerts/${id}/ack`, undefined, { method: "POST" }),
+  resolveAlert: (id: string) =>
+    fetchAPI<unknown>(`/alerts/${id}/resolve`, undefined, { method: "POST" }),
+  blockAlert: (id: string, durationMinutes: number, reason: string) =>
+    fetchAPI<unknown>(`/alerts/${id}/block`, undefined, {
+      method: "POST",
+      body: { duration_minutes: durationMinutes, reason },
+    }),
+
+  // ─── Alert rules (admin) ─────────────────────────────────
+  listRules: () => fetchAPI<AlertRule[]>("/admin/rules"),
+  createRule: (rule: Partial<AlertRule>) =>
+    fetchAPI<AlertRule>("/admin/rules", undefined, { method: "POST", body: rule }),
+  updateRule: (id: string, rule: Partial<AlertRule>) =>
+    fetchAPI<AlertRule>(`/admin/rules/${id}`, undefined, { method: "PUT", body: rule }),
+  deleteRule: (id: string) =>
+    fetchAPI<unknown>(`/admin/rules/${id}`, undefined, { method: "DELETE" }),
+
+  // ─── Webhooks (admin) ────────────────────────────────────
+  listWebhooks: () => fetchAPI<WebhookConfig[]>("/admin/webhooks"),
+  createWebhook: (webhook: Partial<WebhookConfig>) =>
+    fetchAPI<WebhookConfig>("/admin/webhooks", undefined, { method: "POST", body: webhook }),
+  updateWebhook: (id: string, webhook: Partial<WebhookConfig>) =>
+    fetchAPI<WebhookConfig>(`/admin/webhooks/${id}`, undefined, { method: "PUT", body: webhook }),
+  deleteWebhook: (id: string) =>
+    fetchAPI<unknown>(`/admin/webhooks/${id}`, undefined, { method: "DELETE" }),
+
+  // ─── Audit log (admin) ───────────────────────────────────
+  auditLog: (filters?: { from?: string; to?: string; user?: string; action?: string; limit?: number }) =>
+    fetchAPI<AuditLogEntry[]>("/admin/audit", filters as QueryFilters),
 }

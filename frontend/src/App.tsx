@@ -13,6 +13,11 @@ import { IPDetail } from "@/pages/IPDetail"
 import { Links } from "@/pages/Links"
 import { LinkDetail } from "@/pages/LinkDetail"
 import { SearchPage } from "@/pages/SearchPage"
+import { FlowSearch } from "@/pages/FlowSearch"
+import { TopProtocols } from "@/pages/TopProtocols"
+import { TopPorts } from "@/pages/TopPorts"
+import { Alerts } from "@/pages/Alerts"
+import { Admin } from "@/pages/Admin"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,6 +45,11 @@ function AppWithProviders() {
             <Route path="/links" element={<Links />} />
             <Route path="/link/:tag" element={<LinkDetail />} />
             <Route path="/search" element={<SearchPage />} />
+            <Route path="/flows" element={<FlowSearch />} />
+            <Route path="/top/protocol" element={<TopProtocols />} />
+            <Route path="/top/port" element={<TopPorts />} />
+            <Route path="/alerts" element={<Alerts />} />
+            <Route path="/admin" element={<Admin />} />
           </Route>
         </Routes>
       </BrowserRouter>

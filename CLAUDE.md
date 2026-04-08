@@ -84,7 +84,10 @@ UDP Socket ──► [1 Reader goroutine] ──► packets channel (workers×64
 | `internal/store/reader.go` | Read implementations (all queries, parameterized) |
 | `internal/model/` | Shared types: `FlowRecord`, `ASTraffic`, `IPTraffic`, etc. |
 | `internal/config/` | Env-var config loading, validation |
-| `migrations/` | ClickHouse DDL (numbered migrations: 000001-000006) |
+| `migrations/` | ClickHouse DDL (numbered migrations: 000001-000009) — last three are feature-gated tables |
+| `internal/services/wellknown.go` | IANA protocol + well-known port name resolution (used by flow search and top ports) |
+| `internal/alerts/` | Alert engine (rule evaluator, webhook notifier, default rules) |
+| `internal/bgp/` | BGP blackhole `Blocker` interface (NoopBlocker stub for phase 1) |
 | `frontend/src/pages/` | React pages matching routes in App.tsx |
 | `frontend/src/hooks/` | TanStack Query hooks (`useApi.ts`), URL-synced filters (`useFilters.ts`), unit toggle (`useUnit.ts`), chart theme (`useChartColors.ts`), DNS (`useDns.ts`) |
 | `frontend/src/components/charts/` | `TrafficChart` (single in/out), `LinkTrafficChart` (stacked by link), `ASTrafficChart` (stacked by AS) — all Recharts AreaChart with stepAfter |
@@ -93,7 +96,7 @@ UDP Socket ──► [1 Reader goroutine] ──► packets channel (workers×64
 
 ## Database Schema
 
-**Tables** (all in `asstats` database):
+**Core tables** (all in `asstats` database):
 - `flows_raw` — all received flows, 3d TTL, `MergeTree`
 - `traffic_by_as` — 5-min buckets, 90d TTL, `SummingMergeTree` (includes `ip_version`)
 - `traffic_by_ip` — 5-min, 14d TTL
@@ -107,7 +110,17 @@ UDP Socket ──► [1 Reader goroutine] ──► packets channel (workers×64
 - `links` — known link config (tag, router_ip, snmp_index, color), `ReplacingMergeTree`
 - `as_names` — AS registry (imported from RIPE), `ReplacingMergeTree`
 
-Each aggregation table has **two MVs** (one `_in_mv`, one `_out_mv`) that fire on INSERT to `flows_raw`. The query layer picks the best table based on the time range (5-min for ≤90d, hourly for ≤2y, daily beyond).
+**Optional feature tables** (created by migrations 000007-000009, used only when corresponding feature flag is enabled):
+- `flows_log` — full per-tuple flow records (src/dst IP+port, protocol, TCP flags), 1-min buckets, 180d TTL, `SummingMergeTree`. Bloom-filter skip indexes on `src_ip`, `dst_ip`. Used by Flow Search (FEATURE_FLOW_SEARCH).
+- `traffic_by_port` — aggregated per (link, direction, protocol, port), 5-min buckets, 1y TTL. Used by Top Protocols/Top Ports (FEATURE_PORT_STATS).
+- `traffic_by_dst_1min` — `AggregatingMergeTree` keyed by (ts, dst_ip, protocol). Stores `bytes`, `packets`, `flow_count`, `syn_count`, plus HyperLogLog sketches `unique_src_ips` / `unique_src_ports`. 7d TTL. Used by alert engine for DDoS detection (volume_in, syn_flood, amplification).
+- `traffic_by_src_1min` — symmetric for outbound traffic. Used for `volume_out` and `port_scan` alert rules.
+- `alert_rules` — configurable DDoS detection rules (`ReplacingMergeTree`). Default rules seeded on first startup.
+- `alerts` — triggered alert instances with full lifecycle (active → ack → resolved). 1y TTL.
+- `webhook_configs` — Slack/Teams/Discord/generic notification destinations (`ReplacingMergeTree`).
+- `audit_log` — compliance trail of sensitive actions (flow_search, alert_action, link_create/delete, rule_*, webhook_*). 1y TTL.
+
+Each aggregation table has **two MVs** (one `_in_mv`, one `_out_mv`) that fire on INSERT to `flows_raw`. The query layer picks the best table based on the time range (5-min for ≤90d, hourly for ≤2y, daily beyond). The hot 1-min tables are used **exclusively** by the alert engine — no on-demand queries — so DDoS detection scales to high flow volumes without scanning `flows_raw`.
 
 ## API Endpoints
 
@@ -126,8 +139,34 @@ All under `/api/v1/`. Common params: `from`, `to`, `period` (1h/6h/24h/7d/30d), 
 | GET | `/links` | `handler.Links` |
 | GET | `/link/{tag}` | `handler.LinkDetail` (time series + top AS) |
 | GET | `/search?q=` | `handler.Search` (AS name/number) |
+| GET | `/features` | `handler.Features` (feature discovery for frontend) |
 | POST | `/admin/links` | `handler.LinkCreate` (CSRF protected) |
 | DELETE | `/admin/links/{tag}` | `handler.LinkDelete` (CSRF protected) |
+
+### Optional endpoints (feature-gated)
+
+Enabled only when the corresponding `FEATURE_*` env var is set:
+
+| Method | Path | Feature | Handler |
+|--------|------|---------|---------|
+| GET | `/flows/search` | `FEATURE_FLOW_SEARCH` | `handler.FlowSearch` (`?format=csv` for export, max 100k rows) |
+| GET | `/flows/timeseries` | `FEATURE_FLOW_SEARCH` | `handler.FlowTimeSeries` (drill-down) |
+| GET | `/top/protocol` | `FEATURE_PORT_STATS` | `handler.TopProtocols` |
+| GET | `/top/port` | `FEATURE_PORT_STATS` | `handler.TopPortsHandler` |
+| GET | `/alerts` | `FEATURE_ALERTS` | `handler.ListAlerts` |
+| GET | `/alerts/summary` | `FEATURE_ALERTS` | `handler.AlertsSummary` (header badge) |
+| POST | `/alerts/{id}/ack` | `FEATURE_ALERTS` | `handler.AcknowledgeAlert` (CSRF) |
+| POST | `/alerts/{id}/resolve` | `FEATURE_ALERTS` | `handler.ResolveAlert` (CSRF) |
+| POST | `/alerts/{id}/block` | `FEATURE_ALERTS` | `handler.BlockAlertBGP` (CSRF, admin only) |
+| GET | `/admin/rules` | `FEATURE_ALERTS` | `handler.ListRules` |
+| POST | `/admin/rules` | `FEATURE_ALERTS` | `handler.CreateRule` (CSRF, admin) |
+| PUT | `/admin/rules/{id}` | `FEATURE_ALERTS` | `handler.UpdateRule` (CSRF, admin) |
+| DELETE | `/admin/rules/{id}` | `FEATURE_ALERTS` | `handler.DeleteRule` (CSRF, admin) |
+| GET | `/admin/webhooks` | `FEATURE_ALERTS` | `handler.ListWebhooks` |
+| POST | `/admin/webhooks` | `FEATURE_ALERTS` | `handler.CreateWebhook` (CSRF, admin) |
+| PUT | `/admin/webhooks/{id}` | `FEATURE_ALERTS` | `handler.UpdateWebhook` (CSRF, admin) |
+| DELETE | `/admin/webhooks/{id}` | `FEATURE_ALERTS` | `handler.DeleteWebhook` (CSRF, admin) |
+| GET | `/admin/audit` | `FEATURE_ALERTS` | `handler.ListAuditLog` |
 
 ## Auth
 
@@ -163,5 +202,43 @@ cd frontend && npm run dev  # Terminal 3
 - Frontend: no `any` types — typed API client with generics
 - Frontend: URL-synced filters (search params), not component state
 - Frontend: all data fetching via TanStack Query hooks, never raw `useEffect` for API calls
+- Frontend: feature-gated UI uses `useFeatureFlags()` hook with safe defaults while loading
 - SQL: always `clickhouse.Named()` for parameters, never string concatenation
 - Docker: `FROM --platform=$BUILDPLATFORM` + `TARGETARCH` for cross-compilation
+
+## Feature Flags
+
+Three independent flags control optional functionality. All default to `false` to keep base install lightweight.
+
+| Flag | What it enables | Tables created | Storage impact (1G/1:1000) |
+|------|----------------|----------------|----------------------------|
+| `FEATURE_FLOW_SEARCH` | Forensic flow log + Search UI + CSV export (cap 100k rows) | `flows_log` | ~250 GB / 6 mo |
+| `FEATURE_PORT_STATS` | Top Protocols + Top Ports views | `traffic_by_port` | ~5 MB/day |
+| `FEATURE_ALERTS` | DDoS detection engine + Alerts dashboard + webhooks + audit log + admin UI tabs | `traffic_by_dst_1min`, `traffic_by_src_1min`, `alert_rules`, `alerts`, `webhook_configs`, `audit_log` | ~50 GB |
+
+The collector reads `FEATURE_ALERTS` to start the alert engine goroutine. The API server reads all three to gate route registration. The frontend reads `/api/v1/features` (cached forever) to conditionally render UI elements.
+
+## Alert Engine
+
+Located in `internal/alerts/`. Runs as a goroutine in the collector when `FEATURE_ALERTS=true`.
+
+**Pipeline**:
+1. Loads enabled rules from `alert_rules` table
+2. For each rule, runs the corresponding query against the hot 1-min table (`traffic_by_dst_1min` or `traffic_by_src_1min`)
+3. For each violation: insert new alert OR heartbeat existing active alert (DB-level dedup via `FindActiveAlert`)
+4. Auto-resolves alerts whose `last_seen_at` is older than `ALERT_STALE_THRESHOLD` (default 5m)
+5. Notifies via configured webhooks (async, with severity filter)
+
+**Built-in rule types**:
+- `volume_in` — bps/pps received by a single destination
+- `volume_out` — bps/pps sent from a single source (compromised host)
+- `syn_flood` — TCP SYN-only packet rate to a destination
+- `amplification` — unique source IPs to one destination (HyperLogLog)
+- `port_scan` — unique destination ports from one source (HyperLogLog)
+- `custom` — placeholder for SQL-based rules (phase 2)
+
+**LOCAL_AS prefix filter**: rules only fire on IPs in our announced prefixes. Loaded from RIPEstat at collector startup. This prevents alerting on remote IPs we can't act on.
+
+**Default rules**: seeded on first startup if `alert_rules` is empty (idempotent). Includes "High inbound volume" (500 Mbps warning, 2 Gbps critical), "SYN flood", "Reflection/amplification attack", "Port scan from internal host", "High outbound volume".
+
+**BGP integration**: `internal/bgp/` defines a `Blocker` interface with `Announce` / `Withdraw` / `List`. Phase 1 ships only a `NoopBlocker` (logs but doesn't actually announce). Phase 2 will add ExaBGP/GoBGP backends for RFC 7999 blackholes. The `/alerts/{id}/block` endpoint already calls the blocker — swap out the implementation when ready.

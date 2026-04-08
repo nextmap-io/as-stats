@@ -3,12 +3,15 @@ import { Link, useLocation, useNavigate } from "react-router-dom"
 import { useTheme } from "@/hooks/useTheme"
 import { useUnit } from "@/hooks/useUnit"
 import { useStatus } from "@/hooks/useApi"
+import { useFeatureFlags } from "@/hooks/useFeatures"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
-import { Search, Sun, Moon, Monitor, Activity, Menu, X, LogOut } from "lucide-react"
+import { Search, Sun, Moon, Monitor, Activity, Menu, X, LogOut, Bell, Shield } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-const navItems = [
+type NavItem = { to: string; label: string }
+
+const baseNav: NavItem[] = [
   { to: "/", label: "Dashboard" },
   { to: "/top/as", label: "Top AS" },
   { to: "/top/ip", label: "Top IP" },
@@ -73,6 +76,30 @@ export function Header() {
     ?.map(r => `${r.router_ip}: ${r.flow_count} flows`)
     .join("\n") || "No data"
 
+  // Feature flags
+  const features = useFeatureFlags()
+
+  // Build nav items dynamically based on enabled features
+  const navItems: NavItem[] = [...baseNav]
+  if (features.port_stats) {
+    navItems.push({ to: "/top/protocol", label: "Protocols" })
+    navItems.push({ to: "/top/port", label: "Ports" })
+  }
+  if (features.flow_search) {
+    navItems.push({ to: "/flows", label: "Flow Search" })
+  }
+
+  // Active alerts count for the badge
+  const { data: alertsSummary } = useQuery({
+    queryKey: ["alerts-summary"],
+    queryFn: () => api.alertsSummary(),
+    refetchInterval: 30_000,
+    enabled: features.alerts,
+    retry: false,
+  })
+  const activeAlerts = alertsSummary?.data?.total || 0
+  const criticalAlerts = alertsSummary?.data?.by_severity?.critical || 0
+
   const cycleTheme = () => {
     const next = theme === "light" ? "dark" : theme === "dark" ? "system" : "light"
     setTheme(next)
@@ -112,6 +139,40 @@ export function Header() {
               className="h-8 w-40 lg:w-56 rounded border border-input bg-muted/50 pl-7 pr-3 text-xs placeholder:text-muted-foreground/60 outline-none focus-visible:ring-1 focus-visible:ring-ring transition-all"
             />
           </form>
+
+          {features.alerts && (
+            <Link
+              to="/alerts"
+              className={cn(
+                "relative inline-flex h-8 w-8 items-center justify-center rounded border transition-colors",
+                criticalAlerts > 0
+                  ? "border-destructive/50 bg-destructive/20 text-destructive hover:bg-destructive/30 animate-pulse"
+                  : activeAlerts > 0
+                    ? "border-warning/50 bg-warning/20 text-warning hover:bg-warning/30"
+                    : "border-input bg-muted/50 hover:bg-accent",
+              )}
+              aria-label={`Alerts (${activeAlerts} active)`}
+              title={`${activeAlerts} active alert${activeAlerts !== 1 ? "s" : ""}${criticalAlerts > 0 ? ` (${criticalAlerts} critical)` : ""}`}
+            >
+              <Bell className="h-3.5 w-3.5" />
+              {activeAlerts > 0 && (
+                <span className="absolute -top-1 -right-1 inline-flex min-w-[14px] h-[14px] items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[9px] font-bold px-1 leading-none">
+                  {activeAlerts > 99 ? "99+" : activeAlerts}
+                </span>
+              )}
+            </Link>
+          )}
+
+          {(features.alerts || (user && user.role === "admin")) && (
+            <Link
+              to="/admin"
+              className="inline-flex h-8 w-8 items-center justify-center rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+              aria-label="Admin"
+              title="Admin console"
+            >
+              <Shield className="h-3.5 w-3.5" />
+            </Link>
+          )}
 
           <button
             onClick={toggleUnit}
