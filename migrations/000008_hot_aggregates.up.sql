@@ -35,7 +35,7 @@ SELECT
     sum(bytes * sampling_rate) AS bytes,
     sum(packets * sampling_rate) AS packets,
     count() AS flow_count,
-    sumIf(packets * sampling_rate, (tcp_flags & 2) != 0 AND (tcp_flags & 16) = 0) AS syn_count,
+    sumIf(flows_raw.packets * sampling_rate, bitAnd(tcp_flags, 2) != 0 AND bitAnd(tcp_flags, 16) = 0) AS syn_count,
     uniqState(src_ip) AS unique_src_ips,
     uniqState(src_port) AS unique_src_ports
 FROM asstats.flows_raw
