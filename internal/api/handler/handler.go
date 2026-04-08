@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/nextmap-io/as-stats/internal/bgp"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
 
@@ -21,6 +22,9 @@ type Handler struct {
 	FeatureFlowSearch bool
 	FeaturePortStats  bool
 	FeatureAlerts     bool
+
+	// BGP blocker for blackhole actions (noop by default)
+	BGPBlocker bgp.Blocker
 }
 
 // New creates a new Handler.

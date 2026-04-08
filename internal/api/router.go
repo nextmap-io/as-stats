@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/nextmap-io/as-stats/internal/api/handler"
 	"github.com/nextmap-io/as-stats/internal/api/middleware"
+	"github.com/nextmap-io/as-stats/internal/bgp"
 	"github.com/nextmap-io/as-stats/internal/config"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
@@ -51,6 +52,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 	h.FeatureFlowSearch = cfg.FeatureFlowSearch
 	h.FeaturePortStats = cfg.FeaturePortStats
 	h.FeatureAlerts = cfg.FeatureAlerts
+	h.BGPBlocker = bgp.NewNoop() // phase 1: noop blocker
 	sessions := middleware.NewSessionStore()
 
 	// Health check (no auth, no rate limit)
@@ -74,6 +76,12 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		// Apply auth middleware if enabled
 		if cfg.AuthEnabled {
 			r.Use(middleware.AuthMiddleware(cfg, sessions))
+		}
+
+		// Audit log middleware: records sensitive actions (only if alerts/audit
+		// features are available, since audit_log table is part of that migration)
+		if cfg.FeatureAlerts || cfg.FeatureFlowSearch {
+			r.Use(middleware.Audit(s, middleware.DefaultAuditActions()))
 		}
 
 		// Auth info
@@ -107,6 +115,25 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Get("/flows/timeseries", h.FlowTimeSeries)
 		}
 
+		// Alerts (gated by FEATURE_ALERTS)
+		if cfg.FeatureAlerts {
+			r.Get("/alerts", h.ListAlerts)
+			r.Get("/alerts/summary", h.AlertsSummary)
+			// Alert actions require CSRF + optional admin role
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.CSRF())
+				r.Post("/alerts/{id}/ack", h.AcknowledgeAlert)
+				r.Post("/alerts/{id}/resolve", h.ResolveAlert)
+				// Block action requires admin role
+				r.Group(func(r chi.Router) {
+					if cfg.AuthEnabled {
+						r.Use(middleware.RequireRole("admin"))
+					}
+					r.Post("/alerts/{id}/block", h.BlockAlertBGP)
+				})
+			})
+		}
+
 		// AS detail
 		r.Get("/as/{asn}", h.ASDetail)
 		r.Get("/as/{asn}/peers", h.ASPeers)
@@ -127,10 +154,15 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		// Search
 		r.Get("/search", h.Search)
 
-		// Link config (read-only, accessible to all authenticated users)
+		// Read-only admin endpoints (all authenticated users)
 		r.Get("/admin/links", h.LinksAdmin)
+		if cfg.FeatureAlerts {
+			r.Get("/admin/rules", h.ListRules)
+			r.Get("/admin/webhooks", h.ListWebhooks)
+			r.Get("/admin/audit", h.ListAuditLog)
+		}
 
-		// Admin (write operations, requires admin role when auth is enabled)
+		// Admin write operations — require admin role when auth is enabled
 		r.Route("/admin", func(r chi.Router) {
 			if cfg.AuthEnabled {
 				r.Use(middleware.RequireRole("admin"))
@@ -138,6 +170,15 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Use(middleware.CSRF())
 			r.Post("/links", h.LinkCreate)
 			r.Delete("/links/{tag}", h.LinkDelete)
+
+			if cfg.FeatureAlerts {
+				r.Post("/rules", h.CreateRule)
+				r.Put("/rules/{id}", h.UpdateRule)
+				r.Delete("/rules/{id}", h.DeleteRule)
+				r.Post("/webhooks", h.CreateWebhook)
+				r.Put("/webhooks/{id}", h.UpdateWebhook)
+				r.Delete("/webhooks/{id}", h.DeleteWebhook)
+			}
 		})
 	})
 
