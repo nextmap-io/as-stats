@@ -15,7 +15,7 @@ import (
 type Handler struct {
 	Store         *store.ClickHouseStore
 	LocalIPFilter string   // SQL filter for local IPs (empty = no filter)
-	LocalPrefixes []string // Local CIDR prefixes (e.g. "85.208.144.0/22")
+	LocalPrefixes []string // Local CIDR prefixes (e.g. "192.0.2.0/24")
 	LocalAS       uint32   // Local AS to exclude from top results
 
 	// Feature flags — populated from APIConfig at router wiring time

@@ -139,9 +139,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Alert engine never matched IPv4 destinations**: `buildCIDRFilter` was
   building expressions of the form
-  `isIPAddressInRange(toString(dst_ip), '85.208.144.0/22')`, but ClickHouse
+  `isIPAddressInRange(toString(dst_ip), '192.0.2.0/24')`, but ClickHouse
   stores IPv4 in `IPv6` columns and `toString()` returns the IPv4-mapped form
-  (`::ffff:85.208.145.137`). `isIPAddressInRange("::ffff:1.2.3.4", "1.2.3.0/24")`
+  (`::ffff:192.0.2.10`). `isIPAddressInRange("::ffff:192.0.2.10", "192.0.2.0/24")`
   returns `0`, so every alert rule that fed `localPrefixes` (i.e. all of them)
   silently dropped every IPv4 row and could never trigger on IPv4 traffic.
 

@@ -47,7 +47,7 @@ func FetchASPrefixes(asn uint32) ([]net.IPNet, error) {
 }
 
 // PrefixesToSQL returns a SQL OR expression for ClickHouse isIPAddressInRange().
-// Example: "(isIPAddressInRange(toString(ip), '85.208.144.0/22') OR isIPAddressInRange(toString(ip), '2a09:8740::/29'))"
+// Example: "(isIPAddressInRange(toString(ip), '192.0.2.0/24') OR isIPAddressInRange(toString(ip), '2001:db8::/32'))"
 func PrefixesToSQL(col string, prefixes []net.IPNet) string {
 	if len(prefixes) == 0 {
 		return "1=1"

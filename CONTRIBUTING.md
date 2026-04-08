@@ -1,6 +1,8 @@
 # Contributing to AS-Stats
 
-Thanks for your interest in contributing! This guide will help you get started.
+Thanks for your interest in contributing! This guide will help you get
+started. For a quick architecture overview, see the [README](README.md);
+for the full internal map, see [`CLAUDE.md`](CLAUDE.md).
 
 ## Getting Started
 
@@ -8,7 +10,9 @@ Thanks for your interest in contributing! This guide will help you get started.
 
 - Go 1.24+
 - Node.js 22+
-- Docker and Docker Compose
+- Docker and Docker Compose v2
+- (Optional but very helpful) `clickhouse-client` to validate SQL changes
+  against a real ClickHouse before committing
 
 ### Development Setup
 
@@ -17,16 +21,16 @@ Thanks for your interest in contributing! This guide will help you get started.
 git clone https://github.com/nextmap-io/as-stats.git
 cd as-stats
 
-# Start infrastructure (ClickHouse + Redis)
+# Start ClickHouse (the only infrastructure dependency)
 make docker-up
 
 # Install frontend dependencies
 cd frontend && npm ci && cd ..
 
-# Run everything
-make run-collector  # Terminal 1
-make run-api        # Terminal 2
-make frontend-dev   # Terminal 3
+# Run the three processes (each in its own terminal)
+make run-collector   # Terminal 1
+make run-api         # Terminal 2
+make frontend-dev    # Terminal 3
 ```
 
 The UI is at http://localhost:5173, the API at http://localhost:8080.
@@ -101,25 +105,47 @@ interface statistics (octets, packets, errors, discards).
 
 ### Go
 
-- Follow standard Go conventions (`gofmt`, `go vet`)
-- All exported functions must have doc comments
-- Handle all errors — `golangci-lint` enforces this
-- Add tests for new parsers and handlers
-- Use parameterized queries for ClickHouse (never string concatenation)
+- Follow standard Go conventions (`gofmt`, `go vet`).
+- All exported functions must have doc comments.
+- Handle all errors — `golangci-lint` enforces this. `_ =` only for
+  intentional discards (with a comment explaining why).
+- Add tests for new parsers, handlers, and store queries.
+- Use parameterised queries for ClickHouse (`clickhouse.Named()`),
+  **never** string concatenation for user input.
+- In any query that aggregates a column it also filters on, alias the
+  table (`FROM flows_log f`) and qualify column references in the
+  `WHERE` / `GROUP BY` (`f.ts`) — ClickHouse alias scoping otherwise
+  shadows the source column with the aggregate alias and throws
+  `Aggregate function ... is found in WHERE`.
 
 ### TypeScript / React
 
-- ESLint must pass (`npm run lint`)
-- TypeScript strict mode — no `any` types
-- Use TanStack Query for data fetching (no raw `useEffect` for API calls)
-- Components in `components/`, pages in `pages/`, hooks in `hooks/`
+- ESLint must pass (`npm run lint`).
+- TypeScript strict mode — no `any` types.
+- Use TanStack Query for data fetching (no raw `useEffect` for API
+  calls).
+- Components in `components/`, pages in `pages/`, hooks in `hooks/`.
+- Cards: always use `<CardHeader> + <CardTitle> + <CardContent>` from
+  `components/ui/card.tsx` for consistent vertical baseline alignment.
+- Filters belong in URL search params, not component state — use
+  `useFilters()`.
 
 ### SQL (ClickHouse)
 
-- Add new tables and materialized views to `migrations/000001_init_schema.up.sql`
-- Use `SummingMergeTree` for aggregation tables
-- Always include a TTL for data retention
-- Test queries with `clickhouse-client` before committing
+- New tables go in their own numbered migration file
+  (`migrations/NNNNNN_topic.up.sql` + `.down.sql`). Don't append to old
+  migrations.
+- Use `SummingMergeTree` for aggregation tables, `AggregatingMergeTree`
+  if you need state functions like HyperLogLog.
+- Always include a `TTL` for data retention.
+- IPv4 is stored as IPv4-mapped IPv6 (`::ffff:1.2.3.4`). Always normalise
+  IPv4 CIDRs to their mapped form before passing them to
+  `isIPAddressInRange` — see `normalizeCIDRForIPv6Column()` in
+  `internal/store/alert_queries.go`.
+- ClickHouse SQL has **no infix bitwise operator** — use `bitAnd(a, b)`
+  rather than `a & b`.
+- Test queries with `clickhouse-client` against a real ClickHouse
+  instance before committing.
 
 ### Docker
 
@@ -131,20 +157,26 @@ interface statistics (octets, packets, errors, discards).
 ```
 Routers --UDP--> Collector (Go) --batch--> ClickHouse
                                                 |
-                                          API Server (Go) --JSON--> Frontend (React)
+                                       API Server (Go) --JSON--> Frontend (React)
+                                                |
+                              optional: alert engine reads hot 1-min tables
 ```
 
 | Directory | Purpose |
-|-----------|---------|
-| `cmd/collector/` | Flow collector entry point |
+|---|---|
+| `cmd/collector/` | Flow collector entry point — wires the pipeline and starts the alert engine if `FEATURE_ALERTS=true` |
 | `cmd/api/` | API server entry point |
-| `internal/collector/` | Flow parsers (NetFlow, sFlow), enricher, batch writer |
-| `internal/api/` | HTTP handlers, middleware, router |
-| `internal/store/` | ClickHouse read/write layer |
-| `internal/model/` | Shared data types |
+| `internal/collector/` | Flow parsers (NetFlow v5/v9, IPFIX, sFlow), enricher, batch writer |
+| `internal/api/` | HTTP handlers, middleware (auth, CSRF, cache, audit), router |
+| `internal/store/` | ClickHouse read/write layer — `reader.go`, `flow_log.go`, `threats.go`, `alerts.go`, `alert_queries.go` |
+| `internal/alerts/` | Alert engine (rule loop, cooldown, top-source enrichment, default-rule seeding) |
+| `internal/bgp/` | BGP `Blocker` interface — Noop ships, real impl is phase 2 |
+| `internal/ripestat/` | Local-prefix discovery via the RIPEstat API |
+| `internal/services/` | IANA protocol + well-known port name resolution |
+| `internal/model/` | Shared data types — TS mirror lives in `frontend/src/lib/types.ts` |
 | `internal/config/` | Environment-based configuration |
-| `frontend/src/` | React application |
-| `migrations/` | ClickHouse schema |
+| `frontend/src/` | React application — see [`frontend/README.md`](frontend/README.md) |
+| `migrations/` | ClickHouse DDL, numbered 000001–000009 (last three are feature-gated) |
 
 ## Review Process
 
