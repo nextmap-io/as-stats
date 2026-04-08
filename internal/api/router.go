@@ -48,6 +48,9 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 	h.LocalIPFilter = localIPFilter
 	h.LocalPrefixes = localPrefixes
 	h.LocalAS = cfg.LocalAS
+	h.FeatureFlowSearch = cfg.FeatureFlowSearch
+	h.FeaturePortStats = cfg.FeaturePortStats
+	h.FeatureAlerts = cfg.FeatureAlerts
 	sessions := middleware.NewSessionStore()
 
 	// Health check (no auth, no rate limit)
@@ -76,6 +79,9 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		// Auth info
 		authH := handler.NewAuthHandler(cfg, sessions)
 		r.Get("/auth/me", authH.Me)
+
+		// Feature discovery (always available, no cache)
+		r.Get("/features", h.Features)
 
 		// Cached read routes (30s TTL)
 		r.Group(func(r chi.Router) {

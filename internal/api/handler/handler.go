@@ -12,10 +12,15 @@ import (
 
 // Handler holds shared dependencies for all HTTP handlers.
 type Handler struct {
-	Store          *store.ClickHouseStore
-	LocalIPFilter  string   // SQL filter for local IPs (empty = no filter)
-	LocalPrefixes  []string // Local CIDR prefixes (e.g. "85.208.144.0/22")
-	LocalAS        uint32   // Local AS to exclude from top results
+	Store         *store.ClickHouseStore
+	LocalIPFilter string   // SQL filter for local IPs (empty = no filter)
+	LocalPrefixes []string // Local CIDR prefixes (e.g. "85.208.144.0/22")
+	LocalAS       uint32   // Local AS to exclude from top results
+
+	// Feature flags — populated from APIConfig at router wiring time
+	FeatureFlowSearch bool
+	FeaturePortStats  bool
+	FeatureAlerts     bool
 }
 
 // New creates a new Handler.
