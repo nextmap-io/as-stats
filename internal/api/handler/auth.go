@@ -161,10 +161,12 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Map roles from claims
+	// Map roles from claims. The "admin" role is granted only when the user
+	// has the Azure AD App Role "Admin.All" in their `roles` (or `groups`)
+	// claim. Anything else is mapped to "viewer".
 	role := "viewer"
 	for _, g := range append(claims.Groups, claims.Roles...) {
-		if g == "admin" || g == "admins" {
+		if g == "Admin.All" {
 			role = "admin"
 			break
 		}

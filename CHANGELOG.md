@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-04-08
+
+### Fixed
+- OIDC role mapping: every Azure AD user was being mapped to `viewer` because
+  the callback only recognised the literal role names `admin` / `admins`. The
+  Azure AD App Role used in production is named `Admin.All`, so no user had the
+  admin role and all `/admin/{rules,webhooks,audit}` requests returned 403.
+  The callback now grants admin to any user whose `roles` (or `groups`) claim
+  contains `Admin.All`.
+
+  After upgrading, **existing sessions keep their old role until the user logs
+  out and back in** — the role is captured at session creation time.
+
 ## [1.2.1] - 2026-04-08
 
 ### Fixed
