@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nextmap-io/as-stats/internal/alerts"
 	"github.com/nextmap-io/as-stats/internal/collector"
 	"github.com/nextmap-io/as-stats/internal/config"
 	"github.com/nextmap-io/as-stats/internal/ripestat"
@@ -45,12 +46,16 @@ func main() {
 	c := collector.New(cfg, chStore)
 
 	// Load local AS prefixes from RIPEstat
+	var localPrefixStrs []string
 	if cfg.LocalAS > 0 {
 		log.Printf("LOCAL_AS=%d — fetching announced prefixes from RIPEstat", cfg.LocalAS)
 		if prefixes, err := ripestat.FetchASPrefixes(cfg.LocalAS); err != nil {
 			log.Printf("warning: could not fetch prefixes for AS%d: %v", cfg.LocalAS, err)
 		} else {
 			c.Enricher().SetLocalAS(cfg.LocalAS, prefixes)
+			for _, p := range prefixes {
+				localPrefixStrs = append(localPrefixStrs, p.String())
+			}
 		}
 	}
 
@@ -79,6 +84,22 @@ func main() {
 			}
 		}
 	}()
+
+	// Start alert engine if enabled
+	if cfg.FeatureAlerts {
+		log.Printf("FEATURE_ALERTS=true — seeding default rules and starting engine")
+		if err := alerts.EnsureDefaultRules(ctx, chStore); err != nil {
+			log.Printf("warning: could not seed default alert rules: %v", err)
+		}
+		engine := alerts.New(
+			chStore,
+			alerts.NewWebhookNotifier(),
+			localPrefixStrs,
+			cfg.AlertEvalInterval,
+			cfg.AlertStaleThreshold,
+		)
+		go engine.Run(ctx)
+	}
 
 	if err := c.Run(ctx); err != nil {
 		log.Fatalf("collector error: %v", err)
