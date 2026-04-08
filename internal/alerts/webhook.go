@@ -20,10 +20,13 @@ type WebhookNotifier struct {
 }
 
 // NewWebhookNotifier creates a notifier with a default HTTP client.
+// Per-request timeout is 5 seconds; webhook calls are dispatched in parallel
+// goroutines, so a slow endpoint never blocks the alert engine evaluation
+// loop.
 func NewWebhookNotifier() *WebhookNotifier {
 	return &WebhookNotifier{
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: 5 * time.Second,
 		},
 	}
 }
@@ -70,8 +73,12 @@ func (n *WebhookNotifier) Notify(ctx context.Context, wh model.WebhookConfig, al
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("webhook %d: %s", resp.StatusCode, string(body))
+		// Drain (but discard) the body so the connection can be reused.
+		// We deliberately don't include the body in the error to avoid
+		// leaking secrets / internal details from the webhook endpoint
+		// into our logs.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("webhook returned HTTP %d", resp.StatusCode)
 	}
 
 	return nil

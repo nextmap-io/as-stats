@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -72,13 +73,15 @@ func Audit(rec AuditRecorder, actionMap map[string]string) func(http.Handler) ht
 				entry.Result = "error"
 			}
 
-			// Write async (don't block response)
+			// Write async with a fresh context (response is already sent).
+			// Failures are logged for ops visibility — losing audit entries
+			// silently is unacceptable for compliance.
 			go func(e model.AuditLogEntry) {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 				if err := rec.WriteAuditLog(ctx, e); err != nil {
-					// Log-only failure — don't bubble up
-					_ = err
+					log.Printf("AUDIT LOST: action=%s user=%s ip=%s err=%v",
+						e.Action, e.UserEmail, e.ClientIP, err)
 				}
 			}(entry)
 		})

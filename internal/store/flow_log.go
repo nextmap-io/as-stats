@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/nextmap-io/as-stats/internal/model"
@@ -14,6 +15,27 @@ import (
 // Filters are additive — empty fields are ignored.
 // Returns up to p.Limit rows, sorted by bytes (or ts if p.OrderBy == "ts").
 func (s *ClickHouseStore) SearchFlowLog(ctx context.Context, p model.FlowSearchFilters) ([]model.FlowLogEntry, error) {
+	// Defense in depth: enforce range and limit caps even if the handler
+	// doesn't (e.g., if the store is called from another code path).
+	if p.From.IsZero() || p.To.IsZero() {
+		return nil, fmt.Errorf("from and to are required")
+	}
+	if p.To.Before(p.From) {
+		return nil, fmt.Errorf("to must be after from")
+	}
+	if p.To.Sub(p.From) > 30*24*time.Hour {
+		return nil, fmt.Errorf("time range cannot exceed 30 days")
+	}
+	// Validate user-supplied IP/CIDR strings before they reach ClickHouse.
+	// Even though they're passed as named params, ClickHouse will throw a
+	// confusing error if the format is wrong; we want a clear error message.
+	if err := parseCIDROrIP(p.SrcIP); err != nil {
+		return nil, fmt.Errorf("invalid src_ip: %w", err)
+	}
+	if err := parseCIDROrIP(p.DstIP); err != nil {
+		return nil, fmt.Errorf("invalid dst_ip: %w", err)
+	}
+
 	var where []string
 	var args []any
 

@@ -154,31 +154,41 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		// Search
 		r.Get("/search", h.Search)
 
-		// Read-only admin endpoints (all authenticated users)
+		// Read-only admin endpoint accessible to all authenticated users
+		// (UI shows link config in dropdowns, etc.). Webhook URLs and audit
+		// log are admin-only — see the role-gated group below.
 		r.Get("/admin/links", h.LinksAdmin)
-		if cfg.FeatureAlerts {
-			r.Get("/admin/rules", h.ListRules)
-			r.Get("/admin/webhooks", h.ListWebhooks)
-			r.Get("/admin/audit", h.ListAuditLog)
-		}
 
-		// Admin write operations — require admin role when auth is enabled
+		// All other /admin endpoints require admin role when auth is enabled.
+		// Both reads and writes are gated to prevent enumeration of webhook
+		// URLs, alert rules, and audit log entries by non-admin users.
 		r.Route("/admin", func(r chi.Router) {
 			if cfg.AuthEnabled {
 				r.Use(middleware.RequireRole("admin"))
 			}
-			r.Use(middleware.CSRF())
-			r.Post("/links", h.LinkCreate)
-			r.Delete("/links/{tag}", h.LinkDelete)
 
+			// Reads (no CSRF)
 			if cfg.FeatureAlerts {
-				r.Post("/rules", h.CreateRule)
-				r.Put("/rules/{id}", h.UpdateRule)
-				r.Delete("/rules/{id}", h.DeleteRule)
-				r.Post("/webhooks", h.CreateWebhook)
-				r.Put("/webhooks/{id}", h.UpdateWebhook)
-				r.Delete("/webhooks/{id}", h.DeleteWebhook)
+				r.Get("/rules", h.ListRules)
+				r.Get("/webhooks", h.ListWebhooks)
+				r.Get("/audit", h.ListAuditLog)
 			}
+
+			// Writes (CSRF required)
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.CSRF())
+				r.Post("/links", h.LinkCreate)
+				r.Delete("/links/{tag}", h.LinkDelete)
+
+				if cfg.FeatureAlerts {
+					r.Post("/rules", h.CreateRule)
+					r.Put("/rules/{id}", h.UpdateRule)
+					r.Delete("/rules/{id}", h.DeleteRule)
+					r.Post("/webhooks", h.CreateWebhook)
+					r.Put("/webhooks/{id}", h.UpdateWebhook)
+					r.Delete("/webhooks/{id}", h.DeleteWebhook)
+				}
+			})
 		})
 	})
 

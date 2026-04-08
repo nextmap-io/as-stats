@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -121,9 +122,16 @@ func (h *Handler) BlockAlertBGP(w http.ResponseWriter, r *http.Request) {
 		DurationMinutes int    `json:"duration_minutes"`
 		Reason          string `json:"reason"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4*1024)
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.DurationMinutes <= 0 {
 		body.DurationMinutes = 60
+	}
+	if body.DurationMinutes > 24*60 {
+		body.DurationMinutes = 24 * 60 // cap at 24h
+	}
+	if len(body.Reason) > 500 {
+		body.Reason = body.Reason[:500]
 	}
 
 	// Load alert to get target IP
@@ -306,6 +314,10 @@ func (h *Handler) CreateWebhook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name and url are required")
 		return
 	}
+	if err := validateWebhookURL(wh.URL); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if wh.WebhookType == "" {
 		wh.WebhookType = "generic"
 	}
@@ -316,7 +328,8 @@ func (h *Handler) CreateWebhook(w http.ResponseWriter, r *http.Request) {
 		wh.ID = uuid.NewString()
 	}
 	if err := h.Store.UpsertWebhook(r.Context(), wh); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("upsert webhook error: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to save webhook")
 		return
 	}
 	writeJSON(w, http.StatusCreated, Response{Data: wh})
@@ -335,8 +348,15 @@ func (h *Handler) UpdateWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wh.ID = id
+	if wh.URL != "" {
+		if err := validateWebhookURL(wh.URL); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	if err := h.Store.UpsertWebhook(r.Context(), wh); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("upsert webhook error: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to save webhook")
 		return
 	}
 	writeJSON(w, http.StatusOK, Response{Data: wh})
