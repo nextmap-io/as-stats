@@ -13,7 +13,7 @@ import { IPWithPTR } from "@/components/PTR"
 export function ASDetail() {
   const { asn } = useParams<{ asn: string }>()
   const asnNum = Number(asn) || 0
-  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds } = useFilters()
+  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds, setFilter } = useFilters()
   const { formatTraffic } = useUnit()
   const features = useFeatureFlags()
   const linkColors = useLinkColors()
@@ -28,6 +28,8 @@ export function ASDetail() {
   const detail = data?.data
   if (!detail) return null
 
+  const quickPeriods = ["1h", "6h", "24h", "7d"] as const
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -39,6 +41,22 @@ export function ASDetail() {
           )}
         </h1>
         <div className="flex items-center gap-3 text-[10px]">
+          <div className="hidden md:flex items-center gap-0.5 px-1 py-0.5 rounded border border-input bg-muted/30">
+            {quickPeriods.map(p => (
+              <button
+                key={p}
+                onClick={() => setFilter("period", p)}
+                className={`px-1.5 py-0.5 text-[10px] font-medium rounded transition-colors ${
+                  filters.period === p
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                }`}
+                title={`Switch to ${p} window`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
           <a href={`https://bgp.he.net/AS${detail.as_number}`} target="_blank" rel="noopener noreferrer"
             className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1">
             HE.net <ExternalLink className="h-2.5 w-2.5" />

@@ -10,9 +10,11 @@ import { useUnit } from "@/hooks/useUnit"
 import { IPWithPTR } from "@/components/PTR"
 import { Search } from "lucide-react"
 
+const QUICK_PERIODS = ["1h", "6h", "24h", "7d"] as const
+
 export function IPDetail() {
   const { ip } = useParams<{ ip: string }>()
-  const { filters, filterSearch, periodSeconds, timeBounds } = useFilters()
+  const { filters, filterSearch, periodSeconds, timeBounds, setFilter } = useFilters()
   const { formatTraffic } = useUnit()
   const features = useFeatureFlags()
   const { data, isLoading, error } = useIPDetail(ip || "", filters)
@@ -39,16 +41,35 @@ export function IPDetail() {
             {detail.prefix && <span className="font-mono">{detail.prefix}</span>}
           </div>
         </div>
-        {features.flow_search && (
-          <Link
-            to={`/flows?period=${filters.period || "1h"}&dst_ip=${encodeURIComponent(detail.ip)}`}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors shrink-0"
-            title="Search flows involving this IP"
-          >
-            <Search className="h-3 w-3" />
-            View flows
-          </Link>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Quick period buttons — change current period filter without losing context */}
+          <div className="hidden md:flex items-center gap-0.5 px-1 py-0.5 rounded border border-input bg-muted/30">
+            {QUICK_PERIODS.map(p => (
+              <button
+                key={p}
+                onClick={() => setFilter("period", p)}
+                className={`px-1.5 py-0.5 text-[10px] font-medium rounded transition-colors ${
+                  filters.period === p
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                }`}
+                title={`Switch to ${p} window`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+          {features.flow_search && (
+            <Link
+              to={`/flows?period=${filters.period || "1h"}&dst_ip=${encodeURIComponent(detail.ip)}`}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors shrink-0"
+              title="Search flows involving this IP"
+            >
+              <Search className="h-3 w-3" />
+              View flows
+            </Link>
+          )}
+        </div>
       </div>
 
       <Card>

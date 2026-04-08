@@ -27,6 +27,9 @@ type CollectorConfig struct {
 	Workers       int
 	LocalAS       uint32
 
+	// Flow log retention (only applied when the table exists; default 180 days)
+	FlowLogRetentionDays int
+
 	// Alert engine
 	FeatureAlerts       bool          // enables the alert evaluator goroutine
 	AlertEvalInterval   time.Duration // default 30s
@@ -93,6 +96,11 @@ func LoadCollector() (*CollectorConfig, error) {
 
 	localAS, _ := strconv.ParseUint(envOr("LOCAL_AS", "0"), 10, 32)
 
+	flowLogRetention, err := strconv.Atoi(envOr("FLOW_LOG_RETENTION_DAYS", "180"))
+	if err != nil || flowLogRetention < 1 {
+		return nil, fmt.Errorf("invalid FLOW_LOG_RETENTION_DAYS: %w", err)
+	}
+
 	featureAlerts, _ := strconv.ParseBool(envOr("FEATURE_ALERTS", "false"))
 	alertEval, err := time.ParseDuration(envOr("ALERT_EVAL_INTERVAL", "30s"))
 	if err != nil {
@@ -104,16 +112,17 @@ func LoadCollector() (*CollectorConfig, error) {
 	}
 
 	return &CollectorConfig{
-		ClickHouse:          loadClickHouse(),
-		ListenNetFlow:       envOr("COLLECTOR_LISTEN_NETFLOW", ":2055"),
-		ListenSFlow:         envOr("COLLECTOR_LISTEN_SFLOW", ":6343"),
-		BatchSize:           batchSize,
-		FlushInterval:       flushInterval,
-		Workers:             workers,
-		LocalAS:             uint32(localAS),
-		FeatureAlerts:       featureAlerts,
-		AlertEvalInterval:   alertEval,
-		AlertStaleThreshold: alertStale,
+		ClickHouse:           loadClickHouse(),
+		ListenNetFlow:        envOr("COLLECTOR_LISTEN_NETFLOW", ":2055"),
+		ListenSFlow:          envOr("COLLECTOR_LISTEN_SFLOW", ":6343"),
+		BatchSize:            batchSize,
+		FlushInterval:        flushInterval,
+		Workers:              workers,
+		LocalAS:              uint32(localAS),
+		FlowLogRetentionDays: flowLogRetention,
+		FeatureAlerts:        featureAlerts,
+		AlertEvalInterval:    alertEval,
+		AlertStaleThreshold:  alertStale,
 	}, nil
 }
 

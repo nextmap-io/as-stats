@@ -163,6 +163,36 @@ func (s *ClickHouseStore) SearchFlowLog(ctx context.Context, p model.FlowSearchF
 	return results, nil
 }
 
+// SetFlowLogRetention applies an ALTER TABLE TTL change to flows_log so the
+// retention can be tuned at deploy time without rewriting the migration. The
+// change is idempotent: if the current TTL already matches, this is a no-op
+// from the user's perspective. Returns nil silently if the table doesn't
+// exist (FEATURE_FLOW_SEARCH might be disabled).
+func (s *ClickHouseStore) SetFlowLogRetention(ctx context.Context, days int) error {
+	if days < 1 {
+		return fmt.Errorf("retention must be >= 1 day")
+	}
+	// Check existence first to avoid noisy errors when the feature is off.
+	var exists uint8
+	err := s.conn.QueryRow(ctx, `
+		SELECT count() FROM system.tables
+		WHERE database = currentDatabase() AND name = 'flows_log'
+	`).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("check flows_log: %w", err)
+	}
+	if exists == 0 {
+		return nil // table not present — nothing to do
+	}
+	// ALTER TABLE ... MODIFY TTL is idempotent and fast (metadata-only).
+	// Note: this does NOT take effect for already-deleted partitions.
+	q := fmt.Sprintf("ALTER TABLE flows_log MODIFY TTL ts + INTERVAL %d DAY", days)
+	if err := s.conn.Exec(ctx, q); err != nil {
+		return fmt.Errorf("apply TTL: %w", err)
+	}
+	return nil
+}
+
 // FlowLogTimeSeries returns per-bucket traffic for a specific flow tuple.
 // Used to drill down from a search result into a time-series view.
 func (s *ClickHouseStore) FlowLogTimeSeries(ctx context.Context, p model.FlowSearchFilters) ([]model.TrafficPoint, error) {

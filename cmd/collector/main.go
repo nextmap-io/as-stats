@@ -43,6 +43,15 @@ func main() {
 	}()
 	log.Println("Connected to ClickHouse")
 
+	// Apply configurable TTL to flows_log if the table exists.
+	// Idempotent — safe to call on every startup.
+	if err := chStore.SetFlowLogRetention(ctx, cfg.FlowLogRetentionDays); err != nil {
+		log.Printf("warning: could not set flows_log retention to %d days: %v",
+			cfg.FlowLogRetentionDays, err)
+	} else if cfg.FlowLogRetentionDays != 180 {
+		log.Printf("flows_log retention set to %d days", cfg.FlowLogRetentionDays)
+	}
+
 	c := collector.New(cfg, chStore)
 
 	// Load local AS prefixes from RIPEstat
