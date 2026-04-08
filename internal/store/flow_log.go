@@ -39,53 +39,58 @@ func (s *ClickHouseStore) SearchFlowLog(ctx context.Context, p model.FlowSearchF
 	var where []string
 	var args []any
 
-	where = append(where, "ts >= @from AND ts < @to")
+	// All column references in WHERE are qualified with the table alias `f`
+	// because the SELECT clause aliases `min(ts) AS ts` and `toString(src_ip)
+	// AS src_ip` etc. — without the alias ClickHouse tries to resolve `ts`
+	// in the WHERE as the aggregated `min(ts)` and fails with
+	// "Aggregate function min(ts) AS ts is found in WHERE in query".
+	where = append(where, "f.ts >= @from AND f.ts < @to")
 	args = append(args, clickhouse.Named("from", p.From), clickhouse.Named("to", p.To))
 
 	if p.SrcIP != "" {
 		if strings.Contains(p.SrcIP, "/") {
-			where = append(where, "isIPAddressInRange(toString(src_ip), @src_cidr)")
+			where = append(where, "isIPAddressInRange(toString(f.src_ip), @src_cidr)")
 			args = append(args, clickhouse.Named("src_cidr", p.SrcIP))
 		} else {
-			where = append(where, "src_ip = toIPv6(@src_ip)")
+			where = append(where, "f.src_ip = toIPv6(@src_ip)")
 			args = append(args, clickhouse.Named("src_ip", p.SrcIP))
 		}
 	}
 	if p.DstIP != "" {
 		if strings.Contains(p.DstIP, "/") {
-			where = append(where, "isIPAddressInRange(toString(dst_ip), @dst_cidr)")
+			where = append(where, "isIPAddressInRange(toString(f.dst_ip), @dst_cidr)")
 			args = append(args, clickhouse.Named("dst_cidr", p.DstIP))
 		} else {
-			where = append(where, "dst_ip = toIPv6(@dst_ip)")
+			where = append(where, "f.dst_ip = toIPv6(@dst_ip)")
 			args = append(args, clickhouse.Named("dst_ip", p.DstIP))
 		}
 	}
 	if p.SrcAS > 0 {
-		where = append(where, "src_as = @src_as")
+		where = append(where, "f.src_as = @src_as")
 		args = append(args, clickhouse.Named("src_as", p.SrcAS))
 	}
 	if p.DstAS > 0 {
-		where = append(where, "dst_as = @dst_as")
+		where = append(where, "f.dst_as = @dst_as")
 		args = append(args, clickhouse.Named("dst_as", p.DstAS))
 	}
 	if p.Protocol > 0 {
-		where = append(where, "protocol = @protocol")
+		where = append(where, "f.protocol = @protocol")
 		args = append(args, clickhouse.Named("protocol", p.Protocol))
 	}
 	if p.SrcPort > 0 {
-		where = append(where, "src_port = @src_port")
+		where = append(where, "f.src_port = @src_port")
 		args = append(args, clickhouse.Named("src_port", p.SrcPort))
 	}
 	if p.DstPort > 0 {
-		where = append(where, "dst_port = @dst_port")
+		where = append(where, "f.dst_port = @dst_port")
 		args = append(args, clickhouse.Named("dst_port", p.DstPort))
 	}
 	if p.LinkTag != "" {
-		where = append(where, "link_tag = @link_tag")
+		where = append(where, "f.link_tag = @link_tag")
 		args = append(args, clickhouse.Named("link_tag", p.LinkTag))
 	}
 	if p.IPVersion > 0 {
-		where = append(where, "ip_version = @ip_version")
+		where = append(where, "f.ip_version = @ip_version")
 		args = append(args, clickhouse.Named("ip_version", p.IPVersion))
 	}
 
@@ -117,23 +122,23 @@ func (s *ClickHouseStore) SearchFlowLog(ctx context.Context, p model.FlowSearchF
 
 	query := fmt.Sprintf(`
 		SELECT
-			min(ts) AS ts,
-			link_tag,
-			toString(src_ip) AS src_ip,
-			toString(dst_ip) AS dst_ip,
-			src_as,
-			dst_as,
-			protocol,
-			src_port,
-			dst_port,
-			any(tcp_flags) AS tcp_flags,
-			ip_version,
-			sum(bytes) AS total_bytes,
-			sum(packets) AS total_packets,
-			sum(flow_count) AS total_flows
-		FROM flows_log
+			min(f.ts) AS ts,
+			f.link_tag AS link_tag,
+			toString(f.src_ip) AS src_ip,
+			toString(f.dst_ip) AS dst_ip,
+			f.src_as AS src_as,
+			f.dst_as AS dst_as,
+			f.protocol AS protocol,
+			f.src_port AS src_port,
+			f.dst_port AS dst_port,
+			any(f.tcp_flags) AS tcp_flags,
+			f.ip_version AS ip_version,
+			sum(f.bytes) AS total_bytes,
+			sum(f.packets) AS total_packets,
+			sum(f.flow_count) AS total_flows
+		FROM flows_log f
 		WHERE %s
-		GROUP BY link_tag, src_ip, dst_ip, src_as, dst_as, protocol, src_port, dst_port, ip_version
+		GROUP BY f.link_tag, f.src_ip, f.dst_ip, f.src_as, f.dst_as, f.protocol, f.src_port, f.dst_port, f.ip_version
 		%s
 		ORDER BY %s
 		LIMIT @limit OFFSET @offset

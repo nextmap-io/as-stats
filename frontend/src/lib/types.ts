@@ -263,7 +263,17 @@ export interface AlertRule {
   id: string
   name: string
   description?: string
-  rule_type: "volume_in" | "volume_out" | "syn_flood" | "amplification" | "port_scan" | "custom"
+  rule_type:
+    | "volume_in"
+    | "volume_out"
+    | "syn_flood"
+    | "amplification"
+    | "port_scan"
+    | "icmp_flood"
+    | "udp_flood"
+    | "connection_flood"
+    | "custom"
+    | ""
   enabled: boolean
   threshold_bps?: number
   threshold_pps?: number

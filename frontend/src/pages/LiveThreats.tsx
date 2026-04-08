@@ -173,18 +173,21 @@ export function LiveThreats() {
 function StatusCard({ status, count }: { status: ThreatStatus; count: number }) {
   const config = {
     critical: {
+      title: "CRITICAL",
       label: "≥ threshold",
       color: "text-destructive",
       bg: "bg-destructive/10 border-destructive/30",
       icon: ShieldAlert,
     },
     warn: {
+      title: "WARN",
       label: "≥ 50% threshold",
       color: "text-warning",
       bg: "bg-warning/10 border-warning/30",
       icon: AlertTriangle,
     },
     ok: {
+      title: "OK",
       label: "below 50%",
       color: "text-success",
       bg: "bg-success/10 border-success/30",
@@ -193,17 +196,21 @@ function StatusCard({ status, count }: { status: ThreatStatus; count: number }) 
   }[status]
   const Icon = config.icon
 
+  // Use the standard CardHeader + CardContent pattern (same as TopProtocols)
+  // so the title baseline lines up across cards on the same row. The previous
+  // implementation packed everything into a single CardContent with custom
+  // padding which produced inconsistent vertical positioning.
   return (
     <Card className={cn(config.bg, count > 0 && status === "critical" && "animate-pulse")}>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between mb-1">
-          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">
-            {status === "ok" ? "OK" : status}
-          </p>
+      <CardHeader className="pb-1">
+        <div className="flex items-center justify-between">
+          <CardTitle className={config.color}>{config.title}</CardTitle>
           <Icon className={cn("h-4 w-4", config.color)} />
         </div>
-        <p className={cn("text-2xl font-bold tabular-nums", config.color)}>{count}</p>
-        <p className="text-[9px] text-muted-foreground mt-0.5">{config.label}</p>
+      </CardHeader>
+      <CardContent>
+        <p className={cn("text-2xl font-bold tabular-nums leading-none", config.color)}>{count}</p>
+        <p className="text-[9px] text-muted-foreground mt-1.5">{config.label}</p>
       </CardContent>
     </Card>
   )

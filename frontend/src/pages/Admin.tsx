@@ -124,8 +124,29 @@ function LinksTab() {
 // Rules tab
 // =============================================================================
 
+// Rule type metadata: which threshold fields are meaningful, how to label them.
+// Used both by the create form and the threshold cell formatter.
+const RULE_TYPE_META: Record<string, {
+  label: string
+  description: string
+  fields: ("bps" | "pps" | "count")[]
+  fieldLabels?: Partial<Record<"bps" | "pps" | "count", string>>
+}> = {
+  volume_in:        { label: "Inbound volume",       description: "Bandwidth/packet rate received by a single destination", fields: ["bps", "pps"] },
+  volume_out:       { label: "Outbound volume",      description: "Bandwidth/packet rate sent by a single source",         fields: ["bps", "pps"] },
+  syn_flood:        { label: "TCP SYN flood",        description: "TCP SYN-only packet rate to a destination",             fields: ["pps"] },
+  amplification:    { label: "Reflection / amp",     description: "Many unique sources hitting one destination (with optional sustained-bps floor to filter scanners)", fields: ["count", "bps"], fieldLabels: { count: "Min unique sources", bps: "Min sustained bps" } },
+  port_scan:        { label: "Port scan (outbound)", description: "An internal source touching many distinct destination ports", fields: ["count"], fieldLabels: { count: "Min unique ports" } },
+  icmp_flood:       { label: "ICMP flood",           description: "ICMP packet rate to a destination",                     fields: ["pps"] },
+  udp_flood:        { label: "UDP flood",            description: "UDP packet rate to a destination (DNS query flood, NTP query flood, ...)", fields: ["pps"] },
+  connection_flood: { label: "Connection flood",     description: "Distinct flow count per destination — Slowloris/half-open scan signature", fields: ["count"], fieldLabels: { count: "Min flow count" } },
+}
+
 function RulesTab() {
   const queryClient = useQueryClient()
+  const [showForm, setShowForm] = useState(false)
+  const [draft, setDraft] = useState<Partial<AlertRule>>(emptyRule())
+
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["alert-rules"],
     queryFn: () => api.listRules(),
@@ -141,21 +162,161 @@ function RulesTab() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["alert-rules"] }),
   })
 
+  const createMutation = useMutation({
+    mutationFn: (r: Partial<AlertRule>) => api.createRule(r),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["alert-rules"] })
+      setShowForm(false)
+      setDraft(emptyRule())
+    },
+  })
+
   if (error) return <ErrorDisplay error={error as Error} onRetry={() => refetch()} />
 
   const rules: AlertRule[] = data?.data || []
+  const meta = draft.rule_type ? RULE_TYPE_META[draft.rule_type] : null
 
   return (
     <Card>
       <CardHeader className="pb-2">
-        <div className="flex items-baseline justify-between">
+        <div className="flex items-center justify-between">
           <CardTitle>Alert rules ({rules.length})</CardTitle>
-          <span className="text-[10px] text-muted-foreground">
-            Default rules seeded on first startup
-          </span>
+          <button
+            onClick={() => { setShowForm((s) => !s); if (!showForm) setDraft(emptyRule()) }}
+            className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+          >
+            <Plus className="h-3 w-3" />
+            {showForm ? "Cancel" : "Add rule"}
+          </button>
         </div>
       </CardHeader>
       <CardContent>
+        {showForm && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              createMutation.mutate(draft)
+            }}
+            className="space-y-2 mb-4 p-3 border border-border rounded bg-muted/20"
+          >
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Field label="Name">
+                <input
+                  type="text"
+                  required
+                  value={draft.name || ""}
+                  onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+                  placeholder="High volume on edge router"
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </Field>
+              <Field label="Type">
+                <select
+                  value={draft.rule_type || ""}
+                  onChange={(e) => setDraft((d) => ({ ...d, rule_type: e.target.value as AlertRule["rule_type"], threshold_bps: 0, threshold_pps: 0, threshold_count: 0 }))}
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  required
+                >
+                  <option value="">— select —</option>
+                  {Object.entries(RULE_TYPE_META).map(([k, v]) => (
+                    <option key={k} value={k}>{v.label} ({k})</option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            {meta && (
+              <p className="text-[10px] text-muted-foreground italic px-1">{meta.description}</p>
+            )}
+            <Field label="Description">
+              <input
+                type="text"
+                value={draft.description || ""}
+                onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
+                placeholder="Optional — shown alongside the rule in dashboards"
+                className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+            </Field>
+            {meta && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {meta.fields.includes("bps") && (
+                  <Field label={meta.fieldLabels?.bps || "Threshold bps"}>
+                    <input
+                      type="number"
+                      min={0}
+                      value={draft.threshold_bps || ""}
+                      onChange={(e) => setDraft((d) => ({ ...d, threshold_bps: Number(e.target.value) }))}
+                      placeholder="500000000"
+                      className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    />
+                  </Field>
+                )}
+                {meta.fields.includes("pps") && (
+                  <Field label={meta.fieldLabels?.pps || "Threshold pps"}>
+                    <input
+                      type="number"
+                      min={0}
+                      value={draft.threshold_pps || ""}
+                      onChange={(e) => setDraft((d) => ({ ...d, threshold_pps: Number(e.target.value) }))}
+                      placeholder="50000"
+                      className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    />
+                  </Field>
+                )}
+                {meta.fields.includes("count") && (
+                  <Field label={meta.fieldLabels?.count || "Threshold count"}>
+                    <input
+                      type="number"
+                      min={0}
+                      value={draft.threshold_count || ""}
+                      onChange={(e) => setDraft((d) => ({ ...d, threshold_count: Number(e.target.value) }))}
+                      placeholder="10000"
+                      className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    />
+                  </Field>
+                )}
+              </div>
+            )}
+            <div className="grid gap-2 sm:grid-cols-3">
+              <Field label="Window (s)">
+                <input
+                  type="number"
+                  min={10}
+                  value={draft.window_seconds || 60}
+                  onChange={(e) => setDraft((d) => ({ ...d, window_seconds: Number(e.target.value) }))}
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </Field>
+              <Field label="Cooldown (s)">
+                <input
+                  type="number"
+                  min={0}
+                  value={draft.cooldown_seconds || 300}
+                  onChange={(e) => setDraft((d) => ({ ...d, cooldown_seconds: Number(e.target.value) }))}
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </Field>
+              <Field label="Severity">
+                <select
+                  value={draft.severity || "warning"}
+                  onChange={(e) => setDraft((d) => ({ ...d, severity: e.target.value as AlertRule["severity"] }))}
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <option value="info">info</option>
+                  <option value="warning">warning</option>
+                  <option value="critical">critical</option>
+                </select>
+              </Field>
+            </div>
+            <button
+              type="submit"
+              disabled={createMutation.isPending || !draft.name || !draft.rule_type}
+              className="px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              Create rule
+            </button>
+          </form>
+        )}
+
         {isLoading ? (
           <TableSkeleton rows={5} cols={5} />
         ) : rules.length === 0 ? (
@@ -206,9 +367,7 @@ function RulesTab() {
                       </span>
                     </td>
                     <td className="py-1.5 text-right font-mono">
-                      {r.threshold_bps ? formatBpsThreshold(r.threshold_bps) : ""}
-                      {r.threshold_pps ? `${r.threshold_pps.toLocaleString()} pps` : ""}
-                      {r.threshold_count ? `${r.threshold_count.toLocaleString()}` : ""}
+                      {formatThreshold(r)}
                     </td>
                     <td className="py-1.5 text-right font-mono text-muted-foreground">{r.window_seconds}s</td>
                     <td className="py-1.5 text-right">
@@ -233,6 +392,51 @@ function RulesTab() {
       </CardContent>
     </Card>
   )
+}
+
+function emptyRule(): Partial<AlertRule> {
+  return {
+    name: "",
+    description: "",
+    rule_type: "",
+    enabled: true,
+    threshold_bps: 0,
+    threshold_pps: 0,
+    threshold_count: 0,
+    window_seconds: 60,
+    cooldown_seconds: 300,
+    severity: "warning",
+    action: "notify",
+  }
+}
+
+function formatThreshold(r: AlertRule): React.ReactNode {
+  // A rule may legitimately set multiple thresholds (e.g. amplification with
+  // both a unique-source count AND a sustained-bps floor). Render each
+  // populated value on its own line so they never blur together visually.
+  const parts: string[] = []
+  if (r.threshold_count) parts.push(formatCount(r.threshold_count, r.rule_type))
+  if (r.threshold_bps) parts.push(formatBpsThreshold(r.threshold_bps))
+  if (r.threshold_pps) parts.push(`${r.threshold_pps.toLocaleString()} pps`)
+  if (parts.length === 0) return <span className="text-muted-foreground">—</span>
+  return (
+    <div className="flex flex-col items-end">
+      {parts.map((p, i) => (
+        <span key={i} className="leading-tight">{p}</span>
+      ))}
+    </div>
+  )
+}
+
+function formatCount(n: number, ruleType: string): string {
+  const num = n.toLocaleString()
+  // Suffix the unit so the user knows what the count refers to.
+  switch (ruleType) {
+    case "amplification":    return `${num} srcs`
+    case "port_scan":        return `${num} ports`
+    case "connection_flood": return `${num} flows`
+    default:                 return num
+  }
 }
 
 function formatBpsThreshold(bps: number): string {

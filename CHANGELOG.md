@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-04-08
+
+### Added
+- **Admin > Alert Rules — create form**. The Rules tab now has an "Add rule"
+  button next to the title. The form switches its threshold inputs depending
+  on the selected rule type (e.g. amplification asks for `min unique sources`
+  AND `min sustained bps`, syn_flood asks for `pps` only) and shows a short
+  inline description for each type. Covers all 9 rule types including the new
+  `icmp_flood` / `udp_flood` / `connection_flood` from v1.4.0.
+
+### Fixed
+- **`/flows/search` returned HTTP 500** as soon as any filter was provided.
+  Same family of bug as the `/top/port` regression in v1.2.1: the SELECT
+  aliased `min(ts) AS ts` (and unqualified column names like `src_ip`,
+  `protocol`, ...), so ClickHouse resolved `ts` in the WHERE clause as the
+  aggregated alias and threw `Aggregate function min(ts) AS ts is found in
+  WHERE in query`. Added a `flows_log f` table alias and qualified every
+  column reference in the WHERE/GROUP BY clauses. Validated end-to-end against
+  the production `flows_log` table.
+- **Admin > Alert Rules — threshold display**. When a rule had both
+  `threshold_bps` and `threshold_count` set (the v1.4.0 amplification default,
+  for instance, has `100 Mbps` floor + `10000` unique sources), the cell
+  rendered them as one concatenated string (`100 Mbps10 000`). Each populated
+  threshold now appears on its own line with a unit suffix (`srcs` /
+  `ports` / `flows`) so the meaning of each value is unambiguous.
+- **Live Threats summary cards — vertical baseline**. The CRITICAL / WARN / OK
+  cards used a single `CardContent` with the title and icon packed into a
+  flex row at the top, which produced inconsistent vertical positioning vs.
+  cards built with the standard `CardHeader > CardTitle` pattern (Top
+  Protocols, etc.). Refactored to use `CardHeader + CardContent` so the title
+  baseline lines up with every other card on the page.
+- **Dashboard — IPv4/IPv6 traffic-by-link card titles**. Same root cause as
+  the Live Threats fix: the chart titles were rendered as inline `<h3>`
+  inside `LinkTrafficChart` (whose parent was a bare `CardContent`), which
+  put them at a different vertical baseline than every other card. Moved the
+  titles into proper `CardHeader > CardTitle` and dropped the `title` prop
+  from the chart inside the cards.
+
+## [1.4.1] - 2026-04-08
+
+### Added
+- Show reverse DNS (`IPWithPTR`) next to each destination on the Live Threats
+  page, matching how Top IP / Flow Search / IP Detail render addresses.
+
 ## [1.4.0] - 2026-04-08
 
 ### Added — Alert engine improvements
