@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-04-08
+
+### Added
+- **Sortable columns on the Live Threats table**. Every column header is now
+  a button — click to sort, click again to flip the direction. The "Status"
+  header sorts on `worst_pct` so the rows with the highest threshold % surface
+  to the top regardless of their absolute traffic. Default order is `bps DESC`
+  to match the previous behaviour.
+- **Sub-5-min resolution on the IP detail page** for the 1h / 3h / 6h views.
+  `IPTimeSeries` now queries `flows_raw` directly when the requested window is
+  ≤ 6h (new `useRawTableForIP` helper), giving the autoStep-selected bucket
+  size (1 min for ≤ 3h, 2 min for ≤ 6h). Longer windows still use the
+  pre-aggregated `traffic_by_ip` table (5-min buckets) because scanning many
+  hours of `flows_raw` filtered by a single IP starts to noticeably degrade
+  the page on busy networks.
+
+  The flows_raw branch matches the IP against `dst_ip` for inbound and
+  `src_ip` for outbound (using `toIPv6()` to handle IPv4 input transparently),
+  reconstructing the same `direction = in/out` semantics that
+  `traffic_by_ip` exposes natively.
+
 ## [1.4.2] - 2026-04-08
 
 ### Added

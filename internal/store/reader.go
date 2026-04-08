@@ -653,24 +653,57 @@ func (s *ClickHouseStore) IPInfo(ctx context.Context, ip string) (asn uint32, as
 }
 
 // IPTimeSeries returns traffic time series for a specific IP.
+//
+// For short windows (<= useRawTableForIP threshold) the query goes against
+// flows_raw with the requested bucket so the user gets true sub-5-min
+// granularity (1 min on the 1h/3h views, 2 min on 6h). For longer windows
+// it falls back to the pre-aggregated traffic_by_ip table (5-min buckets)
+// because scanning many hours of flows_raw filtered by IP becomes expensive.
+//
+// The bucket size in both branches comes from autoStep() — keeping the
+// switchover invisible to callers.
 func (s *ClickHouseStore) IPTimeSeries(ctx context.Context, ip string, p QueryParams) ([]model.TrafficPoint, error) {
 	step := autoStep(p.From, p.To)
 	linkFilter, linkArgs := buildLinkFilter(p.LinkTags)
 
-	query := fmt.Sprintf(`
-		SELECT
-			toStartOfInterval(ts, INTERVAL %d SECOND) AS period,
-			sumIf(bytes, direction = 'in') AS bytes_in,
-			sumIf(bytes, direction = 'out') AS bytes_out,
-			sumIf(packets, direction = 'in') AS packets_in,
-			sumIf(packets, direction = 'out') AS packets_out
-		FROM traffic_by_ip
-		WHERE (toString(ip_address) = @ip OR toString(ip_address) = concat('::ffff:', @ip))
-		  AND ts >= @from AND ts < @to
-		  %s
-		GROUP BY period
-		ORDER BY period
-	`, int(step.Seconds()), linkFilter)
+	var query string
+	if useRawTableForIP(p.From, p.To) {
+		// Note: traffic_by_ip aggregates by direction relative to the local IP
+		// (in = received, out = sent). flows_raw has no such field, so we
+		// reconstruct it by matching the IP against dst_ip (inbound) or
+		// src_ip (outbound). toIPv6() handles both IPv4 and IPv6 input strings.
+		// The link filter uses the same alias `t` semantics as buildLinkFilter,
+		// so we alias flows_raw as `t` to keep the helper queries valid.
+		query = fmt.Sprintf(`
+			SELECT
+				toStartOfInterval(timestamp, INTERVAL %d SECOND) AS period,
+				sumIf(bytes * sampling_rate,   dst_ip = toIPv6(@ip)) AS bytes_in,
+				sumIf(bytes * sampling_rate,   src_ip = toIPv6(@ip)) AS bytes_out,
+				sumIf(packets * sampling_rate, dst_ip = toIPv6(@ip)) AS packets_in,
+				sumIf(packets * sampling_rate, src_ip = toIPv6(@ip)) AS packets_out
+			FROM flows_raw t
+			WHERE (t.src_ip = toIPv6(@ip) OR t.dst_ip = toIPv6(@ip))
+			  AND t.timestamp >= @from AND t.timestamp < @to
+			  %s
+			GROUP BY period
+			ORDER BY period
+		`, int(step.Seconds()), linkFilter)
+	} else {
+		query = fmt.Sprintf(`
+			SELECT
+				toStartOfInterval(ts, INTERVAL %d SECOND) AS period,
+				sumIf(bytes, direction = 'in') AS bytes_in,
+				sumIf(bytes, direction = 'out') AS bytes_out,
+				sumIf(packets, direction = 'in') AS packets_in,
+				sumIf(packets, direction = 'out') AS packets_out
+			FROM traffic_by_ip t
+			WHERE (toString(t.ip_address) = @ip OR toString(t.ip_address) = concat('::ffff:', @ip))
+			  AND t.ts >= @from AND t.ts < @to
+			  %s
+			GROUP BY period
+			ORDER BY period
+		`, int(step.Seconds()), linkFilter)
+	}
 
 	args := append([]any{
 		clickhouse.Named("ip", ip),
@@ -679,6 +712,15 @@ func (s *ClickHouseStore) IPTimeSeries(ctx context.Context, ip string, p QueryPa
 	}, linkArgs...)
 
 	return s.queryTimeSeries(ctx, query, args)
+}
+
+// useRawTableForIP is a per-IP variant of useRawTable: scanning flows_raw
+// filtered by a single IP is much cheaper than the unfiltered global queries
+// (Dashboard chart, etc.) so we can afford to use it for longer windows.
+// Going beyond 6h starts to noticeably slow the IP detail page on busy
+// networks because the WHERE filter degenerates to a full timestamp scan.
+func useRawTableForIP(from, to time.Time) bool {
+	return to.Sub(from) <= 6*time.Hour
 }
 
 // LinkList returns all known links with their aggregated traffic.

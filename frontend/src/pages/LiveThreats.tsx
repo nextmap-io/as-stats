@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query"
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Link } from "react-router-dom"
 import { api } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { TableSkeleton } from "@/components/ui/skeleton"
 import { IPWithPTR } from "@/components/PTR"
-import { Activity, ShieldAlert, AlertTriangle, CheckCircle2 } from "lucide-react"
+import { Activity, ShieldAlert, AlertTriangle, CheckCircle2, ArrowUp, ArrowDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { LiveThreat, ThreatStatus } from "@/lib/types"
 
@@ -17,9 +17,16 @@ const WINDOWS: { value: number; label: string }[] = [
   { value: 3600, label: "1h" },
 ]
 
+// Sortable columns. The "status" column sorts on worst_pct so the most
+// dangerous rows bubble to the top regardless of their absolute traffic.
+type SortKey = "status" | "target_ip" | "bps" | "pps" | "syn_pps" | "unique_src_ips" | "worst_rule"
+type SortDir = "asc" | "desc"
+
 export function LiveThreats() {
   const [windowSec, setWindowSec] = useState<number>(300)
   const [hideOk, setHideOk] = useState<boolean>(false)
+  const [sortKey, setSortKey] = useState<SortKey>("bps")
+  const [sortDir, setSortDir] = useState<SortDir>("desc")
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["live-threats", windowSec],
@@ -27,14 +34,42 @@ export function LiveThreats() {
     refetchInterval: 10_000,
   })
 
+  const all: LiveThreat[] = useMemo(() => data?.data || [], [data])
+  const filtered = useMemo(
+    () => (hideOk ? all.filter((t) => t.status !== "ok") : all),
+    [all, hideOk],
+  )
+
+  const threats = useMemo(() => {
+    const arr = [...filtered]
+    arr.sort((a, b) => {
+      const va = sortValue(a, sortKey)
+      const vb = sortValue(b, sortKey)
+      let cmp: number
+      if (typeof va === "number" && typeof vb === "number") cmp = va - vb
+      else cmp = String(va).localeCompare(String(vb))
+      return sortDir === "asc" ? cmp : -cmp
+    })
+    return arr
+  }, [filtered, sortKey, sortDir])
+
   if (error) return <ErrorDisplay error={error as Error} onRetry={() => refetch()} />
 
-  const all: LiveThreat[] = data?.data || []
-  const threats = hideOk ? all.filter((t) => t.status !== "ok") : all
   const counts = {
     critical: all.filter((t) => t.status === "critical").length,
     warn: all.filter((t) => t.status === "warn").length,
     ok: all.filter((t) => t.status === "ok").length,
+  }
+
+  // Click on a column header: same key flips direction, new key resets to
+  // the natural default (desc for numeric, asc for alpha).
+  const onSort = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+      return
+    }
+    setSortKey(key)
+    setSortDir(key === "target_ip" || key === "worst_rule" ? "asc" : "desc")
   }
 
   return (
@@ -121,13 +156,13 @@ export function LiveThreats() {
               <table className="w-full text-xs" role="table">
                 <thead>
                   <tr className="border-b border-border">
-                    <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Status</th>
-                    <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Destination</th>
-                    <th scope="col" className="pb-1.5 text-right font-medium text-muted-foreground">bps</th>
-                    <th scope="col" className="pb-1.5 text-right font-medium text-muted-foreground">pps</th>
-                    <th scope="col" className="pb-1.5 text-right font-medium text-muted-foreground hidden sm:table-cell">SYN/s</th>
-                    <th scope="col" className="pb-1.5 text-right font-medium text-muted-foreground hidden sm:table-cell">Unique src</th>
-                    <th scope="col" className="pb-1.5 text-right font-medium text-muted-foreground">Worst rule</th>
+                    <SortableTH label="Status" align="left" sortKey="status" current={sortKey} dir={sortDir} onSort={onSort} />
+                    <SortableTH label="Destination" align="left" sortKey="target_ip" current={sortKey} dir={sortDir} onSort={onSort} />
+                    <SortableTH label="bps" align="right" sortKey="bps" current={sortKey} dir={sortDir} onSort={onSort} />
+                    <SortableTH label="pps" align="right" sortKey="pps" current={sortKey} dir={sortDir} onSort={onSort} />
+                    <SortableTH label="SYN/s" align="right" sortKey="syn_pps" current={sortKey} dir={sortDir} onSort={onSort} className="hidden sm:table-cell" />
+                    <SortableTH label="Unique src" align="right" sortKey="unique_src_ips" current={sortKey} dir={sortDir} onSort={onSort} className="hidden sm:table-cell" />
+                    <SortableTH label="Worst rule" align="right" sortKey="worst_rule" current={sortKey} dir={sortDir} onSort={onSort} />
                   </tr>
                 </thead>
                 <tbody>
@@ -213,6 +248,60 @@ function StatusCard({ status, count }: { status: ThreatStatus; count: number }) 
         <p className="text-[9px] text-muted-foreground mt-1.5">{config.label}</p>
       </CardContent>
     </Card>
+  )
+}
+
+// sortValue extracts the value used to sort each row by the requested column.
+// For "status" we use worst_pct (so the sort follows danger level, not the
+// string "critical"/"warn"/"ok") — that gives the most useful default order
+// when the operator clicks the Status header.
+function sortValue(t: LiveThreat, key: SortKey): number | string {
+  switch (key) {
+    case "status":          return t.worst_pct
+    case "target_ip":       return t.target_ip
+    case "bps":             return t.bps
+    case "pps":             return t.pps
+    case "syn_pps":         return t.syn_pps
+    case "unique_src_ips":  return t.unique_src_ips
+    case "worst_rule":      return t.worst_rule || ""
+  }
+}
+
+function SortableTH({
+  label, sortKey, current, dir, onSort, align, className,
+}: {
+  label: string
+  sortKey: SortKey
+  current: SortKey
+  dir: SortDir
+  onSort: (k: SortKey) => void
+  align: "left" | "right"
+  className?: string
+}) {
+  const active = current === sortKey
+  const Arrow = dir === "asc" ? ArrowUp : ArrowDown
+  return (
+    <th
+      scope="col"
+      className={cn(
+        "pb-1.5 font-medium text-muted-foreground select-none",
+        align === "left" ? "text-left" : "text-right",
+        className,
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={cn(
+          "inline-flex items-center gap-0.5 hover:text-foreground transition-colors",
+          align === "right" && "flex-row-reverse",
+          active && "text-foreground",
+        )}
+      >
+        <span>{label}</span>
+        <Arrow className={cn("h-2.5 w-2.5", active ? "opacity-100" : "opacity-25")} />
+      </button>
+    </th>
   )
 }
 
