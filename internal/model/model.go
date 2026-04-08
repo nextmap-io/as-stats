@@ -129,3 +129,140 @@ type Overview struct {
 	TopIP         []IPTraffic  `json:"top_ip"`
 	Links         []LinkTraffic `json:"links"`
 }
+
+// FlowLogEntry represents one row from the flows_log table.
+type FlowLogEntry struct {
+	Timestamp    time.Time `json:"ts"`
+	LinkTag      string    `json:"link_tag"`
+	SrcIP        string    `json:"src_ip"`
+	DstIP        string    `json:"dst_ip"`
+	SrcAS        uint32    `json:"src_as"`
+	DstAS        uint32    `json:"dst_as"`
+	Protocol     uint8     `json:"protocol"`
+	ProtocolName string    `json:"protocol_name,omitempty"`
+	SrcPort      uint16    `json:"src_port"`
+	DstPort      uint16    `json:"dst_port"`
+	Service      string    `json:"service,omitempty"`
+	TCPFlags     uint8     `json:"tcp_flags,omitempty"`
+	IPVersion    uint8     `json:"ip_version"`
+	Bytes        uint64    `json:"bytes"`
+	Packets      uint64    `json:"packets"`
+	FlowCount    uint64    `json:"flow_count"`
+}
+
+// FlowSearchFilters holds all filters for a flow search query.
+type FlowSearchFilters struct {
+	From      time.Time
+	To        time.Time
+	SrcIP     string // single IP or CIDR
+	DstIP     string
+	SrcAS     uint32
+	DstAS     uint32
+	Protocol  uint8  // 0 = any
+	SrcPort   uint16 // 0 = any
+	DstPort   uint16 // 0 = any
+	LinkTag   string
+	MinBytes  uint64
+	IPVersion uint8 // 0 = any
+	Limit     int
+	Offset    int
+	OrderBy   string // 'ts', 'bytes' (default 'bytes')
+}
+
+// ProtocolTraffic represents aggregated traffic for one protocol.
+type ProtocolTraffic struct {
+	Protocol     uint8   `json:"protocol"`
+	ProtocolName string  `json:"protocol_name"`
+	Direction    string  `json:"direction"`
+	Bytes        uint64  `json:"bytes"`
+	Packets      uint64  `json:"packets"`
+	Flows        uint64  `json:"flows"`
+	Percent      float64 `json:"pct"`
+}
+
+// PortTraffic represents aggregated traffic for one (protocol, port) tuple.
+type PortTraffic struct {
+	Protocol     uint8   `json:"protocol"`
+	ProtocolName string  `json:"protocol_name"`
+	Port         uint16  `json:"port"`
+	Service      string  `json:"service,omitempty"`
+	Direction    string  `json:"direction"`
+	Bytes        uint64  `json:"bytes"`
+	Packets      uint64  `json:"packets"`
+	Flows        uint64  `json:"flows"`
+	Percent      float64 `json:"pct"`
+}
+
+// AlertRule is a configurable DDoS detection rule.
+type AlertRule struct {
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	Description     string    `json:"description,omitempty"`
+	RuleType        string    `json:"rule_type"` // volume_in, volume_out, syn_flood, amplification, port_scan, custom
+	Enabled         bool      `json:"enabled"`
+	ThresholdBps    uint64    `json:"threshold_bps,omitempty"`
+	ThresholdPps    uint64    `json:"threshold_pps,omitempty"`
+	ThresholdCount  uint64    `json:"threshold_count,omitempty"`
+	WindowSeconds   uint32    `json:"window_seconds"`
+	CooldownSeconds uint32    `json:"cooldown_seconds"`
+	Severity        string    `json:"severity"` // info, warning, critical
+	TargetFilter    string    `json:"target_filter,omitempty"`
+	CustomSQL       string    `json:"custom_sql,omitempty"`
+	Action          string    `json:"action"` // notify, ack_required, auto_block
+	WebhookIDs      []string  `json:"webhook_ids,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// Alert represents a triggered alert instance.
+type Alert struct {
+	ID              string    `json:"id"`
+	RuleID          string    `json:"rule_id"`
+	RuleName        string    `json:"rule_name"`
+	Severity        string    `json:"severity"`
+	TriggeredAt     time.Time `json:"triggered_at"`
+	LastSeenAt      time.Time `json:"last_seen_at"`
+	ResolvedAt      *time.Time `json:"resolved_at,omitempty"`
+	TargetIP        string    `json:"target_ip"`
+	TargetAS        uint32    `json:"target_as,omitempty"`
+	Protocol        uint8     `json:"protocol,omitempty"`
+	MetricValue     float64   `json:"metric_value"`
+	Threshold       float64   `json:"threshold"`
+	MetricType      string    `json:"metric_type"` // bps, pps, count
+	Details         string    `json:"details,omitempty"`
+	Status          string    `json:"status"` // active, acknowledged, resolved, muted
+	AcknowledgedBy  string    `json:"acknowledged_by,omitempty"`
+	AcknowledgedAt  *time.Time `json:"acknowledged_at,omitempty"`
+	ActionTaken     string    `json:"action_taken,omitempty"`
+	ActionBy        string    `json:"action_by,omitempty"`
+	ActionAt        *time.Time `json:"action_at,omitempty"`
+}
+
+// WebhookConfig is a notification webhook (Slack, Teams, generic).
+type WebhookConfig struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	WebhookType string    `json:"webhook_type"` // slack, teams, discord, generic
+	URL         string    `json:"url"`
+	Enabled     bool      `json:"enabled"`
+	MinSeverity string    `json:"min_severity"` // info, warning, critical
+	Headers     string    `json:"headers,omitempty"` // JSON
+	Template    string    `json:"template,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// AuditLogEntry represents one audit trail row.
+type AuditLogEntry struct {
+	Timestamp    time.Time `json:"ts"`
+	UserSub      string    `json:"user_sub,omitempty"`
+	UserEmail    string    `json:"user_email,omitempty"`
+	UserRole     string    `json:"user_role,omitempty"`
+	Action       string    `json:"action"`
+	Resource     string    `json:"resource,omitempty"`
+	Params       string    `json:"params,omitempty"`
+	ClientIP     string    `json:"client_ip"`
+	UserAgent    string    `json:"user_agent,omitempty"`
+	Result       string    `json:"result"`
+	ErrorMessage string    `json:"error_message,omitempty"`
+}
