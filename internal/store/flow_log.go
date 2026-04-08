@@ -259,11 +259,11 @@ func (s *ClickHouseStore) TopProtocols(ctx context.Context, p QueryParams) ([]mo
 		SELECT
 			protocol,
 			direction,
-			sum(bytes) AS total_bytes,
-			sum(packets) AS total_packets,
-			sum(flow_count) AS total_flows
-		FROM traffic_by_port
-		WHERE ts >= @from AND ts < @to
+			sum(t.bytes) AS total_bytes,
+			sum(t.packets) AS total_packets,
+			sum(t.flow_count) AS total_flows
+		FROM traffic_by_port t
+		WHERE t.ts >= @from AND t.ts < @to
 		%s %s
 		GROUP BY protocol, direction
 		ORDER BY total_bytes DESC
@@ -306,7 +306,7 @@ func (s *ClickHouseStore) TopPorts(ctx context.Context, p QueryParams, protocol 
 
 	protoFilter := ""
 	if protocol > 0 {
-		protoFilter = "AND protocol = @protocol"
+		protoFilter = "AND t.protocol = @protocol"
 		dirArgs = append(dirArgs, clickhouse.Named("protocol", protocol))
 	}
 
@@ -315,12 +315,12 @@ func (s *ClickHouseStore) TopPorts(ctx context.Context, p QueryParams, protocol 
 			protocol,
 			port,
 			direction,
-			sum(bytes) AS total_bytes,
-			sum(packets) AS total_packets,
-			sum(flow_count) AS total_flows
-		FROM traffic_by_port
-		WHERE ts >= @from AND ts < @to
-		  AND port > 0
+			sum(t.bytes) AS total_bytes,
+			sum(t.packets) AS total_packets,
+			sum(t.flow_count) AS total_flows
+		FROM traffic_by_port t
+		WHERE t.ts >= @from AND t.ts < @to
+		  AND t.port > 0
 		%s %s %s
 		GROUP BY protocol, port, direction
 		ORDER BY total_bytes DESC

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-04-08
+
+### Fixed
+- `/top/port` returned HTTP 500 (`Unknown identifier 't.direction'`) whenever the
+  frontend passed a `direction` filter. `TopPorts` and `TopProtocols` were calling
+  the shared `buildDirectionFilter` / `buildLinkFilter` helpers, which emit
+  `t.direction` and `t.link_tag`, but their `FROM traffic_by_port` clause did not
+  define an alias. Added the missing `t` alias and qualified the columns
+  consistently in both queries.
+- `migrations/000008_hot_aggregates.up.sql`: replaced infix bitwise `&` with
+  `bitAnd()` (ClickHouse SQL has no `&` operator) and qualified the column in the
+  `sumIf(packets * sampling_rate, ...)` argument as `flows_raw.packets` so that
+  ClickHouse no longer interprets it as a reference to the `AS packets` alias of
+  the surrounding `sum()` (which produced `ILLEGAL_AGGREGATION`). Existing
+  installations applied via the docker-entrypoint init mechanism are unaffected;
+  fresh deploys (or sites that apply migration 000008 manually post v1.2.0) need
+  this fix to create `traffic_by_dst_1min_mv`.
+
 ## [1.2.0] - 2026-04-08
 
 ### Added — Optional features (off by default, behind feature flags)
