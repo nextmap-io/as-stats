@@ -1,12 +1,13 @@
 import { Link, useParams } from "react-router-dom"
 import { useASDetail, useASTopIPs, useASRemoteIPs, useLinkColors } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
+import { useFeatureFlags } from "@/hooks/useFeatures"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
 import { ExpandableChart } from "@/components/ExpandableChart"
 import { formatNumber, formatBytes } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
-import { ExternalLink } from "lucide-react"
+import { ExternalLink, Search } from "lucide-react"
 import { IPWithPTR } from "@/components/PTR"
 
 export function ASDetail() {
@@ -14,6 +15,7 @@ export function ASDetail() {
   const asnNum = Number(asn) || 0
   const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds } = useFilters()
   const { formatTraffic } = useUnit()
+  const features = useFeatureFlags()
   const linkColors = useLinkColors()
 
   const { data, isLoading, error } = useASDetail(asnNum, filters)
@@ -49,6 +51,16 @@ export function ASDetail() {
             className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1">
             bgp.tools <ExternalLink className="h-2.5 w-2.5" />
           </a>
+          {features.flow_search && (
+            <Link
+              to={`/flows?period=${filters.period || "1h"}&dst_as=${detail.as_number}`}
+              className="text-primary hover:text-primary/80 transition-colors inline-flex items-center gap-1"
+              title="Search flows involving this AS"
+            >
+              <Search className="h-2.5 w-2.5" />
+              Flows
+            </Link>
+          )}
         </div>
       </div>
 

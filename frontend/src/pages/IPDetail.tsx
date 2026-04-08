@@ -1,17 +1,20 @@
 import { Link, useParams } from "react-router-dom"
 import { useIPDetail } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
+import { useFeatureFlags } from "@/hooks/useFeatures"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TrafficChart } from "@/components/charts/TrafficChart"
 import { ExpandableChart } from "@/components/ExpandableChart"
 import { formatNumber } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 import { IPWithPTR } from "@/components/PTR"
+import { Search } from "lucide-react"
 
 export function IPDetail() {
   const { ip } = useParams<{ ip: string }>()
   const { filters, filterSearch, periodSeconds, timeBounds } = useFilters()
   const { formatTraffic } = useUnit()
+  const features = useFeatureFlags()
   const { data, isLoading, error } = useIPDetail(ip || "", filters)
 
   if (isLoading) return <p className="text-muted-foreground">Loading...</p>
@@ -23,17 +26,29 @@ export function IPDetail() {
   return (
     <div className="space-y-5">
       {/* Header with IP info */}
-      <div>
-        <h1 className="text-lg font-bold tracking-tight font-mono">{detail.ip}</h1>
-        <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-muted-foreground">
-          {detail.ptr && <span>{detail.ptr}</span>}
-          {detail.as_number ? (
-            <Link to={`/as/${detail.as_number}${filterSearch}`} className="hover:text-primary transition-colors">
-              AS{detail.as_number}{detail.as_name ? ` ${detail.as_name}` : ""}
-            </Link>
-          ) : null}
-          {detail.prefix && <span className="font-mono">{detail.prefix}</span>}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-lg font-bold tracking-tight font-mono">{detail.ip}</h1>
+          <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-muted-foreground">
+            {detail.ptr && <span>{detail.ptr}</span>}
+            {detail.as_number ? (
+              <Link to={`/as/${detail.as_number}${filterSearch}`} className="hover:text-primary transition-colors">
+                AS{detail.as_number}{detail.as_name ? ` ${detail.as_name}` : ""}
+              </Link>
+            ) : null}
+            {detail.prefix && <span className="font-mono">{detail.prefix}</span>}
+          </div>
         </div>
+        {features.flow_search && (
+          <Link
+            to={`/flows?period=${filters.period || "1h"}&dst_ip=${encodeURIComponent(detail.ip)}`}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors shrink-0"
+            title="Search flows involving this IP"
+          >
+            <Search className="h-3 w-3" />
+            View flows
+          </Link>
+        )}
       </div>
 
       <Card>
