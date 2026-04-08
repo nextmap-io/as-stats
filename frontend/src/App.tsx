@@ -17,6 +17,7 @@ import { FlowSearch } from "@/pages/FlowSearch"
 import { TopProtocols } from "@/pages/TopProtocols"
 import { TopPorts } from "@/pages/TopPorts"
 import { Alerts } from "@/pages/Alerts"
+import { LiveThreats } from "@/pages/LiveThreats"
 import { Admin } from "@/pages/Admin"
 
 const queryClient = new QueryClient({
@@ -49,6 +50,7 @@ function AppWithProviders() {
             <Route path="/top/protocol" element={<TopProtocols />} />
             <Route path="/top/port" element={<TopPorts />} />
             <Route path="/alerts" element={<Alerts />} />
+            <Route path="/live" element={<LiveThreats />} />
             <Route path="/admin" element={<Admin />} />
           </Route>
         </Routes>

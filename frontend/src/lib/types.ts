@@ -314,3 +314,20 @@ export interface AuditLogEntry {
   result: "success" | "denied" | "error"
   error_message?: string
 }
+
+// =============================================================================
+// Live threats — pre-trigger DDoS detection view
+// =============================================================================
+
+export type ThreatStatus = "ok" | "warn" | "critical"
+
+export interface LiveThreat {
+  target_ip: string
+  bps: number
+  pps: number
+  syn_pps: number
+  unique_src_ips: number
+  worst_pct: number
+  worst_rule?: string
+  status: ThreatStatus
+}

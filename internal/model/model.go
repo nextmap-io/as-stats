@@ -266,3 +266,18 @@ type AuditLogEntry struct {
 	Result       string    `json:"result"`
 	ErrorMessage string    `json:"error_message,omitempty"`
 }
+
+// LiveThreat is one row in the real-time DDoS detection table.
+// It is a snapshot from traffic_by_dst_1min over a short window — not a
+// triggered alert. The "status" and "worst_pct" fields express how close
+// the row is to firing the closest matching alert rule.
+type LiveThreat struct {
+	TargetIP        string  `json:"target_ip"`
+	BPS             uint64  `json:"bps"`
+	PPS             uint64  `json:"pps"`
+	SynPPS          uint64  `json:"syn_pps"`
+	UniqueSourceIPs uint64  `json:"unique_src_ips"`
+	WorstPercent    float64 `json:"worst_pct"`        // % of the closest matching threshold (0..∞)
+	WorstRule       string  `json:"worst_rule,omitempty"` // name of the rule the row is closest to
+	Status          string  `json:"status"`           // "ok" | "warn" (>50%) | "critical" (>=100%)
+}

@@ -304,6 +304,13 @@ func (s *ClickHouseStore) EvalVolumeOutbound(ctx context.Context, thresholdBps, 
 // Each prefix is validated as a real CIDR (or single IP) — invalid entries
 // are skipped with a warning. The CIDRs themselves are passed as ClickHouse
 // named parameters, never templated into the SQL string.
+//
+// IPv4 CIDRs are translated to their IPv6-mapped form (`::ffff:x.x.x.x/(n+96)`)
+// because the table columns are `IPv6` and `toString()` always emits the
+// mapped representation for IPv4 addresses. ClickHouse's
+// `isIPAddressInRange("::ffff:1.2.3.4", "1.2.3.0/24")` returns 0 even though
+// the address is logically in range — silently dropping every IPv4 row from
+// the alert evaluations.
 func buildCIDRFilter(column, prefix string, prefixes []string) (string, []any) {
 	if len(prefixes) == 0 {
 		return "1=1", nil
@@ -312,21 +319,46 @@ func buildCIDRFilter(column, prefix string, prefixes []string) (string, []any) {
 	args := make([]any, 0, len(prefixes))
 	idx := 0
 	for _, p := range prefixes {
-		// Accept either CIDR or bare IP — both must parse cleanly.
-		if _, _, err := net.ParseCIDR(p); err != nil {
-			if ip := net.ParseIP(p); ip == nil {
-				continue // skip invalid entries silently — these come from RIPE or admin config
-			}
+		normalized, ok := normalizeCIDRForIPv6Column(p)
+		if !ok {
+			continue // skip invalid entries silently — these come from RIPE or admin config
 		}
 		paramName := fmt.Sprintf("%scidr%d", prefix, idx)
 		parts = append(parts, fmt.Sprintf("isIPAddressInRange(toString(%s), @%s)", column, paramName))
-		args = append(args, clickhouse.Named(paramName, p))
+		args = append(args, clickhouse.Named(paramName, normalized))
 		idx++
 	}
 	if len(parts) == 0 {
 		return "1=1", nil
 	}
 	return "(" + strings.Join(parts, " OR ") + ")", args
+}
+
+// normalizeCIDRForIPv6Column accepts a CIDR ("1.2.3.0/24"), a bare IP
+// ("1.2.3.4"), or any IPv6 form, and returns a CIDR that compares correctly
+// against an IPv6 column whose IPv4 values are stored as IPv4-mapped IPv6.
+//
+// Rules:
+//   - "1.2.3.0/24"   -> "::ffff:1.2.3.0/120"   (24 + 96 host bits)
+//   - "1.2.3.4"      -> "::ffff:1.2.3.4/128"
+//   - "2001:db8::/32" -> "2001:db8::/32"        (unchanged)
+//   - "2001:db8::1"  -> "2001:db8::1/128"
+//   - garbage        -> "", false
+func normalizeCIDRForIPv6Column(s string) (string, bool) {
+	if ip, ipnet, err := net.ParseCIDR(s); err == nil {
+		ones, _ := ipnet.Mask.Size()
+		if v4 := ip.To4(); v4 != nil {
+			return fmt.Sprintf("::ffff:%s/%d", v4.String(), ones+96), true
+		}
+		return s, true
+	}
+	if ip := net.ParseIP(s); ip != nil {
+		if v4 := ip.To4(); v4 != nil {
+			return fmt.Sprintf("::ffff:%s/128", v4.String()), true
+		}
+		return s + "/128", true
+	}
+	return "", false
 }
 
 // time type alias to avoid unused import warning on files that only use these

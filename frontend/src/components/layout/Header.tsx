@@ -88,6 +88,9 @@ export function Header() {
   if (features.flow_search) {
     navItems.push({ to: "/flows", label: "Flow Search" })
   }
+  if (features.alerts) {
+    navItems.push({ to: "/live", label: "Live Threats" })
+  }
 
   // Active alerts count for the badge
   const { data: alertsSummary } = useQuery({

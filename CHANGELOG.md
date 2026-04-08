@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-04-08
+
+### Added
+- **Live Threats page** (`/live`, gated by `FEATURE_ALERTS`) — pre-trigger view
+  of the top inbound destinations from `traffic_by_dst_1min`. Shows real-time
+  bps, pps, SYN/sec and unique source IP counts, evaluated against every
+  active alert rule. Each row gets a status (`ok` / `warn ≥50%` / `critical
+  ≥100%`) and the name of the closest matching rule, so operators can spot a
+  building DDoS *before* the rule actually fires. Auto-refreshes every 10s
+  with selectable window (1m / 5m / 15m / 1h).
+- New API endpoint: `GET /api/v1/threats/live?window=300&limit=50`
+- New `LiveThreats` store query: a single aggregating SQL pass over
+  `traffic_by_dst_1min` with the local-prefix filter.
+
+### Fixed
+- **Alert engine never matched IPv4 destinations**: `buildCIDRFilter` was
+  building expressions of the form
+  `isIPAddressInRange(toString(dst_ip), '85.208.144.0/22')`, but ClickHouse
+  stores IPv4 in `IPv6` columns and `toString()` returns the IPv4-mapped form
+  (`::ffff:85.208.145.137`). `isIPAddressInRange("::ffff:1.2.3.4", "1.2.3.0/24")`
+  returns `0`, so every alert rule that fed `localPrefixes` (i.e. all of them)
+  silently dropped every IPv4 row and could never trigger on IPv4 traffic.
+
+  The helper now normalizes any input CIDR to the IPv6-mapped equivalent
+  before passing it to ClickHouse: `1.2.3.0/24` → `::ffff:1.2.3.0/120`
+  (24 + 96 host bits). IPv6 CIDRs are passed through unchanged. Bare IPs are
+  expanded to `/128`. This restores volume_in / syn_flood / amplification /
+  port_scan / volume_out evaluations on the IPv4 side, and is also what the
+  new `LiveThreats` query depends on.
+
 ## [1.2.2] - 2026-04-08
 
 ### Fixed

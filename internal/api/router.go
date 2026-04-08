@@ -119,6 +119,8 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		if cfg.FeatureAlerts {
 			r.Get("/alerts", h.ListAlerts)
 			r.Get("/alerts/summary", h.AlertsSummary)
+			// Live threats — pre-trigger view of top destinations vs. rules
+			r.Get("/threats/live", h.LiveThreats)
 			// Alert actions require CSRF + optional admin role
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.CSRF())

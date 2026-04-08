@@ -17,6 +17,7 @@ import type {
   LinkDetailData,
   LinkTimeSeries,
   LinkTraffic,
+  LiveThreat,
   Overview,
   PortTraffic,
   PrefixTraffic,
@@ -147,6 +148,8 @@ export const api = {
   alerts: (status?: string, limit?: number) =>
     fetchAPI<Alert[]>("/alerts", { ...(status && { status }), ...(limit && { limit }) } as QueryFilters),
   alertsSummary: () => fetchAPI<AlertsSummary>("/alerts/summary"),
+  liveThreats: (window?: number, limit?: number) =>
+    fetchAPI<LiveThreat[]>("/threats/live", { ...(window && { window }), ...(limit && { limit }) } as QueryFilters),
   ackAlert: (id: string) =>
     fetchAPI<unknown>(`/alerts/${id}/ack`, undefined, { method: "POST" }),
   resolveAlert: (id: string) =>
