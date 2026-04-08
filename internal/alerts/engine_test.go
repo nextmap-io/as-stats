@@ -39,11 +39,26 @@ func (m *mockStore) EvalVolumeOutbound(ctx context.Context, _, _ uint64, _ uint3
 func (m *mockStore) EvalSynFlood(ctx context.Context, _ uint64, _ uint32, _ []string) ([]store.AlertViolation, error) {
 	return m.violations["syn_flood"], nil
 }
-func (m *mockStore) EvalAmplification(ctx context.Context, _ uint64, _ uint32, _ []string) ([]store.AlertViolation, error) {
+func (m *mockStore) EvalAmplification(ctx context.Context, _, _ uint64, _ uint32, _ []string) ([]store.AlertViolation, error) {
 	return m.violations["amplification"], nil
 }
 func (m *mockStore) EvalPortScan(ctx context.Context, _ uint64, _ uint32, _ []string) ([]store.AlertViolation, error) {
 	return m.violations["port_scan"], nil
+}
+func (m *mockStore) EvalProtocolFlood(ctx context.Context, proto uint8, _ uint64, _ uint32, _ []string) ([]store.AlertViolation, error) {
+	switch proto {
+	case 1:
+		return m.violations["icmp_flood"], nil
+	case 17:
+		return m.violations["udp_flood"], nil
+	}
+	return nil, nil
+}
+func (m *mockStore) EvalConnectionFlood(ctx context.Context, _ uint64, _ uint32, _ []string) ([]store.AlertViolation, error) {
+	return m.violations["connection_flood"], nil
+}
+func (m *mockStore) TopSourcesForTarget(ctx context.Context, _ net.IP, _ uint32, _ int) ([]string, error) {
+	return nil, nil
 }
 func (m *mockStore) FindActiveAlert(ctx context.Context, ruleID string, _ net.IP) (string, time.Time, error) {
 	return "", time.Time{}, nil
@@ -160,6 +175,104 @@ func TestEngineCooldown(t *testing.T) {
 	e.evaluateOnce(context.Background())
 	if len(store.inserted) != 1 {
 		t.Errorf("expected still 1 alert (cooldown), got %d", len(store.inserted))
+	}
+}
+
+func TestEngineProtocolFlood(t *testing.T) {
+	cases := []struct {
+		ruleType   string
+		expectProto uint8
+	}{
+		{"icmp_flood", 1},
+		{"udp_flood", 17},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.ruleType, func(t *testing.T) {
+			ms := &mockStore{
+				rules: []model.AlertRule{
+					{
+						ID:            "r1",
+						RuleType:      tc.ruleType,
+						Enabled:       true,
+						ThresholdPps:  100,
+						WindowSeconds: 60,
+						Severity:      "warning",
+					},
+				},
+				violations: map[string][]alertViolation{
+					tc.ruleType: {{TargetIP: net.ParseIP("10.0.0.42"), MetricValue: 1500, Protocol: tc.expectProto}},
+				},
+			}
+
+			e := New(ms, nil, nil, time.Second, time.Minute)
+			e.evaluateOnce(context.Background())
+
+			ms.mu.Lock()
+			defer ms.mu.Unlock()
+			if len(ms.inserted) != 1 {
+				t.Fatalf("expected 1 alert for %s, got %d", tc.ruleType, len(ms.inserted))
+			}
+			if got := ms.inserted[0].Protocol; got != tc.expectProto {
+				t.Errorf("expected protocol %d, got %d", tc.expectProto, got)
+			}
+		})
+	}
+}
+
+func TestEngineConnectionFlood(t *testing.T) {
+	ms := &mockStore{
+		rules: []model.AlertRule{
+			{
+				ID:             "r1",
+				RuleType:       "connection_flood",
+				Enabled:        true,
+				ThresholdCount: 100_000,
+				WindowSeconds:  60,
+				Severity:       "warning",
+			},
+		},
+		violations: map[string][]alertViolation{
+			"connection_flood": {{TargetIP: net.ParseIP("10.0.0.7"), MetricValue: 250_000, UniqueCount: 250_000}},
+		},
+	}
+
+	e := New(ms, nil, nil, time.Second, time.Minute)
+	e.evaluateOnce(context.Background())
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	if len(ms.inserted) != 1 {
+		t.Fatalf("expected 1 alert, got %d", len(ms.inserted))
+	}
+	if ms.inserted[0].MetricType != "count" {
+		t.Errorf("expected metric_type=count, got %s", ms.inserted[0].MetricType)
+	}
+}
+
+func TestCleanupCooldown(t *testing.T) {
+	e := New(&mockStore{}, nil, nil, time.Second, time.Minute)
+
+	old := time.Now().Add(-2 * time.Hour)
+	recent := time.Now().Add(-30 * time.Minute)
+
+	e.mu.Lock()
+	e.cooldown["rule1|10.0.0.1"] = old
+	e.cooldown["rule1|10.0.0.2"] = old
+	e.cooldown["rule2|10.0.0.3"] = recent
+	e.mu.Unlock()
+
+	removed := e.cleanupCooldown(time.Hour)
+	if removed != 2 {
+		t.Errorf("expected 2 entries removed, got %d", removed)
+	}
+
+	snap := e.CooldownSnapshot()
+	if len(snap) != 1 {
+		t.Errorf("expected 1 entry remaining, got %d", len(snap))
+	}
+	if _, ok := snap["rule2|10.0.0.3"]; !ok {
+		t.Error("recent entry should have been preserved")
 	}
 }
 

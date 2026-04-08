@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-04-08
+
+### Added — Alert engine improvements
+
+- **Three new rule types** (no schema migration required — `rule_type` is a
+  `LowCardinality(String)`):
+  - `icmp_flood` — high pps of ICMP (proto 1) to a single destination
+  - `udp_flood` — high pps of UDP (proto 17) to a single destination, e.g. DNS
+    query flood / NTP query flood signatures
+  - `connection_flood` — high `flow_count` per destination regardless of
+    bytes/packets, catches Slowloris-class connection-rate abuse and half-open
+    scans that slip past `volume_in` and `syn_flood`
+
+- **Top source IP enrichment** on every triggered alert. The engine now does a
+  bounded `flows_raw` lookup (5 sources max, time-windowed, only on actual
+  violations) and stores the result in the alert `details.top_sources` JSON
+  field. Operators no longer need to run a separate flow search to figure out
+  *who* is hitting the target.
+
+- **Bandwidth floor on `amplification`** rules. `ThresholdBps` is now reused
+  as a "minimum sustained bps" filter. Without it, every scanner that touches
+  one of our IPs from many sources at trivial volume produced a constant
+  amplification false positive. Default seeded amplification rule now requires
+  ≥ 100 Mbps as well as 10k unique sources.
+
+- **Cooldown map cleanup loop** — a new background goroutine prunes
+  `(rule_id, target_ip)` cooldown entries older than 1 hour every 5 minutes.
+  Without this the in-memory map grew unboundedly: every unique attacker IP
+  that ever fired a rule kept an entry forever.
+
+- **Default rules expanded from 6 to 10**. New seeded rules:
+  - "Connection-rate flood" (`connection_flood`, 200k flows / 60s, warning)
+  - "ICMP flood" (`icmp_flood`, 20k pps / 60s, warning)
+  - "UDP flood" (`udp_flood`, 100k pps / 60s, warning)
+  - "Sustained outbound exfiltration" (`volume_out`, 50 Mbps / 5 min / 30 min
+    cooldown, info — slow exfil signature distinct from the existing
+    high-volume outbound rule)
+
+  The existing "Reflection/amplification attack" rule was tightened to require
+  ≥ 100 Mbps in addition to 10k unique sources.
+
+  Default rules are only seeded on first startup (when `alert_rules` is
+  empty). Existing installations keep their tuned rules unchanged — operators
+  who want the new defaults can either delete an existing rule and let
+  `EnsureDefaultRules` reseed, or recreate them by hand from the Admin UI.
+
+### Tests
+- New unit tests for `icmp_flood` / `udp_flood` (`EvalProtocolFlood` routing),
+  `connection_flood`, and `cleanupCooldown`.
+
 ## [1.3.0] - 2026-04-08
 
 ### Added

@@ -36,8 +36,12 @@ type Store interface {
 	EvalVolumeInbound(ctx context.Context, thresholdBps, thresholdPps uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
 	EvalVolumeOutbound(ctx context.Context, thresholdBps, thresholdPps uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
 	EvalSynFlood(ctx context.Context, thresholdPps uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
-	EvalAmplification(ctx context.Context, thresholdCount uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
+	EvalAmplification(ctx context.Context, thresholdCount, minBps uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
 	EvalPortScan(ctx context.Context, thresholdCount uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
+	EvalProtocolFlood(ctx context.Context, protocol uint8, thresholdPps uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
+	EvalConnectionFlood(ctx context.Context, thresholdCount uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
+
+	TopSourcesForTarget(ctx context.Context, targetIP net.IP, window uint32, limit int) ([]string, error)
 
 	FindActiveAlert(ctx context.Context, ruleID string, targetIP net.IP) (string, time.Time, error)
 	InsertAlert(ctx context.Context, a model.Alert) error
@@ -80,6 +84,12 @@ func (e *Engine) Run(ctx context.Context) {
 	log.Printf("alert engine: starting (eval=%s, stale=%s, prefixes=%d)",
 		e.evalInterval, e.staleAfter, len(e.localPrefixes))
 
+	// Background cleanup of the cooldown map. Without this, the map grows
+	// unboundedly: every (rule_id, target_ip) pair that ever fires keeps an
+	// entry forever. Triggering thousands of unique attacker IPs over weeks
+	// would slowly leak memory.
+	go e.cooldownCleanupLoop(ctx)
+
 	// Initial delay to let ClickHouse accumulate some data on startup
 	select {
 	case <-time.After(30 * time.Second):
@@ -100,6 +110,41 @@ func (e *Engine) Run(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// cooldownCleanupLoop periodically drops cooldown entries that are well past
+// their expiration so the in-memory map cannot grow unbounded.
+func (e *Engine) cooldownCleanupLoop(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// 1h is intentionally generous: even the longest-cooldown default
+			// rule (10 min) is comfortably below this floor, so an entry that
+			// hasn't been refreshed in 1h cannot still be in cooldown.
+			e.cleanupCooldown(time.Hour)
+		}
+	}
+}
+
+func (e *Engine) cleanupCooldown(maxAge time.Duration) int {
+	cutoff := time.Now().Add(-maxAge)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	removed := 0
+	for k, t := range e.cooldown {
+		if t.Before(cutoff) {
+			delete(e.cooldown, k)
+			removed++
+		}
+	}
+	if removed > 0 {
+		log.Printf("alert engine: cooldown cleanup removed %d stale entries (remaining=%d)", removed, len(e.cooldown))
+	}
+	return removed
 }
 
 func (e *Engine) evaluateOnce(ctx context.Context) {
@@ -169,10 +214,22 @@ func (e *Engine) evaluateRule(ctx context.Context, rule model.AlertRule, webhook
 		violations, err = e.store.EvalSynFlood(ctx, rule.ThresholdPps, rule.WindowSeconds, prefixes)
 	case "amplification":
 		metricType = "count"
-		violations, err = e.store.EvalAmplification(ctx, rule.ThresholdCount, rule.WindowSeconds, prefixes)
+		// ThresholdBps is reused as a "minimum sustained bps floor" — without
+		// it, every scanner that touches one of our IPs from many sources at
+		// trivial volume produces a constant amplification false positive.
+		violations, err = e.store.EvalAmplification(ctx, rule.ThresholdCount, rule.ThresholdBps, rule.WindowSeconds, prefixes)
 	case "port_scan":
 		metricType = "count"
 		violations, err = e.store.EvalPortScan(ctx, rule.ThresholdCount, rule.WindowSeconds, prefixes)
+	case "icmp_flood":
+		metricType = "pps"
+		violations, err = e.store.EvalProtocolFlood(ctx, 1, rule.ThresholdPps, rule.WindowSeconds, prefixes)
+	case "udp_flood":
+		metricType = "pps"
+		violations, err = e.store.EvalProtocolFlood(ctx, 17, rule.ThresholdPps, rule.WindowSeconds, prefixes)
+	case "connection_flood":
+		metricType = "count"
+		violations, err = e.store.EvalConnectionFlood(ctx, rule.ThresholdCount, rule.WindowSeconds, prefixes)
 	default:
 		// 'custom' not implemented in phase 1
 		return
@@ -183,8 +240,21 @@ func (e *Engine) evaluateRule(ctx context.Context, rule model.AlertRule, webhook
 		return
 	}
 
-	for _, v := range violations {
-		e.handleViolation(ctx, rule, v, metricType, webhooks)
+	for i := range violations {
+		// Best-effort enrichment: pull the top src IPs from flows_raw so the
+		// alert payload (and the dashboard) can show *who* is hitting the
+		// target without making the operator run a separate flow search.
+		// Inbound rules look at attacker source IPs; outbound (volume_out,
+		// port_scan) get their context from outside this loop, since their
+		// "target" is already the local source — top destinations would be
+		// the meaningful enrichment, but flows_raw lookups stay symmetric
+		// enough for now and return src IPs for all rule types.
+		if violations[i].TargetIP != nil {
+			if srcs, terr := e.store.TopSourcesForTarget(ctx, violations[i].TargetIP, rule.WindowSeconds, 5); terr == nil && len(srcs) > 0 {
+				violations[i].TopSources = srcs
+			}
+		}
+		e.handleViolation(ctx, rule, violations[i], metricType, webhooks)
 	}
 }
 
@@ -325,6 +395,20 @@ func JSONEncode(v any) string {
 
 // EnsureDefaultRules creates a set of sensible default rules if none exist.
 // Called once at collector startup when FEATURE_ALERTS is enabled.
+//
+// The defaults intentionally cover several attack archetypes:
+//   - bulk volumetric (volume_in)
+//   - SYN flood (syn_flood) — TCP state-table abuse
+//   - reflection / amplification (amplification with bps floor)
+//   - protocol-specific floods (icmp_flood, udp_flood)
+//   - connection-rate abuse (connection_flood) — Slowloris-class
+//   - lateral compromise (port_scan, volume_out)
+//   - slow exfiltration (volume_out at lower threshold + longer window)
+//
+// All rules are enabled by default. Operators are expected to tune thresholds
+// to their environment via the Admin UI; the goal of these defaults is to
+// surface anything obviously hostile without flooding the dashboard with
+// false positives.
 func EnsureDefaultRules(ctx context.Context, s interface {
 	ListAlertRules(ctx context.Context) ([]model.AlertRule, error)
 	UpsertAlertRule(ctx context.Context, r model.AlertRule) error
@@ -339,10 +423,11 @@ func EnsureDefaultRules(ctx context.Context, s interface {
 
 	now := time.Now().UTC()
 	defaults := []model.AlertRule{
+		// ── Volumetric ───────────────────────────────────────────────
 		{
 			ID:              uuid.NewString(),
 			Name:            "High inbound volume",
-			Description:     "Warning when a single IP receives > 500 Mbps of inbound traffic",
+			Description:     "Warning when a single IP receives > 500 Mbps of inbound traffic for 60s",
 			RuleType:        "volume_in",
 			Enabled:         true,
 			ThresholdBps:    500_000_000,
@@ -356,7 +441,7 @@ func EnsureDefaultRules(ctx context.Context, s interface {
 		{
 			ID:              uuid.NewString(),
 			Name:            "Critical inbound volume",
-			Description:     "Critical when a single IP receives > 2 Gbps of inbound traffic (potential DDoS)",
+			Description:     "Critical when a single IP receives > 2 Gbps of inbound traffic (likely DDoS)",
 			RuleType:        "volume_in",
 			Enabled:         true,
 			ThresholdBps:    2_000_000_000,
@@ -367,10 +452,12 @@ func EnsureDefaultRules(ctx context.Context, s interface {
 			CreatedAt:       now,
 			UpdatedAt:       now,
 		},
+
+		// ── TCP state-table abuse ────────────────────────────────────
 		{
 			ID:              uuid.NewString(),
 			Name:            "SYN flood",
-			Description:     "Detects TCP SYN flood attacks (>= 50k SYN/s for 60s)",
+			Description:     "TCP SYN-only packets > 50k/s sustained for 60s — TCP state-table attack",
 			RuleType:        "syn_flood",
 			Enabled:         true,
 			ThresholdPps:    50_000,
@@ -383,11 +470,28 @@ func EnsureDefaultRules(ctx context.Context, s interface {
 		},
 		{
 			ID:              uuid.NewString(),
+			Name:            "Connection-rate flood",
+			Description:     "More than 200k distinct flows hit one destination in 60s — Slowloris/half-open scan signature",
+			RuleType:        "connection_flood",
+			Enabled:         true,
+			ThresholdCount:  200_000,
+			WindowSeconds:   60,
+			CooldownSeconds: 300,
+			Severity:        "warning",
+			Action:          "notify",
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+
+		// ── Reflection / amplification ───────────────────────────────
+		{
+			ID:              uuid.NewString(),
 			Name:            "Reflection/amplification attack",
-			Description:     "More than 10k unique source IPs hit one destination in 1 min",
+			Description:     "> 10k unique source IPs hit one destination AND sustained ≥ 100 Mbps over 60s",
 			RuleType:        "amplification",
 			Enabled:         true,
 			ThresholdCount:  10_000,
+			ThresholdBps:    100_000_000, // floor to filter out low-volume scanners
 			WindowSeconds:   60,
 			CooldownSeconds: 300,
 			Severity:        "critical",
@@ -395,10 +499,42 @@ func EnsureDefaultRules(ctx context.Context, s interface {
 			CreatedAt:       now,
 			UpdatedAt:       now,
 		},
+
+		// ── Protocol-specific floods ─────────────────────────────────
+		{
+			ID:              uuid.NewString(),
+			Name:            "ICMP flood",
+			Description:     "ICMP packets > 20k/s to one destination — almost never legitimate at this rate",
+			RuleType:        "icmp_flood",
+			Enabled:         true,
+			ThresholdPps:    20_000,
+			WindowSeconds:   60,
+			CooldownSeconds: 300,
+			Severity:        "warning",
+			Action:          "notify",
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+		{
+			ID:              uuid.NewString(),
+			Name:            "UDP flood",
+			Description:     "UDP packets > 100k/s to one destination — DNS query flood / NTP query flood signature",
+			RuleType:        "udp_flood",
+			Enabled:         true,
+			ThresholdPps:    100_000,
+			WindowSeconds:   60,
+			CooldownSeconds: 300,
+			Severity:        "warning",
+			Action:          "notify",
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+
+		// ── Lateral / outbound abuse ─────────────────────────────────
 		{
 			ID:              uuid.NewString(),
 			Name:            "Port scan from internal host",
-			Description:     "An internal host hit > 1000 unique destination ports in 1 min (likely compromised)",
+			Description:     "An internal host hit > 1000 unique destination ports in 60s (likely compromised)",
 			RuleType:        "port_scan",
 			Enabled:         true,
 			ThresholdCount:  1_000,
@@ -412,13 +548,27 @@ func EnsureDefaultRules(ctx context.Context, s interface {
 		{
 			ID:              uuid.NewString(),
 			Name:            "High outbound volume (compromised host)",
-			Description:     "An internal host is sending > 500 Mbps outbound (possible DDoS source)",
+			Description:     "An internal host is sending > 500 Mbps outbound (DDoS source / data dump)",
 			RuleType:        "volume_out",
 			Enabled:         true,
 			ThresholdBps:    500_000_000,
 			WindowSeconds:   60,
 			CooldownSeconds: 300,
 			Severity:        "warning",
+			Action:          "notify",
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+		{
+			ID:              uuid.NewString(),
+			Name:            "Sustained outbound exfiltration",
+			Description:     "An internal host has been sending > 50 Mbps outbound for 5 minutes (slow exfil)",
+			RuleType:        "volume_out",
+			Enabled:         true,
+			ThresholdBps:    50_000_000,
+			WindowSeconds:   300,
+			CooldownSeconds: 1800,
+			Severity:        "info",
 			Action:          "notify",
 			CreatedAt:       now,
 			UpdatedAt:       now,
