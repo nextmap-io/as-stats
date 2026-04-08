@@ -5,6 +5,7 @@ import { api } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { TableSkeleton } from "@/components/ui/skeleton"
+import { IPWithPTR } from "@/components/PTR"
 import { Activity, ShieldAlert, AlertTriangle, CheckCircle2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { LiveThreat, ThreatStatus } from "@/lib/types"
@@ -143,7 +144,7 @@ export function LiveThreats() {
                       </td>
                       <td className="py-1.5">
                         <Link to={`/ip/${t.target_ip}`} className="text-primary hover:underline font-mono text-[11px]">
-                          {t.target_ip}
+                          <IPWithPTR ip={t.target_ip} />
                         </Link>
                       </td>
                       <td className="py-1.5 text-right font-mono">{formatBps(t.bps)}</td>
