@@ -179,8 +179,16 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			if cfg.AuthEnabled {
 				r.Use(middleware.RequireRole("admin"))
 			}
+			// CSRF applied at the admin level: GETs set the cookie,
+			// POST/PUT/DELETE validate it. Previously CSRF was only on the
+			// writes sub-group, so GETs never set the cookie and the first
+			// POST from a fresh page load failed with "missing CSRF cookie".
+			r.Use(middleware.CSRF())
 
-			// Reads (no CSRF)
+			// Reads
+			// Note: GET /admin/links is registered OUTSIDE this group
+			// (line above) because v1.1.1 opened it to all authenticated
+			// users, not just admins.
 			if cfg.FeatureAlerts {
 				r.Get("/rules", h.ListRules)
 				r.Get("/webhooks", h.ListWebhooks)
@@ -188,24 +196,21 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 				r.Get("/audit", h.ListAuditLog)
 			}
 
-			// Writes (CSRF required)
-			r.Group(func(r chi.Router) {
-				r.Use(middleware.CSRF())
-				r.Post("/links", h.LinkCreate)
-				r.Delete("/links/{tag}", h.LinkDelete)
+			// Writes
+			r.Post("/links", h.LinkCreate)
+			r.Delete("/links/{tag}", h.LinkDelete)
 
-				if cfg.FeatureAlerts {
-					r.Post("/rules", h.CreateRule)
-					r.Put("/rules/{id}", h.UpdateRule)
-					r.Delete("/rules/{id}", h.DeleteRule)
-					r.Post("/webhooks", h.CreateWebhook)
-					r.Put("/webhooks/{id}", h.UpdateWebhook)
-					r.Delete("/webhooks/{id}", h.DeleteWebhook)
-					r.Post("/hostgroups", h.CreateHostgroup)
-					r.Put("/hostgroups/{id}", h.UpdateHostgroup)
-					r.Delete("/hostgroups/{id}", h.DeleteHostgroup)
-				}
-			})
+			if cfg.FeatureAlerts {
+				r.Post("/rules", h.CreateRule)
+				r.Put("/rules/{id}", h.UpdateRule)
+				r.Delete("/rules/{id}", h.DeleteRule)
+				r.Post("/webhooks", h.CreateWebhook)
+				r.Put("/webhooks/{id}", h.UpdateWebhook)
+				r.Delete("/webhooks/{id}", h.DeleteWebhook)
+				r.Post("/hostgroups", h.CreateHostgroup)
+				r.Put("/hostgroups/{id}", h.UpdateHostgroup)
+				r.Delete("/hostgroups/{id}", h.DeleteHostgroup)
+			}
 		})
 	})
 
