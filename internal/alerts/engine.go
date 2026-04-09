@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nextmap-io/as-stats/internal/metrics"
 	"github.com/nextmap-io/as-stats/internal/model"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
@@ -150,7 +151,10 @@ func (e *Engine) cleanupCooldown(maxAge time.Duration) int {
 func (e *Engine) evaluateOnce(ctx context.Context) {
 	start := time.Now()
 	defer func() {
-		if d := time.Since(start); d > 5*time.Second {
+		d := time.Since(start)
+		metrics.AlertEngineCycleDuration.Observe(d.Seconds())
+		metrics.CooldownMapSize.Set(float64(len(e.cooldown)))
+		if d > 5*time.Second {
 			log.Printf("alert engine: evaluation took %s (slow!)", d)
 		}
 	}()
@@ -192,6 +196,8 @@ func (e *Engine) evaluateOnce(ctx context.Context) {
 }
 
 func (e *Engine) evaluateRule(ctx context.Context, rule model.AlertRule, webhooks map[string]model.WebhookConfig) {
+	metrics.AlertEvaluations.WithLabelValues(rule.RuleType).Inc()
+
 	var violations []store.AlertViolation
 	var err error
 	var metricType string
@@ -325,6 +331,8 @@ func (e *Engine) handleViolation(ctx context.Context, rule model.AlertRule, v st
 		log.Printf("alert engine: insert alert error: %v", err)
 		return
 	}
+
+	metrics.AlertsFired.WithLabelValues(rule.Severity).Inc()
 
 	// Track cooldown
 	e.mu.Lock()

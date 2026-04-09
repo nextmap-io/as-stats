@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/nextmap-io/as-stats/internal/metrics"
 	"github.com/nextmap-io/as-stats/internal/model"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
@@ -63,6 +64,10 @@ func (w *BatchWriter) Run(ctx context.Context) {
 			w.Metrics.BatchesWritten.Add(1)
 			w.Metrics.LastBatchSizeMs.Store(elapsed.Milliseconds())
 			log.Printf("batch written: %d flows in %s", count, elapsed)
+			// Prometheus metrics
+			metrics.FlowsWritten.Add(float64(count))
+			metrics.BatchWriteDuration.Observe(elapsed.Seconds())
+			metrics.BatchSize.Observe(float64(count))
 		}
 
 		buf = buf[:0]

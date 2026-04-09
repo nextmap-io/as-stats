@@ -3,14 +3,17 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/nextmap-io/as-stats/internal/alerts"
+	"github.com/nextmap-io/as-stats/internal/api/handler"
 	"github.com/nextmap-io/as-stats/internal/collector"
 	"github.com/nextmap-io/as-stats/internal/config"
+	_ "github.com/nextmap-io/as-stats/internal/metrics" // register metrics
 	"github.com/nextmap-io/as-stats/internal/ripestat"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
@@ -93,6 +96,27 @@ func main() {
 			}
 		}
 	}()
+
+	// Start Prometheus /metrics HTTP server for the collector
+	if cfg.PrometheusAddr != "" {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", handler.MetricsHandler(
+			cfg.PrometheusAllowCIDR,
+			cfg.PrometheusUser,
+			cfg.PrometheusPass,
+		))
+		go func() {
+			log.Printf("Prometheus /metrics listening on %s", cfg.PrometheusAddr)
+			srv := &http.Server{Addr: cfg.PrometheusAddr, Handler: mux}
+			go func() {
+				<-ctx.Done()
+				_ = srv.Close()
+			}()
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Printf("prometheus server error: %v", err)
+			}
+		}()
+	}
 
 	// Start alert engine if enabled
 	if cfg.FeatureAlerts {

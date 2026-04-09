@@ -34,6 +34,13 @@ type CollectorConfig struct {
 	FeatureAlerts       bool          // enables the alert evaluator goroutine
 	AlertEvalInterval   time.Duration // default 30s
 	AlertStaleThreshold time.Duration // alerts are auto-resolved after this gap
+
+	// Prometheus metrics endpoint served on a separate HTTP listener.
+	// Defaults to ":9090". Empty string disables the endpoint.
+	PrometheusAddr      string
+	PrometheusAllowCIDR []string // PROMETHEUS_ALLOW_CIDR, comma-separated
+	PrometheusUser      string   // PROMETHEUS_USER (basic auth)
+	PrometheusPass      string   // PROMETHEUS_PASS (basic auth)
 }
 
 // APIConfig holds API server settings.
@@ -53,6 +60,12 @@ type APIConfig struct {
 	FeatureFlowSearch bool // /flows/search, detailed forensic log
 	FeaturePortStats  bool // /top/protocol, /top/port aggregates
 	FeatureAlerts     bool // alert engine + /alerts dashboard
+
+	// Prometheus: /metrics access control for the API server (served on
+	// the same port as the API itself).
+	PrometheusAllowCIDR []string // PROMETHEUS_ALLOW_CIDR, comma-separated
+	PrometheusUser      string   // PROMETHEUS_USER (basic auth)
+	PrometheusPass      string   // PROMETHEUS_PASS (basic auth)
 }
 
 // CollectorConfig additions for detailed logging + alert engine.
@@ -123,6 +136,10 @@ func LoadCollector() (*CollectorConfig, error) {
 		FeatureAlerts:        featureAlerts,
 		AlertEvalInterval:    alertEval,
 		AlertStaleThreshold:  alertStale,
+		PrometheusAddr:       envOr("COLLECTOR_PROMETHEUS_ADDR", ":9090"),
+		PrometheusAllowCIDR:  splitCSV(envOr("PROMETHEUS_ALLOW_CIDR", "")),
+		PrometheusUser:       envOr("PROMETHEUS_USER", ""),
+		PrometheusPass:       envOr("PROMETHEUS_PASS", ""),
 	}, nil
 }
 
@@ -148,9 +165,12 @@ func LoadAPI() (*APIConfig, error) {
 		OIDCSecret:        envOr("OIDC_CLIENT_SECRET", ""),
 		OIDCRedirect:      envOr("OIDC_REDIRECT_URL", "http://localhost:8080/auth/callback"),
 		OIDCScopes:        scopes,
-		FeatureFlowSearch: featureFlowSearch,
-		FeaturePortStats:  featurePortStats,
-		FeatureAlerts:     featureAlerts,
+		FeatureFlowSearch:   featureFlowSearch,
+		FeaturePortStats:    featurePortStats,
+		FeatureAlerts:       featureAlerts,
+		PrometheusAllowCIDR: splitCSV(envOr("PROMETHEUS_ALLOW_CIDR", "")),
+		PrometheusUser:      envOr("PROMETHEUS_USER", ""),
+		PrometheusPass:      envOr("PROMETHEUS_PASS", ""),
 	}
 
 	// Validate OIDC config when auth is enabled
@@ -168,6 +188,21 @@ func LoadAPI() (*APIConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+func splitCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func envOr(key, fallback string) string {

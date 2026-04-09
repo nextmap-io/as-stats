@@ -55,11 +55,22 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 	h.BGPBlocker = bgp.NewNoop() // phase 1: noop blocker
 	sessions := middleware.NewSessionStore()
 
+	// Prometheus metrics middleware (must be applied before routes so it
+	// captures every request including /healthz and /metrics itself)
+	r.Use(middleware.Prometheus())
+
 	// Health check (no auth, no rate limit)
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
+
+	// Prometheus metrics endpoint — outside /api/v1, optional IP/basic-auth guard
+	r.Handle("/metrics", handler.MetricsHandler(
+		cfg.PrometheusAllowCIDR,
+		cfg.PrometheusUser,
+		cfg.PrometheusPass,
+	))
 
 	// Auth endpoints (if OIDC enabled)
 	if cfg.AuthEnabled {
