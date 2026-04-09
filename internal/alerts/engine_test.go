@@ -57,6 +57,12 @@ func (m *mockStore) EvalProtocolFlood(ctx context.Context, proto uint8, _ uint64
 func (m *mockStore) EvalConnectionFlood(ctx context.Context, _ uint64, _ uint32, _ []string) ([]store.AlertViolation, error) {
 	return m.violations["connection_flood"], nil
 }
+func (m *mockStore) EvalSubnetFlood(ctx context.Context, _, _ uint64, _ int, _ uint32, _ []string) ([]store.AlertViolation, error) {
+	return m.violations["subnet_flood"], nil
+}
+func (m *mockStore) ListHostgroups(ctx context.Context) ([]model.Hostgroup, error) {
+	return nil, nil
+}
 func (m *mockStore) TopSourcesForTarget(ctx context.Context, _ net.IP, _ uint32, _ int) ([]string, error) {
 	return nil, nil
 }

@@ -272,6 +272,7 @@ export interface AlertRule {
     | "icmp_flood"
     | "udp_flood"
     | "connection_flood"
+    | "subnet_flood"
     | "custom"
     | ""
   enabled: boolean
@@ -285,6 +286,17 @@ export interface AlertRule {
   custom_sql?: string
   action: "notify" | "ack_required" | "auto_block"
   webhook_ids?: string[]
+  hostgroup_id?: string
+  subnet_prefix_len?: number
+  created_at: string
+  updated_at: string
+}
+
+export interface Hostgroup {
+  id: string
+  name: string
+  description?: string
+  cidrs: string[]
   created_at: string
   updated_at: string
 }

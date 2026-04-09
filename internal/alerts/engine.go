@@ -41,7 +41,9 @@ type Store interface {
 	EvalPortScan(ctx context.Context, thresholdCount uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
 	EvalProtocolFlood(ctx context.Context, protocol uint8, thresholdPps uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
 	EvalConnectionFlood(ctx context.Context, thresholdCount uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
+	EvalSubnetFlood(ctx context.Context, thresholdBps, thresholdPps uint64, aggPrefix int, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
 
+	ListHostgroups(ctx context.Context) ([]model.Hostgroup, error)
 	TopSourcesForTarget(ctx context.Context, targetIP net.IP, window uint32, limit int) ([]string, error)
 
 	FindActiveAlert(ctx context.Context, ruleID string, targetIP net.IP) (string, time.Time, error)
@@ -186,25 +188,42 @@ func (e *Engine) evaluateOnce(ctx context.Context) {
 		webhookByID[w.ID] = w
 	}
 
-	// 4. Evaluate each enabled rule
+	// 4. Load hostgroups (once per cycle, for rules scoped to a hostgroup)
+	hostgroups, err := e.store.ListHostgroups(ctx)
+	if err != nil {
+		log.Printf("alert engine: list hostgroups error: %v", err)
+		hostgroups = nil
+	}
+	hostgroupByID := make(map[string]model.Hostgroup, len(hostgroups))
+	for _, hg := range hostgroups {
+		hostgroupByID[hg.ID] = hg
+	}
+
+	// 5. Evaluate each enabled rule
 	for _, rule := range rules {
 		if !rule.Enabled {
 			continue
 		}
-		e.evaluateRule(ctx, rule, webhookByID)
+		e.evaluateRule(ctx, rule, webhookByID, hostgroupByID)
 	}
 }
 
-func (e *Engine) evaluateRule(ctx context.Context, rule model.AlertRule, webhooks map[string]model.WebhookConfig) {
+func (e *Engine) evaluateRule(ctx context.Context, rule model.AlertRule, webhooks map[string]model.WebhookConfig, hostgroups map[string]model.Hostgroup) {
 	metrics.AlertEvaluations.WithLabelValues(rule.RuleType).Inc()
 
 	var violations []store.AlertViolation
 	var err error
 	var metricType string
 
-	// Resolve target filter: rule-specific OR global LOCAL_AS prefixes
+	// Resolve target filter: hostgroup → rule-specific → global LOCAL_AS prefixes
 	prefixes := e.localPrefixes
-	if rule.TargetFilter != "" {
+	if rule.HostgroupID != "" {
+		if hg, ok := hostgroups[rule.HostgroupID]; ok {
+			prefixes = hg.CIDRs
+		} else {
+			log.Printf("alert engine: rule %s references unknown hostgroup %s, falling back to global prefixes", rule.Name, rule.HostgroupID)
+		}
+	} else if rule.TargetFilter != "" {
 		prefixes = []string{rule.TargetFilter}
 	}
 
@@ -236,6 +255,9 @@ func (e *Engine) evaluateRule(ctx context.Context, rule model.AlertRule, webhook
 	case "connection_flood":
 		metricType = "count"
 		violations, err = e.store.EvalConnectionFlood(ctx, rule.ThresholdCount, rule.WindowSeconds, prefixes)
+	case "subnet_flood":
+		metricType = "bps"
+		violations, err = e.store.EvalSubnetFlood(ctx, rule.ThresholdBps, rule.ThresholdPps, int(rule.SubnetPrefixLen), rule.WindowSeconds, prefixes)
 	default:
 		// 'custom' not implemented in phase 1
 		return
@@ -578,6 +600,38 @@ func EnsureDefaultRules(ctx context.Context, s interface {
 			CooldownSeconds: 1800,
 			Severity:        "info",
 			Action:          "notify",
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+
+		// ── Carpet bombing ───────────────────────────────────────
+		{
+			ID:              uuid.NewString(),
+			Name:            "Carpet bomb /24 (warning)",
+			Description:     "Aggregate traffic to any /24 in our prefixes exceeds 2 Gbps for 60s — distributed attack",
+			RuleType:        "subnet_flood",
+			Enabled:         true,
+			ThresholdBps:    2_000_000_000,
+			SubnetPrefixLen: 24,
+			WindowSeconds:   60,
+			CooldownSeconds: 300,
+			Severity:        "warning",
+			Action:          "notify",
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+		{
+			ID:              uuid.NewString(),
+			Name:            "Carpet bomb /24 (critical)",
+			Description:     "Aggregate traffic to any /24 in our prefixes exceeds 5 Gbps for 60s — major distributed attack",
+			RuleType:        "subnet_flood",
+			Enabled:         true,
+			ThresholdBps:    5_000_000_000,
+			SubnetPrefixLen: 24,
+			WindowSeconds:   60,
+			CooldownSeconds: 300,
+			Severity:        "critical",
+			Action:          "ack_required",
 			CreatedAt:       now,
 			UpdatedAt:       now,
 		},

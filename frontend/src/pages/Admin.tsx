@@ -8,13 +8,14 @@ import { TableSkeleton } from "@/components/ui/skeleton"
 import { useFeatureFlags } from "@/hooks/useFeatures"
 import { Shield, Trash2, Plus, FileText } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { AlertRule, WebhookConfig, AuditLogEntry } from "@/lib/types"
+import type { AlertRule, Hostgroup, WebhookConfig, AuditLogEntry } from "@/lib/types"
 
-type Tab = "links" | "rules" | "webhooks" | "audit"
+type Tab = "links" | "rules" | "hostgroups" | "webhooks" | "audit"
 
 const TABS: { value: Tab; label: string; requiresFeature?: keyof ReturnType<typeof useFeatureFlags> }[] = [
   { value: "links", label: "Links" },
   { value: "rules", label: "Alert Rules", requiresFeature: "alerts" },
+  { value: "hostgroups", label: "Hostgroups", requiresFeature: "alerts" },
   { value: "webhooks", label: "Webhooks", requiresFeature: "alerts" },
   { value: "audit", label: "Audit Log", requiresFeature: "alerts" },
 ]
@@ -61,6 +62,7 @@ export function Admin() {
 
       {tab === "links" && <LinksTab />}
       {tab === "rules" && features.alerts && <RulesTab />}
+      {tab === "hostgroups" && features.alerts && <HostgroupsTab />}
       {tab === "webhooks" && features.alerts && <WebhooksTab />}
       {tab === "audit" && features.alerts && <AuditTab />}
     </div>
@@ -140,6 +142,7 @@ const RULE_TYPE_META: Record<string, {
   icmp_flood:       { label: "ICMP flood",           description: "ICMP packet rate to a destination",                     fields: ["pps"] },
   udp_flood:        { label: "UDP flood",            description: "UDP packet rate to a destination (DNS query flood, NTP query flood, ...)", fields: ["pps"] },
   connection_flood: { label: "Connection flood",     description: "Distinct flow count per destination — Slowloris/half-open scan signature", fields: ["count"], fieldLabels: { count: "Min flow count" } },
+  subnet_flood:    { label: "Carpet bomb (subnet)", description: "Aggregate traffic to a /N subnet level before thresholding — detects distributed attacks that stay below per-host limits", fields: ["bps", "pps"] },
 }
 
 function RulesTab() {
@@ -276,6 +279,20 @@ function RulesTab() {
                 )}
               </div>
             )}
+            {draft.rule_type === "subnet_flood" && (
+              <Field label="Subnet prefix">
+                <input
+                  type="number"
+                  min={8}
+                  max={32}
+                  value={draft.subnet_prefix_len || 24}
+                  onChange={(e) => setDraft((d) => ({ ...d, subnet_prefix_len: Number(e.target.value) }))}
+                  className="w-20 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+                <span className="text-[10px] text-muted-foreground ml-1">/{draft.subnet_prefix_len || 24} IPv4 aggregation</span>
+              </Field>
+            )}
+            <HostgroupSelect value={draft.hostgroup_id} onChange={(id) => setDraft((d) => ({ ...d, hostgroup_id: id }))} />
             <div className="grid gap-2 sm:grid-cols-3">
               <Field label="Window (s)">
                 <input
@@ -697,6 +714,146 @@ function AuditTab() {
         )}
       </CardContent>
     </Card>
+  )
+}
+
+// =============================================================================
+// Hostgroups tab
+// =============================================================================
+
+function HostgroupsTab() {
+  const queryClient = useQueryClient()
+  const [showForm, setShowForm] = useState(false)
+  const [draft, setDraft] = useState({ name: "", description: "", cidrsText: "" })
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["hostgroups"],
+    queryFn: () => api.listHostgroups(),
+  })
+
+  const createMutation = useMutation({
+    mutationFn: (hg: Partial<Hostgroup>) => api.createHostgroup(hg),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["hostgroups"] })
+      setShowForm(false)
+      setDraft({ name: "", description: "", cidrsText: "" })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.deleteHostgroup(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hostgroups"] }),
+  })
+
+  if (error) return <ErrorDisplay error={error as Error} onRetry={() => refetch()} />
+
+  const groups: Hostgroup[] = data?.data || []
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle>Hostgroups ({groups.length})</CardTitle>
+          <button
+            onClick={() => setShowForm((s) => !s)}
+            className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+          >
+            <Plus className="h-3 w-3" />
+            {showForm ? "Cancel" : "Add"}
+          </button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {showForm && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              const cidrs = draft.cidrsText.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean)
+              createMutation.mutate({ name: draft.name, description: draft.description, cidrs })
+            }}
+            className="space-y-2 mb-4 p-3 border border-border rounded bg-muted/20"
+          >
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Field label="Name">
+                <input type="text" required value={draft.name}
+                  onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+                  placeholder="CDN servers"
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+              </Field>
+              <Field label="Description">
+                <input type="text" value={draft.description}
+                  onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
+                  placeholder="Optional"
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+              </Field>
+            </div>
+            <Field label="CIDRs">
+              <textarea
+                required
+                value={draft.cidrsText}
+                onChange={(e) => setDraft((d) => ({ ...d, cidrsText: e.target.value }))}
+                placeholder={"10.0.1.0/24\n10.0.2.0/24"}
+                rows={3}
+                className="flex-1 px-2 py-1 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+            </Field>
+            <button type="submit" disabled={createMutation.isPending}
+              className="px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+              Create
+            </button>
+          </form>
+        )}
+
+        {isLoading ? (
+          <TableSkeleton rows={3} cols={4} />
+        ) : groups.length === 0 ? (
+          <EmptyState message="No hostgroups — rules use global LOCAL_AS prefixes" />
+        ) : (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
+                <th className="pb-1.5 text-left font-medium text-muted-foreground">CIDRs</th>
+                <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Description</th>
+                <th className="pb-1.5 text-right font-medium text-muted-foreground">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map((g) => (
+                <tr key={g.id} className="border-b border-border/40 last:border-0 hover:bg-accent/50">
+                  <td className="py-1.5 font-medium">{g.name}</td>
+                  <td className="py-1.5 font-mono text-[10px] text-muted-foreground">{g.cidrs.join(", ")}</td>
+                  <td className="py-1.5 text-muted-foreground hidden md:table-cell">{g.description || "—"}</td>
+                  <td className="py-1.5 text-right">
+                    <button
+                      onClick={() => { if (confirm(`Delete hostgroup "${g.name}"?`)) deleteMutation.mutate(g.id) }}
+                      className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// Hostgroup selector reused in the rule create form
+function HostgroupSelect({ value, onChange }: { value?: string; onChange: (id: string) => void }) {
+  const { data } = useQuery({ queryKey: ["hostgroups"], queryFn: () => api.listHostgroups() })
+  const groups: Hostgroup[] = data?.data || []
+  if (groups.length === 0) return null
+  return (
+    <Field label="Hostgroup">
+      <select value={value || ""} onChange={(e) => onChange(e.target.value)}
+        className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring">
+        <option value="">(global — all LOCAL_AS prefixes)</option>
+        {groups.map((g) => <option key={g.id} value={g.id}>{g.name} ({g.cidrs.length} CIDRs)</option>)}
+      </select>
+    </Field>
   )
 }
 

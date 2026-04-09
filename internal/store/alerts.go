@@ -19,7 +19,8 @@ func (s *ClickHouseStore) ListAlertRules(ctx context.Context) ([]model.AlertRule
 			threshold_bps, threshold_pps, threshold_count,
 			window_seconds, cooldown_seconds, severity,
 			target_filter, custom_sql, action, webhook_ids,
-			created_at, updated_at
+			created_at, updated_at,
+			hostgroup_id, subnet_prefix_len
 		FROM alert_rules FINAL
 		WHERE deleted = 0
 		ORDER BY name
@@ -41,11 +42,16 @@ func (s *ClickHouseStore) ListAlertRules(ctx context.Context) ([]model.AlertRule
 			&r.WindowSeconds, &r.CooldownSeconds, &r.Severity,
 			&r.TargetFilter, &r.CustomSQL, &r.Action, &webhookIDs,
 			&r.CreatedAt, &r.UpdatedAt,
+			&r.HostgroupID, &r.SubnetPrefixLen,
 		); err != nil {
 			return nil, err
 		}
 		r.Enabled = enabled == 1
 		r.WebhookIDs = webhookIDs
+		// Normalize zero UUID to empty string for JSON serialization
+		if r.HostgroupID == "00000000-0000-0000-0000-000000000000" {
+			r.HostgroupID = ""
+		}
 		results = append(results, r)
 	}
 	return results, nil
@@ -63,17 +69,23 @@ func (s *ClickHouseStore) UpsertAlertRule(ctx context.Context, r model.AlertRule
 	if r.CreatedAt.IsZero() {
 		r.CreatedAt = r.UpdatedAt
 	}
+	hgID := r.HostgroupID
+	if hgID == "" {
+		hgID = "00000000-0000-0000-0000-000000000000"
+	}
 	return s.conn.Exec(ctx, `
 		INSERT INTO alert_rules (id, name, description, rule_type, enabled,
 			threshold_bps, threshold_pps, threshold_count,
 			window_seconds, cooldown_seconds, severity,
 			target_filter, custom_sql, action, webhook_ids,
-			created_at, updated_at, deleted)
+			created_at, updated_at, deleted,
+			hostgroup_id, subnet_prefix_len)
 		VALUES (@id, @name, @description, @rule_type, @enabled,
 			@threshold_bps, @threshold_pps, @threshold_count,
 			@window_seconds, @cooldown_seconds, @severity,
 			@target_filter, @custom_sql, @action, @webhook_ids,
-			@created_at, @updated_at, 0)
+			@created_at, @updated_at, 0,
+			@hostgroup_id, @subnet_prefix_len)
 	`,
 		clickhouse.Named("id", r.ID),
 		clickhouse.Named("name", r.Name),
@@ -92,6 +104,8 @@ func (s *ClickHouseStore) UpsertAlertRule(ctx context.Context, r model.AlertRule
 		clickhouse.Named("webhook_ids", r.WebhookIDs),
 		clickhouse.Named("created_at", r.CreatedAt),
 		clickhouse.Named("updated_at", r.UpdatedAt),
+		clickhouse.Named("hostgroup_id", hgID),
+		clickhouse.Named("subnet_prefix_len", r.SubnetPrefixLen),
 	)
 }
 

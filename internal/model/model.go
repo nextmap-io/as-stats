@@ -193,12 +193,24 @@ type PortTraffic struct {
 	Percent      float64 `json:"pct"`
 }
 
+// Hostgroup is a named collection of CIDR prefixes. Rules can be scoped to
+// a hostgroup instead of the global LOCAL_AS prefixes, enabling per-segment
+// thresholds (e.g. "CDN: 10 Gbps" vs "mail: 100 Mbps").
+type Hostgroup struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	CIDRs       []string  `json:"cidrs"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // AlertRule is a configurable DDoS detection rule.
 type AlertRule struct {
 	ID              string    `json:"id"`
 	Name            string    `json:"name"`
 	Description     string    `json:"description,omitempty"`
-	RuleType        string    `json:"rule_type"` // volume_in, volume_out, syn_flood, amplification, port_scan, custom
+	RuleType        string    `json:"rule_type"` // volume_in, volume_out, syn_flood, amplification, port_scan, icmp_flood, udp_flood, connection_flood, subnet_flood, custom
 	Enabled         bool      `json:"enabled"`
 	ThresholdBps    uint64    `json:"threshold_bps,omitempty"`
 	ThresholdPps    uint64    `json:"threshold_pps,omitempty"`
@@ -210,6 +222,8 @@ type AlertRule struct {
 	CustomSQL       string    `json:"custom_sql,omitempty"`
 	Action          string    `json:"action"` // notify, ack_required, auto_block
 	WebhookIDs      []string  `json:"webhook_ids,omitempty"`
+	HostgroupID     string    `json:"hostgroup_id,omitempty"`     // zero UUID or empty = use global LOCAL_AS
+	SubnetPrefixLen uint8     `json:"subnet_prefix_len,omitempty"` // only for subnet_flood: IPv4 prefix length (e.g. 24)
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }

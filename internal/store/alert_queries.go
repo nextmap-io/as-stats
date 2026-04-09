@@ -540,5 +540,81 @@ func normalizeCIDRForIPv6Column(s string) (string, bool) {
 	return "", false
 }
 
+// EvalSubnetFlood detects carpet-bombing attacks by aggregating traffic to a
+// configurable subnet level before applying thresholds. A carpet bomb
+// distributes the attack across an entire /24 so no single IP breaches the
+// per-host threshold, but the aggregate is massive.
+//
+// `aggPrefix` is the IPv4 prefix length (e.g. 24 for /24). Internally the
+// query adds 96 to convert to the IPv6-mapped prefix that ClickHouse stores.
+// IPv6 carpet bombing is out of scope for now (very rare in practice).
+//
+// Returns one AlertViolation per subnet that exceeds the threshold.
+func (s *ClickHouseStore) EvalSubnetFlood(ctx context.Context, thresholdBps, thresholdPps uint64, aggPrefix int, window uint32, localPrefixes []string) ([]AlertViolation, error) {
+	if aggPrefix < 8 || aggPrefix > 32 {
+		return nil, fmt.Errorf("subnet prefix length must be 8..32, got %d", aggPrefix)
+	}
+
+	// +96 for the IPv4-mapped IPv6 representation
+	v6Prefix := aggPrefix + 96
+
+	where := []string{"t.ts >= now() - INTERVAL @window SECOND"}
+	args := []any{
+		clickhouse.Named("window", window),
+		clickhouse.Named("agg_prefix", uint8(v6Prefix)),
+		clickhouse.Named("th_bps", thresholdBps),
+		clickhouse.Named("th_pps", thresholdPps),
+	}
+	if len(localPrefixes) > 0 {
+		clause, cidrArgs := buildCIDRFilter("t.dst_ip", "sf_", localPrefixes)
+		where = append(where, clause)
+		args = append(args, cidrArgs...)
+	}
+
+	having := []string{}
+	if thresholdBps > 0 {
+		having = append(having, "bps > @th_bps")
+	}
+	if thresholdPps > 0 {
+		having = append(having, "pps > @th_pps")
+	}
+	if len(having) == 0 {
+		return nil, nil
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			toString(IPv6CIDRToRange(t.dst_ip, toUInt8(@agg_prefix)).1) AS subnet,
+			toUInt64(sum(t.bytes) * 8 / @window) AS bps,
+			toUInt64(sum(t.packets) / @window) AS pps
+		FROM traffic_by_dst_1min t
+		WHERE %s
+		GROUP BY subnet
+		HAVING %s
+		ORDER BY bps DESC
+		LIMIT 100
+	`, strings.Join(where, " AND "), strings.Join(having, " OR "))
+
+	rows, err := s.conn.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("eval subnet_flood: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []AlertViolation
+	for rows.Next() {
+		var target string
+		var bps, pps uint64
+		if err := rows.Scan(&target, &bps, &pps); err != nil {
+			return nil, err
+		}
+		results = append(results, AlertViolation{
+			TargetIP:    net.ParseIP(cleanIPv4Mapped(target)),
+			MetricValue: float64(bps),
+		})
+	}
+	return results, nil
+}
+
 // time type alias to avoid unused import warning on files that only use these
 var _ = time.Time{}

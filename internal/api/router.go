@@ -184,6 +184,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			if cfg.FeatureAlerts {
 				r.Get("/rules", h.ListRules)
 				r.Get("/webhooks", h.ListWebhooks)
+				r.Get("/hostgroups", h.ListHostgroups)
 				r.Get("/audit", h.ListAuditLog)
 			}
 
@@ -200,6 +201,9 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 					r.Post("/webhooks", h.CreateWebhook)
 					r.Put("/webhooks/{id}", h.UpdateWebhook)
 					r.Delete("/webhooks/{id}", h.DeleteWebhook)
+					r.Post("/hostgroups", h.CreateHostgroup)
+					r.Put("/hostgroups/{id}", h.UpdateHostgroup)
+					r.Delete("/hostgroups/{id}", h.DeleteHostgroup)
 				}
 			})
 		})

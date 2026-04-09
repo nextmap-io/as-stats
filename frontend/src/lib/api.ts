@@ -15,6 +15,7 @@ import type {
   IPTraffic,
   LinkConfig,
   LinkDetailData,
+  Hostgroup,
   LinkTimeSeries,
   LinkTraffic,
   LiveThreat,
@@ -177,6 +178,15 @@ export const api = {
     fetchAPI<WebhookConfig>(`/admin/webhooks/${id}`, undefined, { method: "PUT", body: webhook }),
   deleteWebhook: (id: string) =>
     fetchAPI<unknown>(`/admin/webhooks/${id}`, undefined, { method: "DELETE" }),
+
+  // ─── Hostgroups (admin) ──────────────────────────────────
+  listHostgroups: () => fetchAPI<Hostgroup[]>("/admin/hostgroups"),
+  createHostgroup: (hg: Partial<Hostgroup>) =>
+    fetchAPI<Hostgroup>("/admin/hostgroups", undefined, { method: "POST", body: hg }),
+  updateHostgroup: (id: string, hg: Partial<Hostgroup>) =>
+    fetchAPI<Hostgroup>(`/admin/hostgroups/${id}`, undefined, { method: "PUT", body: hg }),
+  deleteHostgroup: (id: string) =>
+    fetchAPI<unknown>(`/admin/hostgroups/${id}`, undefined, { method: "DELETE" }),
 
   // ─── Audit log (admin) ───────────────────────────────────
   auditLog: (filters?: { from?: string; to?: string; user?: string; action?: string; limit?: number }) =>

@@ -91,6 +91,18 @@ func annotateThreat(t model.LiveThreat, rules []model.AlertRule) model.LiveThrea
 			if r.ThresholdCount > 0 {
 				pct = float64(t.UniqueSourceIPs) / float64(r.ThresholdCount) * 100
 			}
+		case "icmp_flood":
+			// ICMP is a subset — we don't have per-protocol pps in LiveThreat, skip.
+			continue
+		case "udp_flood":
+			continue
+		case "subnet_flood":
+			// Approximate: compare per-host bps to the subnet aggregate threshold.
+			// Underestimates the real danger (the actual aggregate is higher), but
+			// still useful to show that a destination is part of a /24 under strain.
+			if r.ThresholdBps > 0 {
+				pct = float64(t.BPS) / float64(r.ThresholdBps) * 100
+			}
 		default:
 			// volume_out / port_scan are source-based, not relevant here.
 			continue
