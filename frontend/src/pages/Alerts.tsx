@@ -216,12 +216,14 @@ function SeverityCard({ severity, count }: { severity: AlertSeverity; count: num
 
   return (
     <Card className={cn(config.bg, count > 0 && severity === "critical" && "animate-pulse")}>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between mb-1">
-          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">{severity}</p>
+      <CardHeader className="pb-1">
+        <div className="flex items-center justify-between">
+          <CardTitle className={config.color}>{severity.toUpperCase()}</CardTitle>
           <Icon className={cn("h-4 w-4", config.color)} />
         </div>
-        <p className={cn("text-2xl font-bold tabular-nums", config.color)}>{count}</p>
+      </CardHeader>
+      <CardContent>
+        <p className={cn("text-2xl font-bold tabular-nums leading-none", config.color)}>{count}</p>
       </CardContent>
     </Card>
   )
