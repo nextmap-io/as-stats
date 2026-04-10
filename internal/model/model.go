@@ -281,6 +281,31 @@ type AuditLogEntry struct {
 	ErrorMessage string    `json:"error_message,omitempty"`
 }
 
+// BGPBlock represents a BGP blackhole block record (active or withdrawn).
+type BGPBlock struct {
+	ID              string     `json:"id"`
+	IP              string     `json:"ip"`
+	PrefixLen       uint8      `json:"prefix_len"`
+	Community       string     `json:"community"`
+	NextHop         string     `json:"next_hop,omitempty"`
+	Reason          string     `json:"reason"`       // "auto_block" or "manual"
+	Description     string     `json:"description"`
+	Status          string     `json:"status"`        // "active" or "withdrawn"
+	BlockedBy       string     `json:"blocked_by"`
+	BlockedAt       time.Time  `json:"blocked_at"`
+	UnblockedBy     string     `json:"unblocked_by,omitempty"`
+	UnblockedAt     *time.Time `json:"unblocked_at,omitempty"`
+	UnblockReason   string     `json:"unblock_reason,omitempty"`
+	AlertID         string     `json:"alert_id,omitempty"`
+	RuleName        string     `json:"rule_name,omitempty"`
+	MetricValue     float64    `json:"metric_value,omitempty"`
+	MetricType      string     `json:"metric_type,omitempty"`
+	Threshold       float64    `json:"threshold,omitempty"`
+	TopSources      []string   `json:"top_sources,omitempty"`
+	DurationSeconds uint32     `json:"duration_seconds,omitempty"`
+	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
+}
+
 // LiveThreat is one row in the real-time DDoS detection table.
 // It is a snapshot from traffic_by_dst_1min over a short window — not a
 // triggered alert. The "status" and "worst_pct" fields express how close

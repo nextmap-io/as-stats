@@ -28,6 +28,7 @@ export function useFeatureFlags(): Features {
     flow_search: false,
     port_stats: false,
     alerts: false,
+    bgp: false,
     auth: false,
   }
 }

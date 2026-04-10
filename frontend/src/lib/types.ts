@@ -157,6 +157,7 @@ export interface Features {
   flow_search: boolean
   port_stats: boolean
   alerts: boolean
+  bgp: boolean
   local_as?: number
   auth: boolean
 }
@@ -353,4 +354,42 @@ export interface LiveThreat {
   worst_pct: number
   worst_rule?: string
   status: ThreatStatus
+}
+
+// =============================================================================
+// BGP blackhole management
+// =============================================================================
+
+export interface BGPBlock {
+  id: string
+  ip: string
+  prefix_len: number
+  community: string
+  next_hop?: string
+  reason: "auto_block" | "manual"
+  description: string
+  status: "active" | "withdrawn"
+  blocked_by: string
+  blocked_at: string
+  unblocked_by?: string
+  unblocked_at?: string
+  unblock_reason?: string
+  alert_id?: string
+  rule_name?: string
+  metric_value?: number
+  metric_type?: string
+  threshold?: number
+  top_sources?: string[]
+  duration_seconds?: number
+  expires_at?: string
+}
+
+export interface BGPSessionStatus {
+  enabled: boolean
+  peer_address?: string
+  peer_as?: number
+  local_as?: number
+  state: string
+  uptime: number
+  routes_announced: number
 }

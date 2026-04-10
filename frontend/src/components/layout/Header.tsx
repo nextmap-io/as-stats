@@ -91,6 +91,9 @@ export function Header() {
   if (features.alerts) {
     navItems.push({ to: "/live", label: "Live Threats" })
   }
+  if (features.bgp) {
+    navItems.push({ to: "/bgp", label: "BGP Blocks" })
+  }
 
   // Active alerts count for the badge
   const { data: alertsSummary } = useQuery({

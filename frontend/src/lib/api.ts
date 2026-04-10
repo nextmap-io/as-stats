@@ -8,6 +8,8 @@ import type {
   ASTraffic,
   ASTrafficDetail,
   AuditLogEntry,
+  BGPBlock,
+  BGPSessionStatus,
   Features,
   FlowLogEntry,
   FlowSearchFilters,
@@ -191,4 +193,20 @@ export const api = {
   // ─── Audit log (admin) ───────────────────────────────────
   auditLog: (filters?: { from?: string; to?: string; user?: string; action?: string; limit?: number }) =>
     fetchAPI<AuditLogEntry[]>("/admin/audit", filters as QueryFilters),
+
+  // ─── BGP blackhole management ───────────────────────────
+  bgpStatus: () => fetchAPI<BGPSessionStatus>("/bgp/status"),
+  bgpBlocks: () => fetchAPI<BGPBlock[]>("/bgp/blocks"),
+  bgpBlockHistory: (limit?: number) =>
+    fetchAPI<BGPBlock[]>("/bgp/blocks/history", { ...(limit && { limit }) } as QueryFilters),
+  bgpBlock: (ip: string, durationMinutes: number, description: string) =>
+    fetchAPI<BGPBlock>("/bgp/blocks", undefined, {
+      method: "POST",
+      body: { ip, duration_minutes: durationMinutes, description },
+    }),
+  bgpUnblock: (ip: string, description?: string) =>
+    fetchAPI<unknown>(`/bgp/blocks/${encodeURIComponent(ip)}`, undefined, {
+      method: "DELETE",
+      ...(description ? { body: { description } } : {}),
+    }),
 }

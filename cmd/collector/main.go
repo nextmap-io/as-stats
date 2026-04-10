@@ -11,6 +11,7 @@ import (
 
 	"github.com/nextmap-io/as-stats/internal/alerts"
 	"github.com/nextmap-io/as-stats/internal/api/handler"
+	"github.com/nextmap-io/as-stats/internal/bgp"
 	"github.com/nextmap-io/as-stats/internal/collector"
 	"github.com/nextmap-io/as-stats/internal/config"
 	_ "github.com/nextmap-io/as-stats/internal/metrics" // register metrics
@@ -131,6 +132,11 @@ func main() {
 			cfg.AlertEvalInterval,
 			cfg.AlertStaleThreshold,
 		)
+		// Connect the BGP blocker if BGP_API_URL is configured
+		if cfg.BGPAPIURL != "" {
+			log.Printf("BGP auto-block via RemoteBlocker → %s", cfg.BGPAPIURL)
+			engine.SetBlocker(bgp.NewRemote(cfg.BGPAPIURL), chStore)
+		}
 		go engine.Run(ctx)
 	}
 

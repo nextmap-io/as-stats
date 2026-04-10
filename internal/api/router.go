@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"time"
 
@@ -52,7 +53,34 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 	h.FeatureFlowSearch = cfg.FeatureFlowSearch
 	h.FeaturePortStats = cfg.FeaturePortStats
 	h.FeatureAlerts = cfg.FeatureAlerts
-	h.BGPBlocker = bgp.NewNoop() // phase 1: noop blocker
+	h.FeatureBGP = cfg.BGPEnabled
+
+	// BGP blocker: real ScriptBlocker when BGP_ENABLED=true, noop otherwise.
+	// The ScriptBlocker is initialized here (not in main.go) because the
+	// handler needs the blocker reference and the router owns the lifecycle.
+	if cfg.BGPEnabled {
+		scriptCfg := bgp.Config{
+			AnnounceCmd: cfg.BGPAnnounceCmd,
+			WithdrawCmd: cfg.BGPWithdrawCmd,
+			StatusCmd:   cfg.BGPStatusCmd,
+			Community:   cfg.BGPCommunity,
+			NextHop:     cfg.BGPNextHop,
+			PeerAddress: cfg.BGPPeerAddress,
+			PeerAS:      cfg.BGPPeerAS,
+			LocalAS:     cfg.BGPLocalAS,
+		}
+		blocker, err := bgp.NewScript(scriptCfg, s)
+		if err != nil {
+			// Non-fatal: log and fall back to noop so the rest of the API works
+			log.Printf("WARNING: BGP blocker init failed: %v — falling back to noop", err)
+			h.BGPBlocker = bgp.NewNoop()
+			h.FeatureBGP = false
+		} else {
+			h.BGPBlocker = blocker
+		}
+	} else {
+		h.BGPBlocker = bgp.NewNoop()
+	}
 	sessions := middleware.NewSessionStore()
 
 	// Prometheus metrics middleware (must be applied before routes so it
@@ -144,6 +172,21 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 					}
 					r.Post("/alerts/{id}/block", h.BlockAlertBGP)
 				})
+			})
+		}
+
+		// BGP blackhole management
+		if cfg.BGPEnabled {
+			r.Get("/bgp/status", h.BGPStatus)
+			r.Get("/bgp/blocks", h.ListBGPBlocks)
+			r.Get("/bgp/blocks/history", h.ListBGPBlockHistory)
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.CSRF())
+				if cfg.AuthEnabled {
+					r.Use(middleware.RequireRole("admin"))
+				}
+				r.Post("/bgp/blocks", h.CreateBGPBlock)
+				r.Delete("/bgp/blocks/{ip}", h.DeleteBGPBlock)
 			})
 		}
 

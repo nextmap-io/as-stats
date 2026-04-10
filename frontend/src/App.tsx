@@ -19,6 +19,7 @@ import { TopPorts } from "@/pages/TopPorts"
 import { Alerts } from "@/pages/Alerts"
 import { LiveThreats } from "@/pages/LiveThreats"
 import { Admin } from "@/pages/Admin"
+import { BGP } from "@/pages/BGP"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -51,6 +52,7 @@ function AppWithProviders() {
             <Route path="/top/port" element={<TopPorts />} />
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/live" element={<LiveThreats />} />
+            <Route path="/bgp" element={<BGP />} />
             <Route path="/admin" element={<Admin />} />
           </Route>
         </Routes>

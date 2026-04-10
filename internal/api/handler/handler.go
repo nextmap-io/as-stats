@@ -22,6 +22,7 @@ type Handler struct {
 	FeatureFlowSearch bool
 	FeaturePortStats  bool
 	FeatureAlerts     bool
+	FeatureBGP        bool
 
 	// BGP blocker for blackhole actions (noop by default)
 	BGPBlocker bgp.Blocker

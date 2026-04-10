@@ -8,6 +8,7 @@ type FeaturesResponse struct {
 	FlowSearch bool   `json:"flow_search"`
 	PortStats  bool   `json:"port_stats"`
 	Alerts     bool   `json:"alerts"`
+	BGP        bool   `json:"bgp"`
 	LocalAS    uint32 `json:"local_as,omitempty"`
 	Auth       bool   `json:"auth"`
 }
@@ -18,6 +19,7 @@ func (h *Handler) Features(w http.ResponseWriter, r *http.Request) {
 			FlowSearch: h.FeatureFlowSearch,
 			PortStats:  h.FeaturePortStats,
 			Alerts:     h.FeatureAlerts,
+			BGP:        h.FeatureBGP,
 			LocalAS:    h.LocalAS,
 		},
 	})

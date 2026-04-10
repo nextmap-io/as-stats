@@ -3,6 +3,7 @@ package alerts
 import (
 	"context"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -309,3 +310,195 @@ func TestSeverityMeets(t *testing.T) {
 
 // Type alias to avoid importing store in the test's violation map literal
 type alertViolation = store.AlertViolation
+
+// ---------------------------------------------------------------------------
+// Mock types for auto-block tests
+// ---------------------------------------------------------------------------
+
+// mockBlocker records Announce calls.
+type mockBlocker struct {
+	mu        sync.Mutex
+	announced []mockAnnounceCall
+}
+
+type mockAnnounceCall struct {
+	Target   net.IP
+	Duration time.Duration
+	Reason   string
+}
+
+func (m *mockBlocker) Announce(ctx context.Context, target net.IP, duration time.Duration, reason string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.announced = append(m.announced, mockAnnounceCall{Target: target, Duration: duration, Reason: reason})
+	return nil
+}
+
+// mockBlockStore records InsertBlock calls and can fake FindActiveBlock results.
+type mockBlockStore struct {
+	mu             sync.Mutex
+	insertedBlocks []model.BGPBlock
+	activeBlockID  string // returned by FindActiveBlock when non-empty
+}
+
+func (m *mockBlockStore) InsertBlock(ctx context.Context, b model.BGPBlock) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.insertedBlocks = append(m.insertedBlocks, b)
+	return nil
+}
+
+func (m *mockBlockStore) FindActiveBlock(ctx context.Context, ip string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.activeBlockID, nil
+}
+
+// ---------------------------------------------------------------------------
+// Auto-block tests
+// ---------------------------------------------------------------------------
+
+func TestEngineAutoBlock(t *testing.T) {
+	ms := &mockStore{
+		rules: []model.AlertRule{
+			{
+				ID:            "rule-ab",
+				Name:          "Auto block rule",
+				RuleType:      "volume_in",
+				Enabled:       true,
+				ThresholdBps:  1_000_000_000,
+				WindowSeconds: 60,
+				Severity:      "critical",
+				Action:        "auto_block",
+			},
+		},
+		violations: map[string][]alertViolation{
+			"volume_in": {
+				{
+					TargetIP:    net.ParseIP("192.0.2.10"),
+					MetricValue: 5_000_000_000,
+					TopSources:  []string{"198.51.100.1", "198.51.100.2"},
+				},
+			},
+		},
+	}
+
+	blocker := &mockBlocker{}
+	blockStore := &mockBlockStore{}
+
+	e := New(ms, nil, nil, 100*time.Millisecond, 5*time.Minute)
+	e.SetBlocker(blocker, blockStore)
+
+	e.evaluateOnce(context.Background())
+
+	// safeAutoBlock runs in a goroutine, give it a moment to complete.
+	time.Sleep(200 * time.Millisecond)
+
+	blocker.mu.Lock()
+	defer blocker.mu.Unlock()
+	if len(blocker.announced) != 1 {
+		t.Fatalf("expected 1 Announce call, got %d", len(blocker.announced))
+	}
+	if blocker.announced[0].Target.String() != "192.0.2.10" {
+		t.Errorf("expected target 192.0.2.10, got %s", blocker.announced[0].Target)
+	}
+
+	blockStore.mu.Lock()
+	defer blockStore.mu.Unlock()
+	if len(blockStore.insertedBlocks) != 1 {
+		t.Fatalf("expected 1 InsertBlock call, got %d", len(blockStore.insertedBlocks))
+	}
+	b := blockStore.insertedBlocks[0]
+	if b.IP != "192.0.2.10" {
+		t.Errorf("expected block IP 192.0.2.10, got %s", b.IP)
+	}
+	if b.Reason != "auto_block" {
+		t.Errorf("expected reason %q, got %q", "auto_block", b.Reason)
+	}
+	if !strings.Contains(b.Description, "Auto block rule") {
+		t.Errorf("expected description to contain rule name, got %q", b.Description)
+	}
+}
+
+func TestEngineAutoBlockSkipsDuplicate(t *testing.T) {
+	ms := &mockStore{
+		rules: []model.AlertRule{
+			{
+				ID:            "rule-dup",
+				Name:          "Dup block rule",
+				RuleType:      "volume_in",
+				Enabled:       true,
+				ThresholdBps:  1_000_000_000,
+				WindowSeconds: 60,
+				Severity:      "critical",
+				Action:        "auto_block",
+			},
+		},
+		violations: map[string][]alertViolation{
+			"volume_in": {
+				{
+					TargetIP:    net.ParseIP("192.0.2.20"),
+					MetricValue: 5_000_000_000,
+				},
+			},
+		},
+	}
+
+	blocker := &mockBlocker{}
+	blockStore := &mockBlockStore{activeBlockID: "existing-block-id"}
+
+	e := New(ms, nil, nil, 100*time.Millisecond, 5*time.Minute)
+	e.SetBlocker(blocker, blockStore)
+
+	e.evaluateOnce(context.Background())
+
+	// Give the goroutine time to run.
+	time.Sleep(200 * time.Millisecond)
+
+	blocker.mu.Lock()
+	defer blocker.mu.Unlock()
+	if len(blocker.announced) != 0 {
+		t.Errorf("expected 0 Announce calls (duplicate skipped), got %d", len(blocker.announced))
+	}
+}
+
+func TestEngineAutoBlockNilBlocker(t *testing.T) {
+	ms := &mockStore{
+		rules: []model.AlertRule{
+			{
+				ID:            "rule-nil",
+				Name:          "Nil blocker rule",
+				RuleType:      "volume_in",
+				Enabled:       true,
+				ThresholdBps:  1_000_000_000,
+				WindowSeconds: 60,
+				Severity:      "critical",
+				Action:        "auto_block",
+			},
+		},
+		violations: map[string][]alertViolation{
+			"volume_in": {
+				{
+					TargetIP:    net.ParseIP("192.0.2.30"),
+					MetricValue: 5_000_000_000,
+				},
+			},
+		},
+	}
+
+	e := New(ms, nil, nil, 100*time.Millisecond, 5*time.Minute)
+	e.SetBlocker(nil, nil) // explicitly nil — should not panic
+
+	// This must not panic.
+	e.evaluateOnce(context.Background())
+
+	// Give any potential goroutine time to run (it should not be started).
+	time.Sleep(100 * time.Millisecond)
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	// The alert should still be inserted even though blocking is not available.
+	if len(ms.inserted) != 1 {
+		t.Fatalf("expected 1 alert inserted despite nil blocker, got %d", len(ms.inserted))
+	}
+}

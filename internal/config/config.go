@@ -35,6 +35,11 @@ type CollectorConfig struct {
 	AlertEvalInterval   time.Duration // default 30s
 	AlertStaleThreshold time.Duration // alerts are auto-resolved after this gap
 
+	// BGP: the collector's alert engine can trigger blocks via the API server.
+	// Set BGP_API_URL to the API server's base URL (e.g. "http://localhost:8080")
+	// to enable RemoteBlocker. When empty, the collector uses NoopBlocker.
+	BGPAPIURL string
+
 	// Prometheus metrics endpoint served on a separate HTTP listener.
 	// Defaults to ":9090". Empty string disables the endpoint.
 	PrometheusAddr      string
@@ -66,6 +71,23 @@ type APIConfig struct {
 	PrometheusAllowCIDR []string // PROMETHEUS_ALLOW_CIDR, comma-separated
 	PrometheusUser      string   // PROMETHEUS_USER (basic auth)
 	PrometheusPass      string   // PROMETHEUS_PASS (basic auth)
+
+	// BGP blackhole client — announces /32 routes via shell commands
+	// (gobgp CLI, BIRD, FRRouting, ExaBGP, etc.).
+	BGPEnabled     bool
+	BGPRouterID    string // e.g. "192.0.2.1"
+	BGPLocalAS     uint32
+	BGPPeerAddress string // e.g. "10.0.0.1"
+	BGPPeerAS      uint32
+	BGPCommunity   string // e.g. "65535:666" (RFC 7999 BLACKHOLE)
+	BGPNextHop     string // next-hop for announced routes
+
+	// Custom shell command templates. Placeholders: {ip}, {prefix_len},
+	// {community}, {next_hop}, {peer_address}. When empty and BGP_ENABLED=true,
+	// defaults to gobgp CLI commands.
+	BGPAnnounceCmd string // BGP_ANNOUNCE_CMD
+	BGPWithdrawCmd string // BGP_WITHDRAW_CMD
+	BGPStatusCmd   string // BGP_STATUS_CMD
 }
 
 // CollectorConfig additions for detailed logging + alert engine.
@@ -136,6 +158,7 @@ func LoadCollector() (*CollectorConfig, error) {
 		FeatureAlerts:        featureAlerts,
 		AlertEvalInterval:    alertEval,
 		AlertStaleThreshold:  alertStale,
+		BGPAPIURL:            envOr("BGP_API_URL", ""),
 		PrometheusAddr:       envOr("COLLECTOR_PROMETHEUS_ADDR", ":9090"),
 		PrometheusAllowCIDR:  splitCSV(envOr("PROMETHEUS_ALLOW_CIDR", "")),
 		PrometheusUser:       envOr("PROMETHEUS_USER", ""),
@@ -154,6 +177,10 @@ func LoadAPI() (*APIConfig, error) {
 	featurePortStats, _ := strconv.ParseBool(envOr("FEATURE_PORT_STATS", "false"))
 	featureAlerts, _ := strconv.ParseBool(envOr("FEATURE_ALERTS", "false"))
 
+	bgpEnabled, _ := strconv.ParseBool(envOr("BGP_ENABLED", "false"))
+	bgpLocalAS, _ := strconv.ParseUint(envOr("BGP_LOCAL_AS", "0"), 10, 32)
+	bgpPeerAS, _ := strconv.ParseUint(envOr("BGP_PEER_AS", "0"), 10, 32)
+
 	cfg := &APIConfig{
 		ClickHouse:        loadClickHouse(),
 		ListenAddr:        envOr("API_LISTEN_ADDR", ":8080"),
@@ -171,12 +198,32 @@ func LoadAPI() (*APIConfig, error) {
 		PrometheusAllowCIDR: splitCSV(envOr("PROMETHEUS_ALLOW_CIDR", "")),
 		PrometheusUser:      envOr("PROMETHEUS_USER", ""),
 		PrometheusPass:      envOr("PROMETHEUS_PASS", ""),
+		BGPEnabled:          bgpEnabled,
+		BGPRouterID:         envOr("BGP_ROUTER_ID", ""),
+		BGPLocalAS:          uint32(bgpLocalAS),
+		BGPPeerAddress:      envOr("BGP_PEER_ADDRESS", ""),
+		BGPPeerAS:           uint32(bgpPeerAS),
+		BGPCommunity:        envOr("BGP_COMMUNITY", "65535:666"),
+		BGPNextHop:          envOr("BGP_NEXT_HOP", ""),
+		BGPAnnounceCmd:      envOr("BGP_ANNOUNCE_CMD", ""),
+		BGPWithdrawCmd:      envOr("BGP_WITHDRAW_CMD", ""),
+		BGPStatusCmd:        envOr("BGP_STATUS_CMD", ""),
 	}
 
 	// Validate OIDC config when auth is enabled
 	if cfg.AuthEnabled {
 		if cfg.OIDCIssuer == "" || cfg.OIDCClientID == "" {
 			return nil, fmt.Errorf("AUTH_ENABLED=true requires OIDC_ISSUER_URL and OIDC_CLIENT_ID")
+		}
+	}
+
+	// Validate BGP config when enabled
+	if cfg.BGPEnabled {
+		if cfg.BGPRouterID == "" || cfg.BGPPeerAddress == "" || cfg.BGPNextHop == "" {
+			return nil, fmt.Errorf("BGP_ENABLED=true requires BGP_ROUTER_ID, BGP_PEER_ADDRESS, and BGP_NEXT_HOP")
+		}
+		if cfg.BGPLocalAS == 0 || cfg.BGPPeerAS == 0 {
+			return nil, fmt.Errorf("BGP_ENABLED=true requires BGP_LOCAL_AS and BGP_PEER_AS")
 		}
 	}
 
