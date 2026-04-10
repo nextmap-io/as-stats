@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { TableSkeleton } from "@/components/ui/skeleton"
 import { useFeatureFlags } from "@/hooks/useFeatures"
-import { Shield, Trash2, Plus, FileText } from "lucide-react"
+import { Shield, Trash2, Plus, FileText, Pencil } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { AlertRule, Hostgroup, WebhookConfig, AuditLogEntry } from "@/lib/types"
 
@@ -725,7 +725,20 @@ function AuditTab() {
 function HostgroupsTab() {
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState({ name: "", description: "", cidrsText: "" })
+
+  const resetForm = () => {
+    setShowForm(false)
+    setEditingId(null)
+    setDraft({ name: "", description: "", cidrsText: "" })
+  }
+
+  const startEdit = (g: Hostgroup) => {
+    setEditingId(g.id)
+    setDraft({ name: g.name, description: g.description || "", cidrsText: g.cidrs.join("\n") })
+    setShowForm(true)
+  }
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["hostgroups"],
@@ -736,8 +749,15 @@ function HostgroupsTab() {
     mutationFn: (hg: Partial<Hostgroup>) => api.createHostgroup(hg),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["hostgroups"] })
-      setShowForm(false)
-      setDraft({ name: "", description: "", cidrsText: "" })
+      resetForm()
+    },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, hg }: { id: string; hg: Partial<Hostgroup> }) => api.updateHostgroup(id, hg),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["hostgroups"] })
+      resetForm()
     },
   })
 
@@ -749,6 +769,19 @@ function HostgroupsTab() {
   if (error) return <ErrorDisplay error={error as Error} onRetry={() => refetch()} />
 
   const groups: Hostgroup[] = data?.data || []
+  const isEditing = editingId !== null
+  const isSaving = createMutation.isPending || updateMutation.isPending
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const cidrs = draft.cidrsText.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean)
+    const payload = { name: draft.name, description: draft.description, cidrs }
+    if (isEditing) {
+      updateMutation.mutate({ id: editingId, hg: payload })
+    } else {
+      createMutation.mutate(payload)
+    }
+  }
 
   return (
     <Card>
@@ -756,7 +789,7 @@ function HostgroupsTab() {
         <div className="flex items-center justify-between">
           <CardTitle>Hostgroups ({groups.length})</CardTitle>
           <button
-            onClick={() => setShowForm((s) => !s)}
+            onClick={() => showForm ? resetForm() : setShowForm(true)}
             className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
           >
             <Plus className="h-3 w-3" />
@@ -766,14 +799,7 @@ function HostgroupsTab() {
       </CardHeader>
       <CardContent>
         {showForm && (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              const cidrs = draft.cidrsText.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean)
-              createMutation.mutate({ name: draft.name, description: draft.description, cidrs })
-            }}
-            className="space-y-2 mb-4 p-3 border border-border rounded bg-muted/20"
-          >
+          <form onSubmit={handleSubmit} className="space-y-2 mb-4 p-3 border border-border rounded bg-muted/20">
             <div className="grid gap-2 sm:grid-cols-2">
               <Field label="Name">
                 <input type="text" required value={draft.name}
@@ -798,9 +824,9 @@ function HostgroupsTab() {
                 className="flex-1 px-2 py-1 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </Field>
-            <button type="submit" disabled={createMutation.isPending}
+            <button type="submit" disabled={isSaving}
               className="px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
-              Create
+              {isEditing ? "Save" : "Create"}
             </button>
           </form>
         )}
@@ -821,16 +847,27 @@ function HostgroupsTab() {
             </thead>
             <tbody>
               {groups.map((g) => (
-                <tr key={g.id} className="border-b border-border/40 last:border-0 hover:bg-accent/50">
+                <tr key={g.id} className={cn("border-b border-border/40 last:border-0 hover:bg-accent/50", editingId === g.id && "bg-primary/5")}>
                   <td className="py-1.5 font-medium">{g.name}</td>
                   <td className="py-1.5 font-mono text-[10px] text-muted-foreground">{g.cidrs.join(", ")}</td>
                   <td className="py-1.5 text-muted-foreground hidden md:table-cell">{g.description || "—"}</td>
                   <td className="py-1.5 text-right">
-                    <button
-                      onClick={() => { if (confirm(`Delete hostgroup "${g.name}"?`)) deleteMutation.mutate(g.id) }}
-                      className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors">
-                      <Trash2 className="h-3 w-3" />
-                    </button>
+                    <div className="flex justify-end gap-0.5">
+                      <button
+                        onClick={() => startEdit(g)}
+                        className="p-1 rounded hover:bg-accent transition-colors"
+                        title="Edit hostgroup"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={() => { if (confirm(`Delete hostgroup "${g.name}"?`)) deleteMutation.mutate(g.id) }}
+                        className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
+                        title="Delete hostgroup"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
