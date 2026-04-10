@@ -143,6 +143,7 @@ const RULE_TYPE_META: Record<string, {
   udp_flood:        { label: "UDP flood",            description: "UDP packet rate to a destination (DNS query flood, NTP query flood, ...)", fields: ["pps"] },
   connection_flood: { label: "Connection flood",     description: "Distinct flow count per destination — Slowloris/half-open scan signature", fields: ["count"], fieldLabels: { count: "Min flow count" } },
   subnet_flood:    { label: "Carpet bomb (subnet)", description: "Aggregate traffic to a /N subnet level before thresholding — detects distributed attacks that stay below per-host limits", fields: ["bps", "pps"] },
+  smtp_abuse:      { label: "SMTP abuse (spam relay)", description: "Detects internal hosts sending traffic to SMTP ports (25/465/587) above normal levels — compromised spam relay indicator", fields: ["pps", "count"], fieldLabels: { pps: "Max pps to SMTP", count: "Max connections" } },
 }
 
 function RulesTab() {

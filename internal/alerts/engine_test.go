@@ -60,6 +60,9 @@ func (m *mockStore) EvalConnectionFlood(ctx context.Context, _ uint64, _ uint32,
 func (m *mockStore) EvalSubnetFlood(ctx context.Context, _, _ uint64, _ int, _ uint32, _ []string) ([]store.AlertViolation, error) {
 	return m.violations["subnet_flood"], nil
 }
+func (m *mockStore) EvalSMTPAbuse(ctx context.Context, _, _ uint64, _ uint32, _ []string) ([]store.AlertViolation, error) {
+	return m.violations["smtp_abuse"], nil
+}
 func (m *mockStore) ListHostgroups(ctx context.Context) ([]model.Hostgroup, error) {
 	return nil, nil
 }

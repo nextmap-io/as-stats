@@ -616,5 +616,86 @@ func (s *ClickHouseStore) EvalSubnetFlood(ctx context.Context, thresholdBps, thr
 	return results, nil
 }
 
+// EvalSMTPAbuse detects internal hosts sending suspicious volumes of SMTP
+// traffic — a classic sign of a compromised machine being used as a spam relay.
+//
+// The query hits flows_raw (not the hot tables) because we need the dst_port
+// dimension. This is acceptable: the query is bounded by the window, filtered
+// on protocol=6 and dst_port IN (25, 465, 587), and runs at most once per
+// eval cycle (every 30s). On a typical network this scans a tiny fraction
+// of flows_raw.
+//
+// The threshold can be pps-based (ThresholdPps) or flow-count based
+// (ThresholdCount for distinct connections). Both are supported.
+func (s *ClickHouseStore) EvalSMTPAbuse(ctx context.Context, thresholdPps, thresholdCount uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
+	where := []string{
+		"timestamp >= now() - INTERVAL @window SECOND",
+		"protocol = 6",
+		"dst_port IN (25, 465, 587)",
+	}
+	args := []any{
+		clickhouse.Named("window", window),
+		clickhouse.Named("th_pps", thresholdPps),
+		clickhouse.Named("th_count", thresholdCount),
+	}
+	// Filter to internal source IPs only — we want to detect OUR hosts
+	// that are compromised, not external SMTP traffic passing through.
+	if len(localPrefixes) > 0 {
+		clause, cidrArgs := buildCIDRFilter("src_ip", "smtp_", localPrefixes)
+		where = append(where, clause)
+		args = append(args, cidrArgs...)
+	}
+
+	having := []string{}
+	if thresholdPps > 0 {
+		having = append(having, "pps > @th_pps")
+	}
+	if thresholdCount > 0 {
+		having = append(having, "flows > @th_count")
+	}
+	if len(having) == 0 {
+		return nil, nil
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			toString(src_ip) AS target,
+			toUInt64(sum(packets * sampling_rate) / @window) AS pps,
+			count() AS flows
+		FROM flows_raw
+		WHERE %s
+		GROUP BY src_ip
+		HAVING %s
+		ORDER BY pps DESC
+		LIMIT 100
+	`, strings.Join(where, " AND "), strings.Join(having, " OR "))
+
+	rows, err := s.conn.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("eval smtp_abuse: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []AlertViolation
+	for rows.Next() {
+		var target string
+		var pps, flows uint64
+		if err := rows.Scan(&target, &pps, &flows); err != nil {
+			return nil, err
+		}
+		metricVal := float64(pps)
+		if thresholdPps == 0 {
+			metricVal = float64(flows)
+		}
+		results = append(results, AlertViolation{
+			TargetIP:    net.ParseIP(cleanIPv4Mapped(target)),
+			Protocol:    6,
+			MetricValue: metricVal,
+			UniqueCount: flows,
+		})
+	}
+	return results, nil
+}
+
 // time type alias to avoid unused import warning on files that only use these
 var _ = time.Time{}

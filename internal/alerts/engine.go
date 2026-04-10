@@ -42,6 +42,7 @@ type Store interface {
 	EvalProtocolFlood(ctx context.Context, protocol uint8, thresholdPps uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
 	EvalConnectionFlood(ctx context.Context, thresholdCount uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
 	EvalSubnetFlood(ctx context.Context, thresholdBps, thresholdPps uint64, aggPrefix int, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
+	EvalSMTPAbuse(ctx context.Context, thresholdPps, thresholdCount uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
 
 	ListHostgroups(ctx context.Context) ([]model.Hostgroup, error)
 	TopSourcesForTarget(ctx context.Context, targetIP net.IP, window uint32, limit int) ([]string, error)
@@ -258,6 +259,9 @@ func (e *Engine) evaluateRule(ctx context.Context, rule model.AlertRule, webhook
 	case "subnet_flood":
 		metricType = "bps"
 		violations, err = e.store.EvalSubnetFlood(ctx, rule.ThresholdBps, rule.ThresholdPps, int(rule.SubnetPrefixLen), rule.WindowSeconds, prefixes)
+	case "smtp_abuse":
+		metricType = "pps"
+		violations, err = e.store.EvalSMTPAbuse(ctx, rule.ThresholdPps, rule.ThresholdCount, rule.WindowSeconds, prefixes)
 	default:
 		// 'custom' not implemented in phase 1
 		return
@@ -620,6 +624,22 @@ func EnsureDefaultRules(ctx context.Context, s interface {
 			CreatedAt:       now,
 			UpdatedAt:       now,
 		},
+		// ── SMTP abuse / compromised mail relay ───────────────────
+		{
+			ID:              uuid.NewString(),
+			Name:            "SMTP abuse (compromised relay)",
+			Description:     "An internal host is sending > 50 pps to SMTP ports (25/465/587) for 5 min — likely a compromised spam relay",
+			RuleType:        "smtp_abuse",
+			Enabled:         true,
+			ThresholdPps:    50,
+			WindowSeconds:   300,
+			CooldownSeconds: 1800,
+			Severity:        "warning",
+			Action:          "notify",
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+
 		{
 			ID:              uuid.NewString(),
 			Name:            "Carpet bomb /24 (critical)",

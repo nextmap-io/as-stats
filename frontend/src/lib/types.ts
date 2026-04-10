@@ -273,6 +273,7 @@ export interface AlertRule {
     | "udp_flood"
     | "connection_flood"
     | "subnet_flood"
+    | "smtp_abuse"
     | "custom"
     | ""
   enabled: boolean
