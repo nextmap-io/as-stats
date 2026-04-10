@@ -130,8 +130,8 @@ export function Alerts() {
                     <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Rule</th>
                     <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Target</th>
                     <th scope="col" className="pb-1.5 text-right font-medium text-muted-foreground hidden sm:table-cell">Value</th>
-                    <th scope="col" className="pb-1.5 text-right font-medium text-muted-foreground hidden sm:table-cell">Threshold</th>
-                    <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Triggered</th>
+                    <th scope="col" className="pb-1.5 pr-3 text-right font-medium text-muted-foreground hidden sm:table-cell">Threshold</th>
+                    <th scope="col" className="pb-1.5 pl-3 text-left font-medium text-muted-foreground hidden md:table-cell">Triggered</th>
                     <th scope="col" className="pb-1.5 text-right font-medium text-muted-foreground">Actions</th>
                   </tr>
                 </thead>
@@ -150,10 +150,10 @@ export function Alerts() {
                       <td className="py-1.5 text-right font-mono hidden sm:table-cell">
                         {formatMetric(a.metric_type, a.metric_value)}
                       </td>
-                      <td className="py-1.5 text-right font-mono text-muted-foreground hidden sm:table-cell">
+                      <td className="py-1.5 pr-3 text-right font-mono text-muted-foreground hidden sm:table-cell">
                         {formatMetric(a.metric_type, a.threshold)}
                       </td>
-                      <td className="py-1.5 text-muted-foreground text-[10px] hidden md:table-cell">
+                      <td className="py-1.5 pl-3 text-muted-foreground text-[10px] hidden md:table-cell">
                         {new Date(a.triggered_at).toLocaleString()}
                       </td>
                       <td className="py-1.5 text-right">
