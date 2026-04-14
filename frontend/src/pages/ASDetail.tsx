@@ -155,8 +155,8 @@ export function ASDetail() {
                 <tbody>
                   {topIPsData.data.map(ip => (
                     <tr key={ip.ip} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
-                      <td className="py-1">
-                        <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px]">
+                      <td className="py-1 max-w-[280px]">
+                        <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px] block truncate">
                           <IPWithPTR ip={ip.ip} />
                         </Link>
                       </td>
@@ -187,8 +187,8 @@ export function ASDetail() {
                 <tbody>
                   {remoteIPsData.data.map(ip => (
                     <tr key={ip.ip} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
-                      <td className="py-1">
-                        <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px]">
+                      <td className="py-1 max-w-[280px]">
+                        <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px] block truncate">
                           <IPWithPTR ip={ip.ip} />
                         </Link>
                       </td>

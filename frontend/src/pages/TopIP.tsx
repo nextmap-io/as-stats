@@ -59,8 +59,8 @@ export function TopIP() {
                   {data.data.map((ip, i) => (
                     <tr key={ip.ip} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
                       <td className="py-1.5 text-muted-foreground">{(filters.offset || 0) + i + 1}</td>
-                      <td className="py-1.5">
-                        <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px]">
+                      <td className="py-1.5 max-w-[280px]">
+                        <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px] block truncate">
                           <IPWithPTR ip={ip.ip} />
                         </Link>
                       </td>

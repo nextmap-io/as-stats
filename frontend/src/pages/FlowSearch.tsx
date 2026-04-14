@@ -289,7 +289,7 @@ export function FlowSearch() {
                   <tbody>
                     {results.map((e, i) => (
                       <tr key={i} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
-                        <td className="py-1 font-mono text-[10px]">
+                        <td className="py-1 font-mono text-[10px] max-w-[260px]">
                           <Link to={`/ip/${e.src_ip}`} className="text-primary hover:underline">
                             <IPWithPTR ip={e.src_ip} />
                           </Link>
@@ -301,7 +301,7 @@ export function FlowSearch() {
                           )}
                         </td>
                         <td className="py-1 text-muted-foreground">→</td>
-                        <td className="py-1 font-mono text-[10px]">
+                        <td className="py-1 font-mono text-[10px] max-w-[260px]">
                           <Link to={`/ip/${e.dst_ip}`} className="text-primary hover:underline">
                             <IPWithPTR ip={e.dst_ip} />
                           </Link>
