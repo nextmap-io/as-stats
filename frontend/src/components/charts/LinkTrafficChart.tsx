@@ -128,23 +128,30 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
     }
   }
 
-  // Build data array from actual timestamps, inserting zeros for gaps
+  // Build data array from actual timestamps, inserting zeros for gaps.
+  //
+  // The gap threshold controls when we drop the area to zero between data
+  // points. Too aggressive (2x) fragments sparse per-AS data into 1-pixel
+  // bars. Too lenient risks showing phantom plateaus across real outages.
+  //
+  // We use 4x the step: up to 3 consecutive missing buckets are "normal
+  // jitter" and the area stays up; 4+ missing buckets are a real gap and
+  // we drop to zero.
+  const GAP_THRESHOLD = 4
   const sortedTs = Array.from(dataByTs.keys()).sort((a, b) => a - b)
   const data: Record<string, unknown>[] = []
 
-  // Boundary padding: add zero points at the start of the time range if data
-  // begins late. Cheap (just 2 extra points) so it's safe for mobile.
+  // Boundary padding: add a single zero point at the start if data begins late.
   if (timeBounds && sortedTs.length > 0 && stepMs > 0) {
     const firstTs = sortedTs[0]
-    if (firstTs > timeBounds.from + stepMs) {
-      data.push({ time: formatTimeShort(timeBounds.from, multiDay), ...makeZeroRow() })
+    if (firstTs > timeBounds.from + stepMs * GAP_THRESHOLD) {
       data.push({ time: formatTimeShort(firstTs - stepMs, multiDay), ...makeZeroRow() })
     }
   }
 
   for (let i = 0; i < sortedTs.length; i++) {
-    // Insert zero rows before a gap (gap > 2x step) so the chart drops to 0
-    if (i > 0 && stepMs > 0 && (sortedTs[i] - sortedTs[i - 1]) > stepMs * 2) {
+    // Insert a single zero row before a real gap so the chart drops to 0
+    if (i > 0 && stepMs > 0 && (sortedTs[i] - sortedTs[i - 1]) > stepMs * GAP_THRESHOLD) {
       data.push({ time: formatTimeShort(sortedTs[i - 1] + stepMs, multiDay), ...makeZeroRow() })
       data.push({ time: formatTimeShort(sortedTs[i] - stepMs, multiDay), ...makeZeroRow() })
     }
@@ -152,12 +159,11 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
     data.push({ time: formatTimeShort(t, multiDay), ...dataByTs.get(t) })
   }
 
-  // Boundary padding at the end of the time range
+  // Boundary padding at the end
   if (timeBounds && sortedTs.length > 0 && stepMs > 0) {
     const lastTs = sortedTs[sortedTs.length - 1]
-    if (lastTs < timeBounds.to - stepMs) {
+    if (lastTs < timeBounds.to - stepMs * GAP_THRESHOLD) {
       data.push({ time: formatTimeShort(lastTs + stepMs, multiDay), ...makeZeroRow() })
-      data.push({ time: formatTimeShort(timeBounds.to, multiDay), ...makeZeroRow() })
     }
   }
 

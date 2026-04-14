@@ -63,21 +63,22 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, p95
     dataByTs.set(ts, { inbound: inVal, outbound: -outVal })
   }
 
-  // Build data array from actual timestamps, inserting zeros for gaps
+  // Build data array from actual timestamps, inserting zeros for gaps.
+  // Gap threshold: 4x the step — up to 3 missing buckets are normal jitter
+  // and the area stays up; 4+ is a real outage and we drop to zero.
+  const GAP_THRESHOLD = 4
   const sortedTs = Array.from(dataByTs.keys()).sort((a, b) => a - b)
   const formatted: { time: string; inbound: number; outbound: number }[] = []
 
-  // Boundary padding at the start of the time range
   if (timeBounds && sortedTs.length > 0 && stepMs > 0) {
     const firstTs = sortedTs[0]
-    if (firstTs > timeBounds.from + stepMs) {
-      formatted.push({ time: formatTimeShort(timeBounds.from, multiDay), inbound: 0, outbound: 0 })
+    if (firstTs > timeBounds.from + stepMs * GAP_THRESHOLD) {
       formatted.push({ time: formatTimeShort(firstTs - stepMs, multiDay), inbound: 0, outbound: 0 })
     }
   }
 
   for (let i = 0; i < sortedTs.length; i++) {
-    if (i > 0 && stepMs > 0 && (sortedTs[i] - sortedTs[i - 1]) > stepMs * 2) {
+    if (i > 0 && stepMs > 0 && (sortedTs[i] - sortedTs[i - 1]) > stepMs * GAP_THRESHOLD) {
       formatted.push({ time: formatTimeShort(sortedTs[i - 1] + stepMs, multiDay), inbound: 0, outbound: 0 })
       formatted.push({ time: formatTimeShort(sortedTs[i] - stepMs, multiDay), inbound: 0, outbound: 0 })
     }
@@ -86,12 +87,10 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, p95
     formatted.push({ time: formatTimeShort(t, multiDay), ...v })
   }
 
-  // Boundary padding at the end of the time range
   if (timeBounds && sortedTs.length > 0 && stepMs > 0) {
     const lastTs = sortedTs[sortedTs.length - 1]
-    if (lastTs < timeBounds.to - stepMs) {
+    if (lastTs < timeBounds.to - stepMs * GAP_THRESHOLD) {
       formatted.push({ time: formatTimeShort(lastTs + stepMs, multiDay), inbound: 0, outbound: 0 })
-      formatted.push({ time: formatTimeShort(timeBounds.to, multiDay), inbound: 0, outbound: 0 })
     }
   }
 
