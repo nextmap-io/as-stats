@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Protect main branch
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.ADMIN_TOKEN }}
           script: |
@@ -47,7 +47,7 @@ jobs:
             console.log('Branch protection configured for main');
 
       - name: Protect version tags
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.ADMIN_TOKEN }}
           script: |
@@ -68,7 +68,7 @@ jobs:
             }
 
       - name: Configure repository settings
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.ADMIN_TOKEN }}
           script: |
