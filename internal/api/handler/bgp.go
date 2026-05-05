@@ -59,6 +59,7 @@ func (h *Handler) ListBGPBlockHistory(w http.ResponseWriter, r *http.Request) {
 //
 // Request body: { "ip": "1.2.3.4", "duration_minutes": 60, "description": "..." }
 func (h *Handler) CreateBGPBlock(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4*1024)
 	var req struct {
 		IP              string `json:"ip"`
 		DurationMinutes int    `json:"duration_minutes"`
@@ -128,6 +129,7 @@ func (h *Handler) CreateBGPBlock(w http.ResponseWriter, r *http.Request) {
 //
 // Optional request body: { "description": "reason for unblock" }
 func (h *Handler) DeleteBGPBlock(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4*1024)
 	ipStr := chi.URLParam(r, "ip")
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
@@ -138,7 +140,6 @@ func (h *Handler) DeleteBGPBlock(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Description string `json:"description"`
 	}
-	// Body is optional — ignore decode errors
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
 	userEmail := "anonymous"

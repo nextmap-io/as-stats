@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
 )
@@ -34,7 +35,7 @@ func CSRF() func(http.Handler) http.Handler {
 				}
 
 				headerToken := r.Header.Get(csrfTokenHeader)
-				if headerToken == "" || headerToken != cookie.Value {
+				if headerToken == "" || subtle.ConstantTimeCompare([]byte(headerToken), []byte(cookie.Value)) != 1 {
 					http.Error(w, `{"error":"invalid CSRF token"}`, http.StatusForbidden)
 					return
 				}

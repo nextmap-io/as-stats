@@ -23,6 +23,7 @@ func (h *Handler) ListHostgroups(w http.ResponseWriter, r *http.Request) {
 
 // CreateHostgroup handles POST /api/v1/admin/hostgroups
 func (h *Handler) CreateHostgroup(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
 	var hg model.Hostgroup
 	if err := json.NewDecoder(r.Body).Decode(&hg); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -69,6 +70,7 @@ func (h *Handler) CreateHostgroup(w http.ResponseWriter, r *http.Request) {
 
 // UpdateHostgroup handles PUT /api/v1/admin/hostgroups/{id}
 func (h *Handler) UpdateHostgroup(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
 	id := chi.URLParam(r, "id")
 	var hg model.Hostgroup
 	if err := json.NewDecoder(r.Body).Decode(&hg); err != nil {
@@ -76,6 +78,32 @@ func (h *Handler) UpdateHostgroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hg.ID = id
+	if hg.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	// Validate CIDRs (same logic as CreateHostgroup)
+	clean := make([]string, 0, len(hg.CIDRs))
+	for _, cidr := range hg.CIDRs {
+		cidr = strings.TrimSpace(cidr)
+		if cidr == "" {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(cidr); err != nil {
+			if ip := net.ParseIP(cidr); ip != nil {
+				if ip.To4() != nil {
+					cidr += "/32"
+				} else {
+					cidr += "/128"
+				}
+			} else {
+				writeError(w, http.StatusBadRequest, "invalid CIDR: "+cidr)
+				return
+			}
+		}
+		clean = append(clean, cidr)
+	}
+	hg.CIDRs = clean
 	if err := h.Store.UpsertHostgroup(r.Context(), hg); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

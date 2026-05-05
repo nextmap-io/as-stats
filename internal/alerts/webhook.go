@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -19,16 +20,56 @@ type WebhookNotifier struct {
 	httpClient *http.Client
 }
 
-// NewWebhookNotifier creates a notifier with a default HTTP client.
-// Per-request timeout is 5 seconds; webhook calls are dispatched in parallel
-// goroutines, so a slow endpoint never blocks the alert engine evaluation
-// loop.
+// NewWebhookNotifier creates a notifier with a safe HTTP client.
+// The custom DialContext re-validates resolved IPs against SSRF blocklists
+// at connect time, preventing DNS rebinding attacks where a hostname
+// resolves to a public IP at webhook creation but is later repointed to
+// 127.0.0.1 or 169.254.169.254.
 func NewWebhookNotifier() *WebhookNotifier {
+	dialer := &net.Dialer{Timeout: 5 * time.Second}
 	return &WebhookNotifier{
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
+			Transport: &http.Transport{
+				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					host, port, err := net.SplitHostPort(addr)
+					if err != nil {
+						return nil, fmt.Errorf("invalid address %q: %w", addr, err)
+					}
+					ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+					if err != nil {
+						return nil, fmt.Errorf("DNS lookup failed for %q: %w", host, err)
+					}
+					for _, ip := range ips {
+						if isBlockedIP(ip.IP) {
+							return nil, fmt.Errorf("webhook target %s resolved to blocked IP %s", host, ip.IP)
+						}
+					}
+					// Dial the first allowed IP directly
+					return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+				},
+			},
 		},
 	}
+}
+
+// isBlockedIP returns true for IPs that must never be reached by webhooks.
+func isBlockedIP(ip net.IP) bool {
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsMulticast() ||
+		ip.IsUnspecified() ||
+		isCGNAT(ip)
+}
+
+func isCGNAT(ip net.IP) bool {
+	v4 := ip.To4()
+	if v4 == nil {
+		return false
+	}
+	return v4[0] == 100 && (v4[1]&0xC0) == 0x40
 }
 
 // Notify sends an alert to a single webhook.

@@ -155,24 +155,31 @@ func (s *ClickHouseStore) TopPrefix(ctx context.Context, p QueryParams) ([]model
 	// Build prefix scope filter and grouping
 	prefixFilter := ""
 	prefixExpr := "t.prefix"
+	var prefixArgs []any
 
 	if len(p.LocalPrefixes) > 0 {
-		// Build isIPAddressInRange conditions on the IP part of the prefix
 		var conditions []string
 		var caseWhen []string
-		for _, cidr := range p.LocalPrefixes {
-			cond := fmt.Sprintf("isIPAddressInRange(splitByChar('/', t.prefix)[1], '%s')", cidr)
+		for i, cidr := range p.LocalPrefixes {
+			if _, _, err := net.ParseCIDR(cidr); err != nil {
+				continue
+			}
+			paramName := fmt.Sprintf("lp%d", i)
+			cond := fmt.Sprintf("isIPAddressInRange(splitByChar('/', t.prefix)[1], @%s)", paramName)
 			conditions = append(conditions, cond)
-			caseWhen = append(caseWhen, fmt.Sprintf("WHEN %s THEN '%s'", cond, cidr))
+			caseWhen = append(caseWhen, fmt.Sprintf("WHEN %s THEN @%s", cond, paramName))
+			prefixArgs = append(prefixArgs, clickhouse.Named(paramName, cidr))
 		}
-		internalCond := "(" + strings.Join(conditions, " OR ") + ")"
+		if len(conditions) > 0 {
+			internalCond := "(" + strings.Join(conditions, " OR ") + ")"
 
-		switch p.PrefixScope {
-		case "internal":
-			prefixFilter = "AND " + internalCond
-			prefixExpr = "CASE " + strings.Join(caseWhen, " ") + " ELSE t.prefix END"
-		case "external":
-			prefixFilter = "AND NOT " + internalCond
+			switch p.PrefixScope {
+			case "internal":
+				prefixFilter = "AND " + internalCond
+				prefixExpr = "CASE " + strings.Join(caseWhen, " ") + " ELSE t.prefix END"
+			case "external":
+				prefixFilter = "AND NOT " + internalCond
+			}
 		}
 	}
 
@@ -200,6 +207,7 @@ func (s *ClickHouseStore) TopPrefix(ctx context.Context, p QueryParams) ([]model
 		clickhouse.Named("offset", p.Offset),
 	}, dirArgs...)
 	args = append(args, linkArgs...)
+	args = append(args, prefixArgs...)
 
 	rows, err := s.conn.Query(ctx, query, args...)
 	if err != nil {

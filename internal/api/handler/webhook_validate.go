@@ -22,6 +22,18 @@ import (
 // Hostnames are allowed without DNS resolution (DNS resolution at request time
 // is the responsibility of the caller; we cannot prevent rebinding here, but we
 // at least reject literal IPs in the configured URL).
+// maskWebhookURL returns "https://hooks.slack.com/****" — shows scheme+host only.
+func maskWebhookURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		if len(raw) > 30 {
+			return raw[:30] + "****"
+		}
+		return raw
+	}
+	return fmt.Sprintf("%s://%s/****", u.Scheme, u.Host)
+}
+
 func validateWebhookURL(raw string) error {
 	if raw == "" {
 		return errors.New("URL is required")

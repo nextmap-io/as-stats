@@ -297,7 +297,10 @@ func (h *Handler) ListWebhooks(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Mask URLs for non-admin users if needed (future)
+	// Mask webhook URLs — they contain secrets (e.g. Slack token in path)
+	for i := range webhooks {
+		webhooks[i].URL = maskWebhookURL(webhooks[i].URL)
+	}
 	writeJSON(w, http.StatusOK, Response{Data: webhooks})
 }
 
