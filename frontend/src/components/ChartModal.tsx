@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react"
+import { useEffect, useRef } from "react"
 import { createPortal } from "react-dom"
 
 const PERIODS = ["1h", "3h", "6h", "24h", "7d", "30d"]
@@ -14,34 +14,41 @@ interface ChartModalProps {
 }
 
 export function ChartModal({ open, onClose, title, activePeriod, onPeriodChange, stats, children }: ChartModalProps) {
-  const handleKey = useCallback((e: KeyboardEvent) => {
-    if (e.key === "Escape") onClose()
-  }, [onClose])
+  // Keep a ref to the latest onClose so the keydown listener doesn't need to
+  // resubscribe on every parent render.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
 
   useEffect(() => {
-    if (open) {
-      document.addEventListener("keydown", handleKey)
-      document.body.style.overflow = "hidden"
-      return () => {
-        document.removeEventListener("keydown", handleKey)
-        document.body.style.overflow = ""
-      }
+    if (!open) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCloseRef.current()
     }
-  }, [open, handleKey])
+    document.addEventListener("keydown", handler)
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.removeEventListener("keydown", handler)
+      document.body.style.overflow = ""
+    }
+  }, [open])
 
   if (!open) return null
 
   return createPortal(
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center"
-      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title || "Chart"}
     >
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+      <button
+        type="button"
+        aria-label="Close modal"
+        onClick={onClose}
+        className="absolute inset-0 w-full h-full bg-black/70 backdrop-blur-sm border-0 p-0"
+      />
 
-      <div
-        className="relative w-[95vw] max-w-6xl max-h-[90vh] bg-card border border-border rounded-lg shadow-2xl overflow-auto"
-        onClick={e => e.stopPropagation()}
-      >
+      <div className="relative w-[95vw] max-w-6xl max-h-[90vh] bg-card border border-border rounded-lg shadow-2xl overflow-auto">
         {/* Header with title + period selector */}
         <div className="flex items-center gap-4 px-5 pt-4 pb-2 border-b border-border/50">
           {title && <h2 className="text-sm font-semibold mr-auto">{title}</h2>}
@@ -51,6 +58,7 @@ export function ChartModal({ open, onClose, title, activePeriod, onPeriodChange,
               {PERIODS.map(p => (
                 <button
                   key={p}
+                  type="button"
                   onClick={() => onPeriodChange(p)}
                   className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
                     activePeriod === p
@@ -65,6 +73,7 @@ export function ChartModal({ open, onClose, title, activePeriod, onPeriodChange,
           )}
 
           <button
+            type="button"
             onClick={onClose}
             className="text-muted-foreground hover:text-foreground transition-colors text-lg leading-none px-2"
             aria-label="Close"

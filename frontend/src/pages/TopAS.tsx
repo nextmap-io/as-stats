@@ -12,7 +12,7 @@ export function TopAS() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold tracking-tight">Top AS</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">Top AS</h1>
 
       <Card>
         <CardHeader className="pb-3">
@@ -21,7 +21,7 @@ export function TopAS() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading && <p className="text-muted-foreground">Loading...</p>}
+          {isLoading && <p className="text-muted-foreground">Loading…</p>}
           {error && <p className="text-destructive">{error.message}</p>}
           {data?.data && (
             <>

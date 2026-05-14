@@ -34,7 +34,7 @@ export function Links() {
                 <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" linkColors={linkColors} timeBounds={timeBounds} />
               </ExpandableChart>
             ) : (
-              <EmptyState message="No IPv4 link traffic" icon={<BarChart3 className="h-8 w-8" />} />
+              <EmptyState message="No IPv4 link traffic" icon={<BarChart3 className="size-8" />} />
             )}
           </CardContent>
         </Card>
@@ -45,7 +45,7 @@ export function Links() {
                 <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" linkColors={linkColors} timeBounds={timeBounds} />
               </ExpandableChart>
             ) : (
-              <EmptyState message="No IPv6 link traffic" icon={<BarChart3 className="h-8 w-8" />} />
+              <EmptyState message="No IPv6 link traffic" icon={<BarChart3 className="size-8" />} />
             )}
           </CardContent>
         </Card>
@@ -57,7 +57,7 @@ export function Links() {
           <CardTitle className="text-base">Known links with traffic</CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading && <p className="text-muted-foreground">Loading...</p>}
+          {isLoading && <p className="text-muted-foreground">Loading…</p>}
           {error && <p className="text-destructive">{error.message}</p>}
           {data?.data && (
             <table className="w-full text-sm">
@@ -159,7 +159,7 @@ function LinkManager() {
             onClick={() => setShowForm(!showForm)}
             className="text-xs text-primary hover:underline inline-flex items-center gap-1"
           >
-            <Plus className="h-3 w-3" /> Add link
+            <Plus className="size-3" /> Add link
           </button>
         </div>
       </CardHeader>
@@ -206,7 +206,7 @@ function LinkManager() {
                 type="color"
                 value={form.color}
                 onChange={e => setForm(f => ({ ...f, color: e.target.value }))}
-                className="w-8 h-8 rounded border border-border cursor-pointer p-0"
+                className="size-8 rounded border border-border cursor-pointer p-0"
                 title="Link color"
               />
               <button
@@ -252,7 +252,7 @@ function LinkManager() {
                           })
                         }
                       }}
-                      className="w-5 h-5 rounded cursor-pointer border-0 p-0"
+                      className="size-5 rounded cursor-pointer border-0 p-0"
                       title="Change link color"
                     />
                   </td>
@@ -271,7 +271,7 @@ function LinkManager() {
                       className="text-muted-foreground hover:text-destructive transition-colors"
                       title="Delete link"
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <Trash2 className="size-3.5" />
                     </button>
                   </td>
                 </tr>

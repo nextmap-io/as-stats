@@ -172,15 +172,15 @@ export function ASTrafficChart({ data, height = 300, title, timeBounds }: ASTraf
                 else l.outVal = Math.abs(Number(e.value) || 0)
               }
               return (
-                <div style={{ backgroundColor: "hsl(220 18% 10%)", border: "1px solid hsl(220 15% 20%)", borderRadius: 4, fontSize: 10, boxShadow: "0 4px 12px rgba(0,0,0,0.5)", padding: "5px 8px", maxWidth: 300 }}>
-                  <div style={{ color: "hsl(215 12% 50%)", marginBottom: 3, fontSize: 9 }}>{label}</div>
+                <div style={{ backgroundColor: "hsl(220 18% 10%)", border: "1px solid hsl(220 15% 20%)", borderRadius: 4, fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.5)", padding: "6px 10px", maxWidth: 320 }}>
+                  <div style={{ color: "hsl(215 12% 50%)", marginBottom: 3, fontSize: 11 }}>{label}</div>
                   {Array.from(byAS.entries()).map(([asn, { inVal, outVal }]) => {
                     if (inVal === 0 && outVal === 0) return null
                     return (
                       <div key={asn} style={{ display: "flex", alignItems: "center", gap: 4, lineHeight: 1.6, color: "hsl(210 20% 88%)" }}>
                         <span style={{ width: 6, height: 6, borderRadius: 1, backgroundColor: colors[asn]?.in || "#888", flexShrink: 0 }} />
-                        <span style={{ fontSize: 9, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{asLabels[asn]}</span>
-                        <span style={{ whiteSpace: "nowrap", fontSize: 9 }}>
+                        <span style={{ fontSize: 11, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{asLabels[asn]}</span>
+                        <span style={{ whiteSpace: "nowrap", fontSize: 11 }}>
                           {inVal > 0 && <>{"\u2193"}{formatTraffic(inVal, interval)}</>}
                           {inVal > 0 && outVal > 0 && " "}
                           {outVal > 0 && <>{"\u2191"}{formatTraffic(outVal, interval)}</>}

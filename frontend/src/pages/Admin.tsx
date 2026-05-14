@@ -39,7 +39,7 @@ export function Admin() {
     <div className="space-y-4 animate-fade-in">
       <div className="flex items-baseline justify-between">
         <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2">
-          <Shield className="h-4 w-4" />
+          <Shield className="size-4" />
           Admin
         </h1>
       </div>
@@ -149,7 +149,7 @@ const RULE_TYPE_META: Record<string, {
 function RulesTab() {
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
-  const [draft, setDraft] = useState<Partial<AlertRule>>(emptyRule())
+  const [draft, setDraft] = useState<Partial<AlertRule>>(() => emptyRule())
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["alert-rules"],
@@ -189,7 +189,7 @@ function RulesTab() {
             onClick={() => { setShowForm((s) => !s); if (!showForm) setDraft(emptyRule()) }}
             className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
           >
-            <Plus className="h-3 w-3" />
+            <Plus className="size-3" />
             {showForm ? "Cancel" : "Add rule"}
           </button>
         </div>
@@ -398,7 +398,7 @@ function RulesTab() {
                         className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
                         title="Delete rule"
                       >
-                        <Trash2 className="h-3 w-3" />
+                        <Trash2 className="size-3" />
                       </button>
                     </td>
                   </tr>
@@ -439,8 +439,8 @@ function formatThreshold(r: AlertRule): React.ReactNode {
   if (parts.length === 0) return <span className="text-muted-foreground">—</span>
   return (
     <div className="flex flex-col items-end">
-      {parts.map((p, i) => (
-        <span key={i} className="leading-tight">{p}</span>
+      {parts.map((p) => (
+        <span key={p} className="leading-tight">{p}</span>
       ))}
     </div>
   )
@@ -516,7 +516,7 @@ function WebhooksTab() {
               onClick={() => setShowForm(!showForm)}
               className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
             >
-              <Plus className="h-3 w-3" />
+              <Plus className="size-3" />
               {showForm ? "Cancel" : "Add"}
             </button>
           </div>
@@ -619,7 +619,7 @@ function WebhooksTab() {
                         }}
                         className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
                       >
-                        <Trash2 className="h-3 w-3" />
+                        <Trash2 className="size-3" />
                       </button>
                     </td>
                   </tr>
@@ -661,7 +661,7 @@ function AuditTab() {
       <CardHeader className="pb-2">
         <div className="flex items-baseline justify-between">
           <CardTitle className="flex items-center gap-2">
-            <FileText className="h-3.5 w-3.5" />
+            <FileText className="size-3.5" />
             Audit log (last 200 entries)
           </CardTitle>
           <span className="text-[10px] text-muted-foreground">365-day retention</span>
@@ -686,8 +686,8 @@ function AuditTab() {
                 </tr>
               </thead>
               <tbody>
-                {entries.map((e, i) => (
-                  <tr key={i} className="border-b border-border/40 last:border-0 hover:bg-accent/50">
+                {entries.map((e) => (
+                  <tr key={`${e.ts}-${e.action}-${e.resource}-${e.client_ip}`} className="border-b border-border/40 last:border-0 hover:bg-accent/50">
                     <td className="py-1 text-[10px] font-mono text-muted-foreground whitespace-nowrap">
                       {new Date(e.ts).toLocaleString()}
                     </td>
@@ -774,7 +774,10 @@ function HostgroupsTab() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    const cidrs = draft.cidrsText.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean)
+    const cidrs = draft.cidrsText.split(/[\n,]+/).flatMap((s) => {
+      const t = s.trim()
+      return t ? [t] : []
+    })
     const payload = { name: draft.name, description: draft.description, cidrs }
     if (isEditing) {
       updateMutation.mutate({ id: editingId, hg: payload })
@@ -792,7 +795,7 @@ function HostgroupsTab() {
             onClick={() => showForm ? resetForm() : setShowForm(true)}
             className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
           >
-            <Plus className="h-3 w-3" />
+            <Plus className="size-3" />
             {showForm ? "Cancel" : "Add"}
           </button>
         </div>
@@ -858,14 +861,14 @@ function HostgroupsTab() {
                         className="p-1 rounded hover:bg-accent transition-colors"
                         title="Edit hostgroup"
                       >
-                        <Pencil className="h-3 w-3" />
+                        <Pencil className="size-3" />
                       </button>
                       <button
                         onClick={() => { if (confirm(`Delete hostgroup "${g.name}"?`)) deleteMutation.mutate(g.id) }}
                         className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
                         title="Delete hostgroup"
                       >
-                        <Trash2 className="h-3 w-3" />
+                        <Trash2 className="size-3" />
                       </button>
                     </div>
                   </td>

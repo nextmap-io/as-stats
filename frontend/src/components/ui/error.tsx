@@ -12,7 +12,7 @@ export function ErrorDisplay({ error, onRetry, title = "Something went wrong" }:
     <Card className="border-destructive/30 bg-destructive/5 animate-fade-in">
       <CardContent className="p-6">
         <div className="flex items-start gap-3">
-          <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+          <AlertTriangle className="size-5 text-destructive shrink-0 mt-0.5" />
           <div className="space-y-1 min-w-0">
             <p className="text-sm font-medium text-foreground">{title}</p>
             <p className="text-xs text-muted-foreground break-words">{error.message}</p>
@@ -23,7 +23,7 @@ export function ErrorDisplay({ error, onRetry, title = "Something went wrong" }:
               className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border border-border bg-card hover:bg-accent transition-colors"
               aria-label="Retry"
             >
-              <RefreshCw className="h-3 w-3" />
+              <RefreshCw className="size-3" />
               Retry
             </button>
           )}

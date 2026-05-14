@@ -25,7 +25,7 @@ export function LinkDetail() {
   })
   const linkConfig = linksData?.data?.find(l => l.tag === tag)
 
-  if (isLoading) return <p className="text-muted-foreground">Loading...</p>
+  if (isLoading) return <p className="text-muted-foreground">Loading…</p>
   if (error) return <p className="text-destructive">{error.message}</p>
 
   const detail = data?.data
@@ -45,7 +45,7 @@ export function LinkDetail() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-lg font-bold tracking-tight">Link: {detail.tag}</h1>
+        <h1 className="text-lg font-semibold tracking-tight">Link: {detail.tag}</h1>
         {linkConfig?.description && (
           <p className="text-xs text-muted-foreground mt-0.5">{linkConfig.description}</p>
         )}
@@ -112,7 +112,7 @@ export function LinkDetail() {
                   <tr key={as.as_number} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
                     <td className="py-1">
                       <span
-                        className="inline-block w-3 h-3 rounded-sm"
+                        className="inline-block size-3 rounded-sm"
                         style={{ backgroundColor: asColors[as.as_number] || "#888" }}
                       />
                     </td>

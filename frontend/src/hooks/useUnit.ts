@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useCallback } from "react"
 
+const PACKET_NUM_FORMAT = new Intl.NumberFormat()
+
 export type TrafficUnit = "bps" | "bytes" | "pps"
 
 interface UnitContextType {
@@ -67,7 +69,7 @@ export function useUnitState(): UnitContextType {
       const val = pps / Math.pow(1000, i)
       return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
     }
-    return new Intl.NumberFormat().format(packets)
+    return PACKET_NUM_FORMAT.format(packets)
   }, [unit])
 
   // Short format for chart axis labels (no space, compact units)

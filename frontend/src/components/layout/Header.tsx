@@ -117,11 +117,11 @@ export function Header() {
     <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
       <div className="flex h-12 items-center gap-3 px-4 lg:px-6">
         <Link to="/" className="flex items-center gap-2 text-primary font-semibold tracking-tight shrink-0">
-          <Activity className="h-4 w-4" />
+          <Activity className="size-4" />
           <span className="text-sm">AS-Stats</span>
         </Link>
         <span
-          className={`w-2 h-2 rounded-full shrink-0 ${isHealthy ? "bg-success" : "bg-destructive"} animate-pulse`}
+          className={`size-2 rounded-full shrink-0 ${isHealthy ? "bg-success" : "bg-destructive"} animate-pulse`}
           title={statusTitle}
         />
 
@@ -135,7 +135,7 @@ export function Header() {
 
         <div className="ml-auto flex items-center gap-2">
           <form onSubmit={handleSearch} className="relative hidden sm:block">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
             <input
               type="search"
               placeholder="AS, IP, prefix..."
@@ -150,7 +150,7 @@ export function Header() {
             <Link
               to="/alerts"
               className={cn(
-                "relative inline-flex h-8 w-8 items-center justify-center rounded border transition-colors",
+                "relative inline-flex size-8 items-center justify-center rounded border transition-colors",
                 criticalAlerts > 0
                   ? "border-destructive/50 bg-destructive/20 text-destructive hover:bg-destructive/30 animate-pulse"
                   : activeAlerts > 0
@@ -160,7 +160,7 @@ export function Header() {
               aria-label={`Alerts (${activeAlerts} active)`}
               title={`${activeAlerts} active alert${activeAlerts !== 1 ? "s" : ""}${criticalAlerts > 0 ? ` (${criticalAlerts} critical)` : ""}`}
             >
-              <Bell className="h-3.5 w-3.5" />
+              <Bell className="size-3.5" />
               {activeAlerts > 0 && (
                 <span className="absolute -top-1 -right-1 inline-flex min-w-[14px] h-[14px] items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[9px] font-bold px-1 leading-none">
                   {activeAlerts > 99 ? "99+" : activeAlerts}
@@ -172,11 +172,11 @@ export function Header() {
           {(features.alerts || (user && user.role === "admin")) && (
             <Link
               to="/admin"
-              className="inline-flex h-8 w-8 items-center justify-center rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+              className="inline-flex size-8 items-center justify-center rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
               aria-label="Admin"
               title="Admin console"
             >
-              <Shield className="h-3.5 w-3.5" />
+              <Shield className="size-3.5" />
             </Link>
           )}
 
@@ -191,10 +191,10 @@ export function Header() {
 
           <button
             onClick={cycleTheme}
-            className="inline-flex h-8 w-8 items-center justify-center rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+            className="inline-flex size-8 items-center justify-center rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
             aria-label={`Switch theme (current: ${theme})`}
           >
-            <ThemeIcon className="h-3.5 w-3.5" />
+            <ThemeIcon className="size-3.5" />
           </button>
 
           {user && (
@@ -208,18 +208,18 @@ export function Header() {
               title={`${user.name || user.email} — click to logout`}
               aria-label="Logout"
             >
-              <LogOut className="h-3.5 w-3.5" />
+              <LogOut className="size-3.5" />
               <span className="hidden lg:inline text-xs">{user.name || user.email}</span>
             </button>
           )}
 
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="inline-flex md:hidden h-8 w-8 items-center justify-center rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+            className="inline-flex md:hidden size-8 items-center justify-center rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
             aria-label="Toggle navigation menu"
             aria-expanded={mobileMenuOpen}
           >
-            {mobileMenuOpen ? <X className="h-3.5 w-3.5" /> : <Menu className="h-3.5 w-3.5" />}
+            {mobileMenuOpen ? <X className="size-3.5" /> : <Menu className="size-3.5" />}
           </button>
         </div>
       </div>
@@ -227,7 +227,7 @@ export function Header() {
       {mobileMenuOpen && (
         <nav className="md:hidden border-t border-border bg-background p-3 animate-fade-in" aria-label="Mobile navigation">
           <form onSubmit={handleSearch} className="relative mb-3 sm:hidden">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
             <input
               type="search"
               placeholder="Search AS, IP, prefix..."
