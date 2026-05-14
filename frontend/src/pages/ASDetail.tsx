@@ -22,7 +22,7 @@ export function ASDetail() {
   const { data: topIPsData } = useASTopIPs(asnNum, { ...filters, limit: 20 })
   const { data: remoteIPsData } = useASRemoteIPs(asnNum, { ...filters, limit: 20 })
 
-  if (isLoading) return <p className="text-muted-foreground">Loading...</p>
+  if (isLoading) return <p className="text-muted-foreground">Loading…</p>
   if (error) return <p className="text-destructive">{error.message}</p>
 
   const detail = data?.data
@@ -34,7 +34,7 @@ export function ASDetail() {
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-baseline justify-between flex-wrap gap-2">
-        <h1 className="text-lg font-bold tracking-tight">
+        <h1 className="text-lg font-semibold tracking-tight">
           AS{detail.as_number}
           {detail.as_name && (
             <span className="ml-2 text-sm font-normal text-muted-foreground">{detail.as_name}</span>
@@ -59,15 +59,15 @@ export function ASDetail() {
           </div>
           <a href={`https://bgp.he.net/AS${detail.as_number}`} target="_blank" rel="noopener noreferrer"
             className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1">
-            HE.net <ExternalLink className="h-2.5 w-2.5" />
+            HE.net <ExternalLink className="size-2.5" />
           </a>
           <a href={`https://www.peeringdb.com/asn/${detail.as_number}`} target="_blank" rel="noopener noreferrer"
             className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1">
-            PeeringDB <ExternalLink className="h-2.5 w-2.5" />
+            PeeringDB <ExternalLink className="size-2.5" />
           </a>
           <a href={`https://bgp.tools/as/${detail.as_number}`} target="_blank" rel="noopener noreferrer"
             className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1">
-            bgp.tools <ExternalLink className="h-2.5 w-2.5" />
+            bgp.tools <ExternalLink className="size-2.5" />
           </a>
           {features.flow_search && (
             <Link
@@ -75,7 +75,7 @@ export function ASDetail() {
               className="text-primary hover:text-primary/80 transition-colors inline-flex items-center gap-1"
               title="Search flows involving this AS"
             >
-              <Search className="h-2.5 w-2.5" />
+              <Search className="size-2.5" />
               Flows
             </Link>
           )}

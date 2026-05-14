@@ -166,11 +166,11 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, p95
       {showLegend && (
         <div className="flex gap-3 mt-1 px-1 text-[9px] text-muted-foreground">
           <div className="flex items-center gap-1">
-            <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: "hsl(174 72% 46%)" }} />
+            <span className="inline-block size-2 rounded-sm" style={{ backgroundColor: "hsl(174 72% 46%)" }} />
             <span>{"\u2193"} In</span>
           </div>
           <div className="flex items-center gap-1">
-            <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: "hsl(174 72% 46%)", opacity: 0.4 }} />
+            <span className="inline-block size-2 rounded-sm" style={{ backgroundColor: "hsl(174 72% 46%)", opacity: 0.4 }} />
             <span>{"\u2191"} Out</span>
           </div>
         </div>

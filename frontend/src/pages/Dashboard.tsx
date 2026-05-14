@@ -83,7 +83,7 @@ export function Dashboard() {
                   <LinkTrafficChart series={ipv4Traffic.data} linkColors={linkColors} timeBounds={timeBounds} />
                 </ExpandableChart>
               ) : (
-                <EmptyState message="No IPv4 link traffic" icon={<BarChart3 className="h-6 w-6" />} />
+                <EmptyState message="No IPv4 link traffic" icon={<BarChart3 className="size-6" />} />
               )}
             </CardContent>
           </Card>
@@ -97,7 +97,7 @@ export function Dashboard() {
                   <LinkTrafficChart series={ipv6Traffic.data} linkColors={linkColors} timeBounds={timeBounds} />
                 </ExpandableChart>
               ) : (
-                <EmptyState message="No IPv6 link traffic" icon={<BarChart3 className="h-6 w-6" />} />
+                <EmptyState message="No IPv6 link traffic" icon={<BarChart3 className="size-6" />} />
               )}
             </CardContent>
           </Card>
@@ -113,7 +113,7 @@ export function Dashboard() {
               <h3 className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Legend</h3>
               {allLinkTags.map((tag, i) => (
                 <div key={tag} className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
-                  <span className="inline-block w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: linkColors[tag] || DEFAULT_LINK_COLORS[i % DEFAULT_LINK_COLORS.length] }} />
+                  <span className="inline-block size-3 rounded-sm shrink-0" style={{ backgroundColor: linkColors[tag] || DEFAULT_LINK_COLORS[i % DEFAULT_LINK_COLORS.length] }} />
                   <span className="truncate">{tag}</span>
                 </div>
               ))}
@@ -208,7 +208,7 @@ export function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto -mx-6 px-6">
-              <table className="w-full text-xs" role="table">
+              <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
                     <th scope="col" className="pb-2 text-left font-medium text-muted-foreground">Link</th>

@@ -112,7 +112,7 @@ export function BGP() {
     <div className="space-y-4 animate-fade-in">
       <div className="flex items-baseline justify-between">
         <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2">
-          <Shield className="h-4 w-4" />
+          <Shield className="size-4" />
           BGP Blocks
         </h1>
       </div>
@@ -195,7 +195,7 @@ export function BGP() {
                 }}
                 className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
               >
-                <Plus className="h-3 w-3" />
+                <Plus className="size-3" />
                 {showForm ? "Cancel" : "Block IP"}
               </button>
             </div>
@@ -210,11 +210,12 @@ export function BGP() {
                 className="space-y-2 p-3 border border-border rounded bg-muted/20"
               >
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                  <label htmlFor="bgp-block-ip" className="space-y-1 block">
+                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                       IP address
-                    </label>
+                    </span>
                     <input
+                      id="bgp-block-ip"
                       type="text"
                       required
                       value={formIP}
@@ -222,12 +223,13 @@ export function BGP() {
                       placeholder="192.0.2.1 or 2001:db8::1"
                       className="w-full h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                  </label>
+                  <label htmlFor="bgp-block-duration" className="space-y-1 block">
+                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                       Duration
-                    </label>
+                    </span>
                     <select
+                      id="bgp-block-duration"
                       value={formDuration}
                       onChange={(e) => setFormDuration(Number(e.target.value))}
                       className="w-full h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -238,20 +240,21 @@ export function BGP() {
                         </option>
                       ))}
                     </select>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                    Description
                   </label>
+                </div>
+                <label htmlFor="bgp-block-description" className="space-y-1 block">
+                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    Description
+                  </span>
                   <textarea
+                    id="bgp-block-description"
                     rows={2}
                     value={formDescription}
                     onChange={(e) => setFormDescription(e.target.value)}
                     placeholder="Optional reason for the block"
                     className="w-full px-2 py-1.5 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
                   />
-                </div>
+                </label>
                 <div className="flex items-center gap-2">
                   <button
                     type="submit"
@@ -287,7 +290,7 @@ export function BGP() {
               <EmptyState message="No active blocks" />
             ) : (
               <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
-                <table className="w-full text-xs" role="table">
+                <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-border">
                       <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">IP</th>
@@ -341,7 +344,7 @@ export function BGP() {
                                 onClick={() => { setUnblockTarget(null); setUnblockReason("") }}
                                 className="px-1 py-0.5 text-[10px] rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
                               >
-                                <X className="h-2.5 w-2.5" />
+                                <X className="size-2.5" />
                               </button>
                             </div>
                           ) : (
@@ -378,7 +381,7 @@ export function BGP() {
               <EmptyState message="No block history" />
             ) : (
               <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
-                <table className="w-full text-xs" role="table">
+                <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-border">
                       <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">IP</th>

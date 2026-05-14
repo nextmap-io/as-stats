@@ -14,8 +14,12 @@ export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElemen
   return <div className={cn("flex flex-col space-y-1 p-4 pb-2 sm:p-5 sm:pb-2", className)} {...props} />
 }
 
-export function CardTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
-  return <h3 className={cn("text-xs font-semibold uppercase tracking-widest text-foreground", className)} {...props} />
+export function CardTitle({ className, children, ...props }: HTMLAttributes<HTMLHeadingElement>) {
+  return (
+    <h3 className={cn("text-xs font-semibold uppercase tracking-widest text-foreground", className)} {...props}>
+      {children}
+    </h3>
+  )
 }
 
 export function CardDescription({ className, ...props }: HTMLAttributes<HTMLParagraphElement>) {

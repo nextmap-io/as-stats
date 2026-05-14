@@ -122,9 +122,9 @@ export function TopPorts() {
           {isLoading ? (
             <TableSkeleton rows={10} cols={5} />
           ) : rows.length === 0 ? (
-            <EmptyState message="No port data" icon={<BarChart3 className="h-8 w-8" />} />
+            <EmptyState message="No port data" icon={<BarChart3 className="size-8" />} />
           ) : (
-            <table className="w-full text-xs" role="table">
+            <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border">
                   <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">#</th>

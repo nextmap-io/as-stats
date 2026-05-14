@@ -19,7 +19,7 @@ export function IPDetail() {
   const features = useFeatureFlags()
   const { data, isLoading, error } = useIPDetail(ip || "", filters)
 
-  if (isLoading) return <p className="text-muted-foreground">Loading...</p>
+  if (isLoading) return <p className="text-muted-foreground">Loading…</p>
   if (error) return <p className="text-destructive">{error.message}</p>
 
   const detail = data?.data
@@ -30,7 +30,7 @@ export function IPDetail() {
       {/* Header with IP info */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-lg font-bold tracking-tight font-mono">{detail.ip}</h1>
+          <h1 className="text-lg font-semibold tracking-tight font-mono">{detail.ip}</h1>
           <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-muted-foreground">
             {detail.ptr && <span>{detail.ptr}</span>}
             {detail.as_number ? (
@@ -65,7 +65,7 @@ export function IPDetail() {
               className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors shrink-0"
               title="Search flows involving this IP"
             >
-              <Search className="h-3 w-3" />
+              <Search className="size-3" />
               View flows
             </Link>
           )}

@@ -75,8 +75,8 @@ export function FlowSearch() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-3">
             {/* Period */}
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-muted-foreground w-20 shrink-0">Period</label>
+            <div className="flex items-center gap-2" role="group" aria-label="Period">
+              <span className="text-xs text-muted-foreground w-20 shrink-0">Period</span>
               <div className="flex gap-1">
                 {PERIODS.map(p => (
                   <button
@@ -217,7 +217,7 @@ export function FlowSearch() {
                 disabled={isLoading}
                 className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
               >
-                <Search className="h-3 w-3" />
+                <Search className="size-3" />
                 Search
               </button>
               <button
@@ -225,7 +225,7 @@ export function FlowSearch() {
                 onClick={handleReset}
                 className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
               >
-                <X className="h-3 w-3" />
+                <X className="size-3" />
                 Reset
               </button>
               <button
@@ -235,7 +235,7 @@ export function FlowSearch() {
                 className="ml-auto inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors disabled:opacity-50"
                 title="Export current search as CSV (max 100k rows)"
               >
-                <Download className="h-3 w-3" />
+                <Download className="size-3" />
                 Export CSV
               </button>
             </div>
@@ -247,7 +247,7 @@ export function FlowSearch() {
       {error && (
         <Card className="border-destructive/30">
           <CardContent className="p-4 flex items-start gap-2 text-destructive">
-            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <AlertCircle className="size-4 shrink-0 mt-0.5" />
             <p className="text-xs">{(error as Error).message}</p>
           </CardContent>
         </Card>
@@ -269,7 +269,7 @@ export function FlowSearch() {
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <p className="text-muted-foreground text-xs">Searching...</p>
+              <p className="text-muted-foreground text-xs">Searching…</p>
             ) : results.length === 0 ? (
               <p className="text-muted-foreground text-xs">No flows match your filters</p>
             ) : (
@@ -287,8 +287,8 @@ export function FlowSearch() {
                     </tr>
                   </thead>
                   <tbody>
-                    {results.map((e, i) => (
-                      <tr key={i} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
+                    {results.map((e) => (
+                      <tr key={`${e.src_ip}-${e.src_port}-${e.dst_ip}-${e.dst_port}-${e.protocol}`} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
                         <td className="py-1 font-mono text-[10px] max-w-[260px]">
                           <Link to={`/ip/${e.src_ip}`} className="text-primary hover:underline">
                             <IPWithPTR ip={e.src_ip} />

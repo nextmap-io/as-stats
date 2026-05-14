@@ -130,9 +130,15 @@ export function ExpandableChart({
 
   return (
     <>
-      <div onClick={handleOpen} className="cursor-zoom-in" title="Click to enlarge">
+      <button
+        type="button"
+        onClick={handleOpen}
+        className="cursor-zoom-in block w-full text-left p-0 border-0 bg-transparent"
+        title="Click to enlarge"
+        aria-label={`Expand ${title || "chart"}`}
+      >
         {children}
-      </div>
+      </button>
       <ChartModal
         open={open}
         onClose={() => setOpen(false)}

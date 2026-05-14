@@ -85,9 +85,9 @@ function ProtocolTable({ title, rows, loading, accent, formatTraffic, periodSeco
         {loading ? (
           <TableSkeleton rows={6} cols={4} />
         ) : rows.length === 0 ? (
-          <EmptyState message="No data" icon={<BarChart3 className="h-8 w-8" />} />
+          <EmptyState message="No data" icon={<BarChart3 className="size-8" />} />
         ) : (
-          <table className="w-full text-xs" role="table">
+          <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-border">
                 <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Protocol</th>

@@ -21,7 +21,7 @@ export function SearchPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold tracking-tight">
+      <h1 className="text-2xl font-semibold tracking-tight">
         Search: <span className="text-muted-foreground">{q}</span>
       </h1>
 
@@ -30,7 +30,7 @@ export function SearchPage() {
           <CardTitle className="text-base">Results</CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading && <p className="text-muted-foreground">Searching...</p>}
+          {isLoading && <p className="text-muted-foreground">Searching…</p>}
           {error && <p className="text-destructive">{error.message}</p>}
           {q.length < 2 && <p className="text-muted-foreground">Enter at least 2 characters to search</p>}
 

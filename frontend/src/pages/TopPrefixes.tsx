@@ -40,7 +40,7 @@ export function TopPrefixes() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading && <p className="text-muted-foreground text-sm">Loading...</p>}
+          {isLoading && <p className="text-muted-foreground text-sm">Loading…</p>}
           {error && <p className="text-destructive text-sm">{error.message}</p>}
           {data?.data && (
             <>

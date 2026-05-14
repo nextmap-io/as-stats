@@ -22,8 +22,10 @@ export function formatBps(bytesPerInterval: number, intervalSeconds: number): st
   return `${val.toFixed(val < 10 ? 2 : 1)} ${units[i]}`
 }
 
+const NUMBER_FORMAT = new Intl.NumberFormat()
+
 export function formatNumber(n: number): string {
-  return new Intl.NumberFormat().format(n)
+  return NUMBER_FORMAT.format(n)
 }
 
 export function formatPercent(pct: number): string {

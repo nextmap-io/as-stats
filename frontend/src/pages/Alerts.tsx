@@ -66,7 +66,7 @@ export function Alerts() {
     <div className="space-y-4 animate-fade-in">
       <div className="flex items-baseline justify-between">
         <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2">
-          <Bell className="h-4 w-4" />
+          <Bell className="size-4" />
           Alerts
         </h1>
         <Link
@@ -87,7 +87,7 @@ export function Alerts() {
       {totalActive === 0 && status === "active" && (
         <Card>
           <CardContent className="p-6 text-center">
-            <Check className="h-8 w-8 mx-auto mb-2 text-success" />
+            <Check className="size-8 mx-auto mb-2 text-success" />
             <p className="text-sm font-medium text-foreground">All clear</p>
             <p className="text-xs text-muted-foreground mt-1">No active alerts</p>
           </CardContent>
@@ -123,7 +123,7 @@ export function Alerts() {
             <EmptyState message="No alerts match this filter" />
           ) : (
             <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
-              <table className="w-full text-xs" role="table">
+              <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
                     <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Severity</th>
@@ -189,7 +189,7 @@ export function Alerts() {
                               className="px-1.5 py-0.5 text-[10px] rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
                               title="Resolve"
                             >
-                              <X className="h-2.5 w-2.5" />
+                              <X className="size-2.5" />
                             </button>
                           )}
                         </div>
@@ -219,7 +219,7 @@ function SeverityCard({ severity, count }: { severity: AlertSeverity; count: num
       <CardHeader className="pb-1">
         <div className="flex items-center justify-between">
           <CardTitle className={config.color}>{severity.toUpperCase()}</CardTitle>
-          <Icon className={cn("h-4 w-4", config.color)} />
+          <Icon className={cn("size-4", config.color)} />
         </div>
       </CardHeader>
       <CardContent>

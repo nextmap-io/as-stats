@@ -76,10 +76,10 @@ export function LiveThreats() {
     <div className="space-y-4 animate-fade-in">
       <div className="flex items-baseline justify-between flex-wrap gap-2">
         <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2">
-          <Activity className="h-4 w-4" />
+          <Activity className="size-4" />
           Live Threats
           {isFetching && (
-            <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" aria-label="refreshing" />
+            <span className="size-1.5 rounded-full bg-primary animate-pulse" aria-label="refreshing" />
           )}
         </h1>
         <div className="flex items-center gap-3">
@@ -128,7 +128,7 @@ export function LiveThreats() {
             type="checkbox"
             checked={hideOk}
             onChange={(e) => setHideOk(e.target.checked)}
-            className="h-3 w-3 accent-primary"
+            className="size-3 accent-primary"
           />
           Hide quiet rows
         </label>
@@ -153,7 +153,7 @@ export function LiveThreats() {
             />
           ) : (
             <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
-              <table className="w-full text-xs" role="table">
+              <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
                     <SortableTH label="Status" align="left" sortKey="status" current={sortKey} dir={sortDir} onSort={onSort} />
@@ -240,7 +240,7 @@ function StatusCard({ status, count }: { status: ThreatStatus; count: number }) 
       <CardHeader className="pb-1">
         <div className="flex items-center justify-between">
           <CardTitle className={config.color}>{config.title}</CardTitle>
-          <Icon className={cn("h-4 w-4", config.color)} />
+          <Icon className={cn("size-4", config.color)} />
         </div>
       </CardHeader>
       <CardContent>
@@ -299,7 +299,7 @@ function SortableTH({
         )}
       >
         <span>{label}</span>
-        <Arrow className={cn("h-2.5 w-2.5", active ? "opacity-100" : "opacity-25")} />
+        <Arrow className={cn("size-2.5", active ? "opacity-100" : "opacity-25")} />
       </button>
     </th>
   )

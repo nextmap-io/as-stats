@@ -212,15 +212,15 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
                 else l.outVal = Math.abs(Number(e.value) || 0)
               }
               return (
-                <div style={{ backgroundColor: chartColors.tooltipBg, border: `1px solid ${chartColors.tooltipBorder}`, borderRadius: 4, fontSize: 10, boxShadow: "0 4px 12px rgba(0,0,0,0.5)", padding: "5px 8px" }}>
-                  <div style={{ color: chartColors.text, marginBottom: 3, fontSize: 9 }}>{label}</div>
+                <div style={{ backgroundColor: chartColors.tooltipBg, border: `1px solid ${chartColors.tooltipBorder}`, borderRadius: 4, fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.5)", padding: "6px 10px" }}>
+                  <div style={{ color: chartColors.text, marginBottom: 3, fontSize: 11 }}>{label}</div>
                   {Array.from(byLink.entries()).map(([tag, { inVal, outVal }]) => {
                     if (inVal === 0 && outVal === 0) return null
                     return (
                       <div key={tag} style={{ display: "flex", alignItems: "center", gap: 4, lineHeight: 1.6, color: chartColors.tooltipText }}>
                         <span style={{ width: 6, height: 6, borderRadius: 1, backgroundColor: colors[tag]?.in || "#888", flexShrink: 0 }} />
-                        <span style={{ fontSize: 9 }}>{linkLabels[tag] || tag}</span>
-                        <span style={{ marginLeft: "auto", paddingLeft: 8, whiteSpace: "nowrap", fontSize: 9 }}>
+                        <span style={{ fontSize: 11 }}>{linkLabels[tag] || tag}</span>
+                        <span style={{ marginLeft: "auto", paddingLeft: 8, whiteSpace: "nowrap", fontSize: 11 }}>
                           {inVal > 0 && <>{"\u2193"}{formatTraffic(inVal, interval)}</>}
                           {inVal > 0 && outVal > 0 && " "}
                           {outVal > 0 && <>{"\u2191"}{formatTraffic(outVal, interval)}</>}
@@ -268,7 +268,7 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 px-1">
           {linkTags.map((tag) => (
             <div key={tag} className="flex items-center gap-1 text-[9px] text-muted-foreground">
-              <span className="inline-block w-2 h-2 rounded-sm" style={{ backgroundColor: colors[tag].in }} />
+              <span className="inline-block size-2 rounded-sm" style={{ backgroundColor: colors[tag].in }} />
               <span>{linkLabels[tag]}</span>
             </div>
           ))}
