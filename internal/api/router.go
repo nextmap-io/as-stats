@@ -21,7 +21,12 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 
 	// Global middleware
 	r.Use(chimw.RequestID)
-	r.Use(chimw.RealIP)
+	// NOTE: chimw.RealIP is intentionally NOT used. It was deprecated in
+	// chi v5.3.0 because it rewrites r.RemoteAddr from X-Forwarded-For /
+	// X-Real-IP / True-Client-IP unconditionally, which is spoofable
+	// (GHSA-3fxj-6jh8-hvhx). The two places that need the client IP
+	// (middleware.RateLimit and the /metrics CIDR guard) parse the
+	// forwarded headers themselves, so RealIP was redundant here anyway.
 	r.Use(chimw.Logger)
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.Compress(5))
