@@ -114,15 +114,16 @@ func matchAction(path, method string, m map[string]string) string {
 // Covers flow search, exports, alert management, link config, webhooks.
 func DefaultAuditActions() map[string]string {
 	return map[string]string{
-		"GET /api/v1/flows/search":   "flow_search",
-		"POST /api/v1/alerts/":       "alert_action",
-		"POST /api/v1/admin/links":   "link_create",
-		"DELETE /api/v1/admin/links": "link_delete",
-		"POST /api/v1/admin/rules":   "rule_create",
-		"PUT /api/v1/admin/rules":    "rule_update",
-		"DELETE /api/v1/admin/rules": "rule_delete",
-		"POST /api/v1/admin/webhooks": "webhook_create",
-		"PUT /api/v1/admin/webhooks":  "webhook_update",
+		"GET /api/v1/flows/search":      "flow_search",
+		"POST /api/v1/alerts/":          "alert_action",
+		"POST /api/v1/admin/links":      "link_create",
+		"DELETE /api/v1/admin/links":    "link_delete",
+		"PUT /api/v1/admin/retention":   "retention_update",
+		"POST /api/v1/admin/rules":      "rule_create",
+		"PUT /api/v1/admin/rules":       "rule_update",
+		"DELETE /api/v1/admin/rules":    "rule_delete",
+		"POST /api/v1/admin/webhooks":   "webhook_create",
+		"PUT /api/v1/admin/webhooks":    "webhook_update",
 		"DELETE /api/v1/admin/webhooks": "webhook_delete",
 	}
 }

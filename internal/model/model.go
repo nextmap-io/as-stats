@@ -56,11 +56,11 @@ type ASInfo struct {
 
 // TrafficPoint represents a single time-series data point.
 type TrafficPoint struct {
-	Timestamp time.Time `json:"t"`
-	BytesIn   uint64    `json:"bytes_in"`
-	BytesOut  uint64    `json:"bytes_out"`
-	PacketsIn uint64    `json:"packets_in,omitempty"`
-	PacketsOut uint64   `json:"packets_out,omitempty"`
+	Timestamp  time.Time `json:"t"`
+	BytesIn    uint64    `json:"bytes_in"`
+	BytesOut   uint64    `json:"bytes_out"`
+	PacketsIn  uint64    `json:"packets_in,omitempty"`
+	PacketsOut uint64    `json:"packets_out,omitempty"`
 }
 
 // ASTraffic represents traffic statistics for a single AS.
@@ -121,12 +121,12 @@ type ASTrafficDetail struct {
 
 // Overview represents the dashboard overview data.
 type Overview struct {
-	TotalBytesIn  uint64       `json:"total_bytes_in"`
-	TotalBytesOut uint64       `json:"total_bytes_out"`
-	TotalFlows    uint64       `json:"total_flows"`
-	ActiveASCount uint64       `json:"active_as_count"`
-	TopAS         []ASTraffic  `json:"top_as"`
-	TopIP         []IPTraffic  `json:"top_ip"`
+	TotalBytesIn  uint64        `json:"total_bytes_in"`
+	TotalBytesOut uint64        `json:"total_bytes_out"`
+	TotalFlows    uint64        `json:"total_flows"`
+	ActiveASCount uint64        `json:"active_as_count"`
+	TopAS         []ASTraffic   `json:"top_as"`
+	TopIP         []IPTraffic   `json:"top_ip"`
 	Links         []LinkTraffic `json:"links"`
 }
 
@@ -222,7 +222,7 @@ type AlertRule struct {
 	CustomSQL       string    `json:"custom_sql,omitempty"`
 	Action          string    `json:"action"` // notify, ack_required, auto_block
 	WebhookIDs      []string  `json:"webhook_ids,omitempty"`
-	HostgroupID     string    `json:"hostgroup_id,omitempty"`     // zero UUID or empty = use global LOCAL_AS
+	HostgroupID     string    `json:"hostgroup_id,omitempty"`      // zero UUID or empty = use global LOCAL_AS
 	SubnetPrefixLen uint8     `json:"subnet_prefix_len,omitempty"` // only for subnet_flood: IPv4 prefix length (e.g. 24)
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
@@ -230,26 +230,26 @@ type AlertRule struct {
 
 // Alert represents a triggered alert instance.
 type Alert struct {
-	ID              string    `json:"id"`
-	RuleID          string    `json:"rule_id"`
-	RuleName        string    `json:"rule_name"`
-	Severity        string    `json:"severity"`
-	TriggeredAt     time.Time `json:"triggered_at"`
-	LastSeenAt      time.Time `json:"last_seen_at"`
-	ResolvedAt      *time.Time `json:"resolved_at,omitempty"`
-	TargetIP        string    `json:"target_ip"`
-	TargetAS        uint32    `json:"target_as,omitempty"`
-	Protocol        uint8     `json:"protocol,omitempty"`
-	MetricValue     float64   `json:"metric_value"`
-	Threshold       float64   `json:"threshold"`
-	MetricType      string    `json:"metric_type"` // bps, pps, count
-	Details         string    `json:"details,omitempty"`
-	Status          string    `json:"status"` // active, acknowledged, resolved, muted
-	AcknowledgedBy  string    `json:"acknowledged_by,omitempty"`
-	AcknowledgedAt  *time.Time `json:"acknowledged_at,omitempty"`
-	ActionTaken     string    `json:"action_taken,omitempty"`
-	ActionBy        string    `json:"action_by,omitempty"`
-	ActionAt        *time.Time `json:"action_at,omitempty"`
+	ID             string     `json:"id"`
+	RuleID         string     `json:"rule_id"`
+	RuleName       string     `json:"rule_name"`
+	Severity       string     `json:"severity"`
+	TriggeredAt    time.Time  `json:"triggered_at"`
+	LastSeenAt     time.Time  `json:"last_seen_at"`
+	ResolvedAt     *time.Time `json:"resolved_at,omitempty"`
+	TargetIP       string     `json:"target_ip"`
+	TargetAS       uint32     `json:"target_as,omitempty"`
+	Protocol       uint8      `json:"protocol,omitempty"`
+	MetricValue    float64    `json:"metric_value"`
+	Threshold      float64    `json:"threshold"`
+	MetricType     string     `json:"metric_type"` // bps, pps, count
+	Details        string     `json:"details,omitempty"`
+	Status         string     `json:"status"` // active, acknowledged, resolved, muted
+	AcknowledgedBy string     `json:"acknowledged_by,omitempty"`
+	AcknowledgedAt *time.Time `json:"acknowledged_at,omitempty"`
+	ActionTaken    string     `json:"action_taken,omitempty"`
+	ActionBy       string     `json:"action_by,omitempty"`
+	ActionAt       *time.Time `json:"action_at,omitempty"`
 }
 
 // WebhookConfig is a notification webhook (Slack, Teams, generic).
@@ -259,7 +259,7 @@ type WebhookConfig struct {
 	WebhookType string    `json:"webhook_type"` // slack, teams, discord, generic
 	URL         string    `json:"url"`
 	Enabled     bool      `json:"enabled"`
-	MinSeverity string    `json:"min_severity"` // info, warning, critical
+	MinSeverity string    `json:"min_severity"`      // info, warning, critical
 	Headers     string    `json:"headers,omitempty"` // JSON
 	Template    string    `json:"template,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -288,9 +288,9 @@ type BGPBlock struct {
 	PrefixLen       uint8      `json:"prefix_len"`
 	Community       string     `json:"community"`
 	NextHop         string     `json:"next_hop,omitempty"`
-	Reason          string     `json:"reason"`       // "auto_block" or "manual"
+	Reason          string     `json:"reason"` // "auto_block" or "manual"
 	Description     string     `json:"description"`
-	Status          string     `json:"status"`        // "active" or "withdrawn"
+	Status          string     `json:"status"` // "active" or "withdrawn"
 	BlockedBy       string     `json:"blocked_by"`
 	BlockedAt       time.Time  `json:"blocked_at"`
 	UnblockedBy     string     `json:"unblocked_by,omitempty"`
@@ -316,7 +316,47 @@ type LiveThreat struct {
 	PPS             uint64  `json:"pps"`
 	SynPPS          uint64  `json:"syn_pps"`
 	UniqueSourceIPs uint64  `json:"unique_src_ips"`
-	WorstPercent    float64 `json:"worst_pct"`        // % of the closest matching threshold (0..∞)
+	WorstPercent    float64 `json:"worst_pct"`            // % of the closest matching threshold (0..∞)
 	WorstRule       string  `json:"worst_rule,omitempty"` // name of the rule the row is closest to
-	Status          string  `json:"status"`           // "ok" | "warn" (>50%) | "critical" (>=100%)
+	Status          string  `json:"status"`               // "ok" | "warn" (>50%) | "critical" (>=100%)
+}
+
+// RetentionPolicy is the desired retention for one TTL-bearing table, stored in
+// the retention_policies table and applied by the reconciler goroutine.
+type RetentionPolicy struct {
+	TableName string    `json:"table_name"`
+	TTLColumn string    `json:"ttl_column"`
+	TTLDays   uint32    `json:"ttl_days"`
+	Enabled   bool      `json:"enabled"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// TableStorageStats holds per-table storage observability metrics derived from
+// system.parts / system.mutations and joined with the configured retention.
+type TableStorageStats struct {
+	Table             string     `json:"table"`
+	CompressedBytes   uint64     `json:"compressed_bytes"`
+	UncompressedBytes uint64     `json:"uncompressed_bytes"`
+	Parts             uint64     `json:"parts"`
+	Rows              uint64     `json:"rows"`
+	OldestData        *time.Time `json:"oldest_data,omitempty"`
+	NewestData        *time.Time `json:"newest_data,omitempty"`
+	TTLDays           uint32     `json:"ttl_days"`          // configured retention (0 = unmanaged)
+	TTLEnabled        bool       `json:"ttl_enabled"`       // whether the reconciler manages this table
+	PendingMutations  uint64     `json:"pending_mutations"` // not-yet-done mutations (incl. TTL materialization)
+}
+
+// DiskStats holds usage figures for one ClickHouse disk (system.disks).
+type DiskStats struct {
+	Name        string  `json:"name"`
+	FreeBytes   uint64  `json:"free_bytes"`
+	TotalBytes  uint64  `json:"total_bytes"`
+	UsedBytes   uint64  `json:"used_bytes"`
+	UsedPercent float64 `json:"used_percent"`
+}
+
+// StorageStats is the response payload for GET /admin/storage.
+type StorageStats struct {
+	Tables []TableStorageStats `json:"tables"`
+	Disks  []DiskStats         `json:"disks"`
 }

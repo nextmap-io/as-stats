@@ -47,14 +47,49 @@ func main() {
 	}()
 	log.Println("Connected to ClickHouse")
 
-	// Apply configurable TTL to flows_log if the table exists.
-	// Idempotent — safe to call on every startup.
-	if err := chStore.SetFlowLogRetention(ctx, cfg.FlowLogRetentionDays); err != nil {
-		log.Printf("warning: could not set flows_log retention to %d days: %v",
-			cfg.FlowLogRetentionDays, err)
-	} else if cfg.FlowLogRetentionDays != 180 {
-		log.Printf("flows_log retention set to %d days", cfg.FlowLogRetentionDays)
+	// Seed DB-backed retention policies (idempotent — only on first startup).
+	// flows_log is seeded with FLOW_LOG_RETENTION_DAYS; everything else with the
+	// migration defaults. The reconciler below applies any divergence.
+	if err := chStore.EnsureRetentionPolicies(ctx, cfg.FlowLogRetentionDays); err != nil {
+		log.Printf("warning: could not seed retention policies: %v", err)
 	}
+
+	// Retention reconciler: applies desired TTLs from retention_policies to the
+	// live tables on a fixed interval, running once immediately at startup.
+	go func() {
+		if err := chStore.ReconcileRetention(ctx); err != nil {
+			log.Printf("warning: retention reconcile failed: %v", err)
+		}
+		ticker := time.NewTicker(cfg.RetentionReconcileInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := chStore.ReconcileRetention(ctx); err != nil {
+					log.Printf("warning: retention reconcile failed: %v", err)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Config-table soft-delete purge: physically removes tombstoned rows from
+	// the ReplacingMergeTree config tables once a day.
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := chStore.PurgeSoftDeleted(ctx, cfg.ConfigPurgeDays); err != nil {
+					log.Printf("warning: config purge failed: %v", err)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	c := collector.New(cfg, chStore)
 

@@ -30,6 +30,10 @@ type CollectorConfig struct {
 	// Flow log retention (only applied when the table exists; default 180 days)
 	FlowLogRetentionDays int
 
+	// Retention management
+	RetentionReconcileInterval time.Duration // how often to apply desired TTLs (default 15m)
+	ConfigPurgeDays            int           // age threshold for purging soft-deleted config rows (default 30)
+
 	// Alert engine
 	FeatureAlerts       bool          // enables the alert evaluator goroutine
 	AlertEvalInterval   time.Duration // default 30s
@@ -136,6 +140,15 @@ func LoadCollector() (*CollectorConfig, error) {
 		return nil, fmt.Errorf("invalid FLOW_LOG_RETENTION_DAYS: %w", err)
 	}
 
+	reconcileInterval, err := time.ParseDuration(envOr("RETENTION_RECONCILE_INTERVAL", "15m"))
+	if err != nil || reconcileInterval <= 0 {
+		return nil, fmt.Errorf("invalid RETENTION_RECONCILE_INTERVAL: %w", err)
+	}
+	configPurgeDays, err := strconv.Atoi(envOr("CONFIG_PURGE_DAYS", "30"))
+	if err != nil || configPurgeDays < 1 {
+		return nil, fmt.Errorf("invalid CONFIG_PURGE_DAYS: %w", err)
+	}
+
 	featureAlerts, _ := strconv.ParseBool(envOr("FEATURE_ALERTS", "false"))
 	alertEval, err := time.ParseDuration(envOr("ALERT_EVAL_INTERVAL", "30s"))
 	if err != nil {
@@ -147,22 +160,24 @@ func LoadCollector() (*CollectorConfig, error) {
 	}
 
 	return &CollectorConfig{
-		ClickHouse:           loadClickHouse(),
-		ListenNetFlow:        envOr("COLLECTOR_LISTEN_NETFLOW", ":2055"),
-		ListenSFlow:          envOr("COLLECTOR_LISTEN_SFLOW", ":6343"),
-		BatchSize:            batchSize,
-		FlushInterval:        flushInterval,
-		Workers:              workers,
-		LocalAS:              uint32(localAS),
-		FlowLogRetentionDays: flowLogRetention,
-		FeatureAlerts:        featureAlerts,
-		AlertEvalInterval:    alertEval,
-		AlertStaleThreshold:  alertStale,
-		BGPAPIURL:            envOr("BGP_API_URL", ""),
-		PrometheusAddr:       envOr("COLLECTOR_PROMETHEUS_ADDR", ":9090"),
-		PrometheusAllowCIDR:  splitCSV(envOr("PROMETHEUS_ALLOW_CIDR", "")),
-		PrometheusUser:       envOr("PROMETHEUS_USER", ""),
-		PrometheusPass:       envOr("PROMETHEUS_PASS", ""),
+		ClickHouse:                 loadClickHouse(),
+		ListenNetFlow:              envOr("COLLECTOR_LISTEN_NETFLOW", ":2055"),
+		ListenSFlow:                envOr("COLLECTOR_LISTEN_SFLOW", ":6343"),
+		BatchSize:                  batchSize,
+		FlushInterval:              flushInterval,
+		Workers:                    workers,
+		LocalAS:                    uint32(localAS),
+		FlowLogRetentionDays:       flowLogRetention,
+		RetentionReconcileInterval: reconcileInterval,
+		ConfigPurgeDays:            configPurgeDays,
+		FeatureAlerts:              featureAlerts,
+		AlertEvalInterval:          alertEval,
+		AlertStaleThreshold:        alertStale,
+		BGPAPIURL:                  envOr("BGP_API_URL", ""),
+		PrometheusAddr:             envOr("COLLECTOR_PROMETHEUS_ADDR", ":9090"),
+		PrometheusAllowCIDR:        splitCSV(envOr("PROMETHEUS_ALLOW_CIDR", "")),
+		PrometheusUser:             envOr("PROMETHEUS_USER", ""),
+		PrometheusPass:             envOr("PROMETHEUS_PASS", ""),
 	}, nil
 }
 
@@ -182,16 +197,16 @@ func LoadAPI() (*APIConfig, error) {
 	bgpPeerAS, _ := strconv.ParseUint(envOr("BGP_PEER_AS", "0"), 10, 32)
 
 	cfg := &APIConfig{
-		ClickHouse:        loadClickHouse(),
-		ListenAddr:        envOr("API_LISTEN_ADDR", ":8080"),
-		CORSOrigins:       origins,
-		LocalAS:           uint32(apiLocalAS),
-		AuthEnabled:       authEnabled,
-		OIDCIssuer:        envOr("OIDC_ISSUER_URL", ""),
-		OIDCClientID:      envOr("OIDC_CLIENT_ID", ""),
-		OIDCSecret:        envOr("OIDC_CLIENT_SECRET", ""),
-		OIDCRedirect:      envOr("OIDC_REDIRECT_URL", "http://localhost:8080/auth/callback"),
-		OIDCScopes:        scopes,
+		ClickHouse:          loadClickHouse(),
+		ListenAddr:          envOr("API_LISTEN_ADDR", ":8080"),
+		CORSOrigins:         origins,
+		LocalAS:             uint32(apiLocalAS),
+		AuthEnabled:         authEnabled,
+		OIDCIssuer:          envOr("OIDC_ISSUER_URL", ""),
+		OIDCClientID:        envOr("OIDC_CLIENT_ID", ""),
+		OIDCSecret:          envOr("OIDC_CLIENT_SECRET", ""),
+		OIDCRedirect:        envOr("OIDC_REDIRECT_URL", "http://localhost:8080/auth/callback"),
+		OIDCScopes:          scopes,
 		FeatureFlowSearch:   featureFlowSearch,
 		FeaturePortStats:    featurePortStats,
 		FeatureAlerts:       featureAlerts,

@@ -44,6 +44,7 @@ type Store interface {
 	EvalConnectionFlood(ctx context.Context, thresholdCount uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
 	EvalSubnetFlood(ctx context.Context, thresholdBps, thresholdPps uint64, aggPrefix int, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
 	EvalSMTPAbuse(ctx context.Context, thresholdPps, thresholdCount uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
+	EvalDiskUsage(ctx context.Context, thresholdPct uint64) ([]store.AlertViolation, error)
 
 	ListHostgroups(ctx context.Context) ([]model.Hostgroup, error)
 	TopSourcesForTarget(ctx context.Context, targetIP net.IP, window uint32, limit int) ([]string, error)
@@ -284,6 +285,11 @@ func (e *Engine) evaluateRule(ctx context.Context, rule model.AlertRule, webhook
 	case "smtp_abuse":
 		metricType = "pps"
 		violations, err = e.store.EvalSMTPAbuse(ctx, rule.ThresholdPps, rule.ThresholdCount, rule.WindowSeconds, prefixes)
+	case "disk_usage":
+		// Disk usage is host-level, not IP-scoped: ThresholdCount carries the
+		// percentage threshold (0..100) and prefixes are irrelevant.
+		metricType = "percent"
+		violations, err = e.store.EvalDiskUsage(ctx, rule.ThresholdCount)
 	default:
 		// 'custom' not implemented in phase 1
 		return
@@ -349,6 +355,8 @@ func (e *Engine) handleViolation(ctx context.Context, rule model.AlertRule, v st
 	case "pps":
 		threshold = float64(rule.ThresholdPps)
 	case "count":
+		threshold = float64(rule.ThresholdCount)
+	case "percent":
 		threshold = float64(rule.ThresholdCount)
 	}
 
@@ -729,6 +737,36 @@ func EnsureDefaultRules(ctx context.Context, s interface {
 			CooldownSeconds: 1800,
 			Severity:        "warning",
 			Action:          "notify",
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+
+		// ── Storage / disk usage ─────────────────────────────────
+		{
+			ID:              uuid.NewString(),
+			Name:            "Disk usage high",
+			Description:     "A ClickHouse data disk is over 80% full — review retention before it fills",
+			RuleType:        "disk_usage",
+			Enabled:         true,
+			ThresholdCount:  80, // percent (carried in threshold_count for disk_usage)
+			WindowSeconds:   60,
+			CooldownSeconds: 3600,
+			Severity:        "warning",
+			Action:          "notify",
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+		{
+			ID:              uuid.NewString(),
+			Name:            "Disk usage critical",
+			Description:     "A ClickHouse data disk is over 90% full — imminent ingestion failure risk",
+			RuleType:        "disk_usage",
+			Enabled:         true,
+			ThresholdCount:  90, // percent (carried in threshold_count for disk_usage)
+			WindowSeconds:   60,
+			CooldownSeconds: 3600,
+			Severity:        "critical",
+			Action:          "ack_required",
 			CreatedAt:       now,
 			UpdatedAt:       now,
 		},

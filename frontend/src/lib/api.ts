@@ -26,6 +26,8 @@ import type {
   PrefixTraffic,
   ProtocolTraffic,
   QueryFilters,
+  RetentionPolicy,
+  StorageStats,
   TrafficPoint,
   UserInfo,
   WebhookConfig,
@@ -189,6 +191,14 @@ export const api = {
     fetchAPI<Hostgroup>(`/admin/hostgroups/${id}`, undefined, { method: "PUT", body: hg }),
   deleteHostgroup: (id: string) =>
     fetchAPI<unknown>(`/admin/hostgroups/${id}`, undefined, { method: "DELETE" }),
+
+  // ─── Storage & retention (admin) ─────────────────────────
+  storageStatus: () => fetchAPI<StorageStats>("/admin/storage"),
+  setRetention: (table: string, body: { ttl_days: number; enabled: boolean }) =>
+    fetchAPI<RetentionPolicy>(`/admin/retention/${encodeURIComponent(table)}`, undefined, {
+      method: "PUT",
+      body,
+    }),
 
   // ─── Audit log (admin) ───────────────────────────────────
   auditLog: (filters?: { from?: string; to?: string; user?: string; action?: string; limit?: number }) =>

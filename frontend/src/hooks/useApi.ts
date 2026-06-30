@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import type { QueryFilters } from "@/lib/types"
 
@@ -133,5 +133,22 @@ export function useSearch(query: string) {
     queryKey: ["search", query],
     queryFn: () => api.search(query),
     enabled: query.length >= 2,
+  })
+}
+
+export function useStorageStatus() {
+  return useQuery({
+    queryKey: ["storage"],
+    queryFn: () => api.storageStatus(),
+    refetchInterval: 30_000,
+  })
+}
+
+export function useSetRetention() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ table, ttl_days, enabled }: { table: string; ttl_days: number; enabled: boolean }) =>
+      api.setRetention(table, { ttl_days, enabled }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["storage"] }),
   })
 }
