@@ -163,6 +163,50 @@ export interface Features {
 }
 
 // =============================================================================
+// Retention & storage observability (Admin → Storage)
+// =============================================================================
+
+// RetentionPolicy mirrors internal/model.RetentionPolicy — the desired
+// retention for one TTL-bearing table, returned by PUT /admin/retention/{table}.
+export interface RetentionPolicy {
+  table_name: string
+  ttl_column?: string
+  ttl_days: number
+  enabled: boolean
+  updated_at?: string
+}
+
+// TableStorageStats mirrors internal/model.TableStorageStats — per-table
+// observability derived from system.parts / system.mutations.
+export interface TableStorageStats {
+  table: string
+  compressed_bytes: number
+  uncompressed_bytes: number
+  parts: number
+  rows: number
+  oldest_data?: string
+  newest_data?: string
+  ttl_days: number
+  ttl_enabled: boolean
+  pending_mutations: number
+}
+
+// DiskStats mirrors internal/model.DiskStats — usage for one ClickHouse disk.
+export interface DiskStats {
+  name: string
+  free_bytes: number
+  total_bytes: number
+  used_bytes: number
+  used_percent: number
+}
+
+// StorageStats mirrors internal/model.StorageStats — payload of GET /admin/storage.
+export interface StorageStats {
+  tables: TableStorageStats[]
+  disks: DiskStats[]
+}
+
+// =============================================================================
 // Flow search
 // =============================================================================
 

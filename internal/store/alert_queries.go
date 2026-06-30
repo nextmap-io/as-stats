@@ -697,5 +697,36 @@ func (s *ClickHouseStore) EvalSMTPAbuse(ctx context.Context, thresholdPps, thres
 	return results, nil
 }
 
+// EvalDiskUsage returns a violation when any ClickHouse disk's used percentage
+// exceeds thresholdPct. Disk usage has no IP target, so the violation carries a
+// nil TargetIP (persisted as the zero IPv6 address). Only the single most
+// utilised disk is reported, so multiple disks cannot collide on the same
+// zero-IP alert key during dedup.
+//
+// The percentage threshold is carried in the rule's ThresholdCount field
+// (repurposed as a unitless 0..100 value) because the alert schema has no
+// dedicated percent column; the engine maps metric_type="percent" back to
+// ThresholdCount when recording the alert.
+func (s *ClickHouseStore) EvalDiskUsage(ctx context.Context, thresholdPct uint64) ([]AlertViolation, error) {
+	disks, err := s.diskStats(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("eval disk_usage: %w", err)
+	}
+	var worst float64
+	exceeded := false
+	for _, d := range disks {
+		if d.UsedPercent > worst {
+			worst = d.UsedPercent
+		}
+		if d.UsedPercent > float64(thresholdPct) {
+			exceeded = true
+		}
+	}
+	if !exceeded {
+		return nil, nil
+	}
+	return []AlertViolation{{MetricValue: worst}}, nil
+}
+
 // time type alias to avoid unused import warning on files that only use these
 var _ = time.Time{}

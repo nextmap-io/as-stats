@@ -237,6 +237,10 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			// Note: GET /admin/links is registered OUTSIDE this group
 			// (line above) because v1.1.1 opened it to all authenticated
 			// users, not just admins.
+
+			// Storage & retention observability (core — always available).
+			r.Get("/storage", h.StorageStatus)
+
 			if cfg.FeatureAlerts {
 				r.Get("/rules", h.ListRules)
 				r.Get("/webhooks", h.ListWebhooks)
@@ -247,6 +251,9 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			// Writes
 			r.Post("/links", h.LinkCreate)
 			r.Delete("/links/{tag}", h.LinkDelete)
+
+			// Retention policy edit (core — always available).
+			r.Put("/retention/{table}", h.SetRetention)
 
 			if cfg.FeatureAlerts {
 				r.Post("/rules", h.CreateRule)

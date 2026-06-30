@@ -6,14 +6,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { TableSkeleton } from "@/components/ui/skeleton"
 import { useFeatureFlags } from "@/hooks/useFeatures"
-import { Shield, Trash2, Plus, FileText, Pencil } from "lucide-react"
-import { cn } from "@/lib/utils"
-import type { AlertRule, Hostgroup, WebhookConfig, AuditLogEntry } from "@/lib/types"
+import { useStorageStatus, useSetRetention } from "@/hooks/useApi"
+import { Shield, Trash2, Plus, FileText, Pencil, HardDrive, Check, X } from "lucide-react"
+import { cn, formatBytes, formatNumber, formatPercent } from "@/lib/utils"
+import type { AlertRule, Hostgroup, WebhookConfig, AuditLogEntry, TableStorageStats, DiskStats } from "@/lib/types"
 
-type Tab = "links" | "rules" | "hostgroups" | "webhooks" | "audit"
+type Tab = "links" | "storage" | "rules" | "hostgroups" | "webhooks" | "audit"
 
 const TABS: { value: Tab; label: string; requiresFeature?: keyof ReturnType<typeof useFeatureFlags> }[] = [
   { value: "links", label: "Links" },
+  { value: "storage", label: "Storage" },
   { value: "rules", label: "Alert Rules", requiresFeature: "alerts" },
   { value: "hostgroups", label: "Hostgroups", requiresFeature: "alerts" },
   { value: "webhooks", label: "Webhooks", requiresFeature: "alerts" },
@@ -61,6 +63,7 @@ export function Admin() {
       </div>
 
       {tab === "links" && <LinksTab />}
+      {tab === "storage" && <StorageTab />}
       {tab === "rules" && features.alerts && <RulesTab />}
       {tab === "hostgroups" && features.alerts && <HostgroupsTab />}
       {tab === "webhooks" && features.alerts && <WebhooksTab />}
@@ -119,6 +122,219 @@ function LinksTab() {
         )}
       </CardContent>
     </Card>
+  )
+}
+
+// =============================================================================
+// Storage tab — per-table size/rows/parts + editable retention + disk gauge
+// =============================================================================
+
+function StorageTab() {
+  const { data, isLoading, error, refetch } = useStorageStatus()
+
+  if (error) return <ErrorDisplay error={error as Error} onRetry={() => refetch()} />
+
+  const tables: TableStorageStats[] = data?.data?.tables || []
+  const disks: DiskStats[] = data?.data?.disks || []
+  const pendingTotal = tables.reduce((acc, t) => acc + t.pending_mutations, 0)
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2">
+            <HardDrive className="size-3.5" />
+            Disk usage
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <TableSkeleton rows={2} cols={1} />
+          ) : disks.length === 0 ? (
+            <EmptyState message="No disk information available" />
+          ) : (
+            <div className="space-y-3">
+              {disks.map((d) => (
+                <DiskGauge key={d.name} disk={d} />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-baseline justify-between">
+            <CardTitle>Tables ({tables.length})</CardTitle>
+            {pendingTotal > 0 && (
+              <span
+                className="px-1.5 py-0.5 text-[9px] font-medium rounded border border-warning/40 bg-warning/10 text-warning uppercase"
+                title={`${formatNumber(pendingTotal)} pending mutation(s) across all tables — TTL changes are still materializing`}
+              >
+                TTL lag · {formatNumber(pendingTotal)}
+              </span>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <TableSkeleton rows={8} cols={7} />
+          ) : tables.length === 0 ? (
+            <EmptyState message="No tables found" />
+          ) : (
+            <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="pb-1.5 text-left font-medium text-muted-foreground">Table</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Compressed</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Rows</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Parts</th>
+                    <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Oldest data</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground">TTL (days)</th>
+                    <th className="pb-1.5 text-center font-medium text-muted-foreground">Managed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tables.map((t) => (
+                    <StorageRow key={t.table} table={t} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function DiskGauge({ disk }: { disk: DiskStats }) {
+  const pct = Math.min(100, Math.max(0, disk.used_percent))
+  // Color by threshold — mirrors the disk_usage alert defaults (80% warn, 90% crit).
+  const barColor =
+    pct >= 90 ? "bg-destructive" : pct >= 80 ? "bg-warning" : "bg-success"
+  const textColor =
+    pct >= 90 ? "text-destructive" : pct >= 80 ? "text-warning" : "text-success"
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="font-mono text-[11px] text-muted-foreground">{disk.name}</span>
+        <span className={cn("font-mono tabular-nums text-[11px]", textColor)}>
+          {formatPercent(pct)}
+        </span>
+      </div>
+      <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+        <div
+          className={cn("h-full rounded-full transition-all", barColor)}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="mt-1 text-[10px] text-muted-foreground tabular-nums">
+        {formatBytes(disk.used_bytes)} used · {formatBytes(disk.free_bytes)} free · {formatBytes(disk.total_bytes)} total
+      </div>
+    </div>
+  )
+}
+
+function StorageRow({ table }: { table: TableStorageStats }) {
+  const setRetention = useSetRetention()
+  const [draftDays, setDraftDays] = useState<string>(String(table.ttl_days))
+
+  // Keep the local draft synced with server data when not actively editing
+  // (e.g. after a refetch) — but only if the user hasn't diverged.
+  const serverDays = String(table.ttl_days)
+  const dirty = draftDays !== serverDays
+
+  const saveDays = () => {
+    const days = Number(draftDays)
+    if (!Number.isFinite(days) || days < 1) {
+      setDraftDays(serverDays)
+      return
+    }
+    if (days === table.ttl_days) return
+    setRetention.mutate({ table: table.table, ttl_days: days, enabled: table.ttl_enabled })
+  }
+
+  const toggleEnabled = () => {
+    setRetention.mutate({
+      table: table.table,
+      ttl_days: table.ttl_days || 1,
+      enabled: !table.ttl_enabled,
+    })
+  }
+
+  return (
+    <tr className="border-b border-border/40 last:border-0 hover:bg-accent/50">
+      <td className="py-1.5 font-mono text-[11px]">
+        <div className="flex items-center gap-1.5">
+          {table.table}
+          {table.pending_mutations > 0 && (
+            <span
+              className="px-1 py-0.5 text-[8px] font-medium rounded border border-warning/40 bg-warning/10 text-warning uppercase"
+              title={`${formatNumber(table.pending_mutations)} pending mutation(s) — TTL change still materializing`}
+            >
+              TTL lag
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="py-1.5 text-right font-mono tabular-nums">{formatBytes(table.compressed_bytes)}</td>
+      <td className="py-1.5 text-right font-mono tabular-nums text-muted-foreground">{formatNumber(table.rows)}</td>
+      <td className="py-1.5 text-right font-mono tabular-nums text-muted-foreground">{formatNumber(table.parts)}</td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden md:table-cell whitespace-nowrap">
+        {table.oldest_data ? new Date(table.oldest_data).toLocaleString() : "—"}
+      </td>
+      <td className="py-1.5 text-right">
+        <div className="flex items-center justify-end gap-1">
+          <input
+            type="number"
+            min={1}
+            value={draftDays}
+            disabled={setRetention.isPending}
+            onChange={(e) => setDraftDays(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") saveDays() }}
+            className="w-16 h-6 px-1.5 rounded border border-input bg-background text-xs font-mono tabular-nums text-right outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+          />
+          {dirty && (
+            <div className="flex gap-0.5">
+              <button
+                onClick={saveDays}
+                disabled={setRetention.isPending}
+                className="p-1 rounded hover:bg-success/10 hover:text-success transition-colors disabled:opacity-50"
+                title="Save retention"
+              >
+                <Check className="size-3" />
+              </button>
+              <button
+                onClick={() => setDraftDays(serverDays)}
+                disabled={setRetention.isPending}
+                className="p-1 rounded hover:bg-accent transition-colors disabled:opacity-50"
+                title="Discard"
+              >
+                <X className="size-3" />
+              </button>
+            </div>
+          )}
+        </div>
+      </td>
+      <td className="py-1.5 text-center">
+        <button
+          onClick={toggleEnabled}
+          disabled={setRetention.isPending}
+          className={cn(
+            "px-1.5 py-0.5 text-[10px] rounded border font-medium disabled:opacity-50",
+            table.ttl_enabled
+              ? "border-success/40 bg-success/10 text-success"
+              : "border-input bg-muted/50 text-muted-foreground"
+          )}
+          title={table.ttl_enabled ? "Reconciler manages this table — click to disable" : "Unmanaged — click to enable reconciler"}
+        >
+          {table.ttl_enabled ? "ON" : "OFF"}
+        </button>
+      </td>
+    </tr>
   )
 }
 

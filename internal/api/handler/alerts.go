@@ -255,10 +255,10 @@ func validateRule(r model.AlertRule) error {
 		"volume_in": true, "volume_out": true, "syn_flood": true,
 		"amplification": true, "port_scan": true, "icmp_flood": true,
 		"udp_flood": true, "connection_flood": true, "subnet_flood": true,
-		"smtp_abuse": true, "custom": true,
+		"smtp_abuse": true, "disk_usage": true, "custom": true,
 	}
 	if !validTypes[r.RuleType] {
-		return errBadField("rule_type must be one of: volume_in, volume_out, syn_flood, amplification, port_scan, icmp_flood, udp_flood, connection_flood, subnet_flood, smtp_abuse, custom")
+		return errBadField("rule_type must be one of: volume_in, volume_out, syn_flood, amplification, port_scan, icmp_flood, udp_flood, connection_flood, subnet_flood, smtp_abuse, disk_usage, custom")
 	}
 	if r.Name == "" {
 		return errBadField("name is required")
