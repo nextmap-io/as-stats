@@ -128,6 +128,8 @@ func DefaultAuditActions() map[string]string {
 		"POST /api/v1/admin/reports":    "report_create",
 		"PUT /api/v1/admin/reports":     "report_update",
 		"DELETE /api/v1/admin/reports":  "report_delete",
+		"POST /api/v1/admin/tokens":     "token_create",
+		"DELETE /api/v1/admin/tokens":   "token_revoke",
 	}
 }
 

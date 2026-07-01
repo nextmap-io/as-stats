@@ -373,6 +373,34 @@ export interface ReportSchedule {
 }
 
 // =============================================================================
+// Read-only API tokens (Module G, Admin → Tokens)
+// =============================================================================
+
+// APIToken mirrors internal/model.APIToken exactly. The plaintext token and its
+// SHA-256 hash are NEVER exposed here — only the short display prefix is. Grants
+// viewer-role, GET/HEAD-only programmatic access via a Bearer header.
+// `expires_at` / `last_used_at` are epoch "1970-01-01T00:00:00Z" when unset
+// ("never expires" / "never used").
+export interface APIToken {
+  id: string
+  name: string
+  token_prefix: string
+  owner: string
+  created_at: string
+  last_used_at: string
+  expires_at: string
+  revoked: boolean
+  updated_at: string
+}
+
+// APITokenCreated mirrors internal/model.APITokenCreated — an APIToken plus the
+// one-time plaintext `token`, returned only on creation and never retrievable
+// again.
+export interface APITokenCreated extends APIToken {
+  token: string
+}
+
+// =============================================================================
 // Retention & storage observability (Admin → Storage)
 // =============================================================================
 

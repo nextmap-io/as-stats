@@ -4,6 +4,8 @@ import type {
   AlertsSummary,
   AnomalyExplanation,
   ApiResponse,
+  APIToken,
+  APITokenCreated,
   ASDetailData,
   ASInfo,
   ASTraffic,
@@ -242,6 +244,15 @@ export const api = {
     fetchAPI<unknown>(`/admin/reports/${id}`, undefined, { method: "DELETE" }),
   testReport: (id: string) =>
     fetchAPI<{ status: string }>(`/admin/reports/${id}/test`, undefined, { method: "POST" }),
+
+  // ─── Read-only API tokens (admin, Module G) ──────────────
+  // The plaintext token is returned exactly once by createAPIToken; list
+  // responses expose only the display prefix, never the hash or plaintext.
+  listAPITokens: () => fetchAPI<APIToken[]>("/admin/tokens"),
+  createAPIToken: (body: { name: string; expires_in_days?: number }) =>
+    fetchAPI<APITokenCreated>("/admin/tokens", undefined, { method: "POST", body }),
+  revokeAPIToken: (id: string) =>
+    fetchAPI<unknown>(`/admin/tokens/${encodeURIComponent(id)}`, undefined, { method: "DELETE" }),
 
   // ─── Audit log (admin) ───────────────────────────────────
   auditLog: (filters?: { from?: string; to?: string; user?: string; action?: string; limit?: number }) =>
