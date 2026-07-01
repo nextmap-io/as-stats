@@ -497,3 +497,30 @@ type TalkerChange struct {
 	Bytes     uint64 `json:"bytes"`
 	Status    string `json:"status"` // "new" | "gone"
 }
+
+// ReportSchedule is a scheduled report definition (Module D). A cron goroutine
+// in the collector renders an HTML summary + CSV over a frequency-derived window
+// (daily → last 24h, weekly → 7d, monthly → 30d) and delivers it via SMTP.
+//
+// Frequency is one of "daily" | "weekly" | "monthly". Hour is the UTC hour of
+// day (0-23) the report fires. DayOfWeek (0-6, 0 = Sunday) applies to weekly
+// schedules; DayOfMonth (1-28) applies to monthly. Recipients and Sections are
+// comma-separated (recipients = email addresses; sections = subset of
+// overview,top_as,top_country,capacity,alerts). Format is "html" | "csv" |
+// "both". LastRunAt is stamped after each successful send and used to dedupe a
+// single occurrence.
+type ReportSchedule struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Frequency  string    `json:"frequency"`
+	Hour       uint8     `json:"hour"`
+	DayOfWeek  uint8     `json:"day_of_week"`
+	DayOfMonth uint8     `json:"day_of_month"`
+	Recipients string    `json:"recipients"`
+	Sections   string    `json:"sections"`
+	Format     string    `json:"format"`
+	Enabled    bool      `json:"enabled"`
+	LastRunAt  time.Time `json:"last_run_at"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}

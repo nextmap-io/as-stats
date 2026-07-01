@@ -15,6 +15,7 @@ import (
 	"github.com/nextmap-io/as-stats/internal/collector"
 	"github.com/nextmap-io/as-stats/internal/config"
 	_ "github.com/nextmap-io/as-stats/internal/metrics" // register metrics
+	"github.com/nextmap-io/as-stats/internal/reports"
 	"github.com/nextmap-io/as-stats/internal/ripestat"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
@@ -173,6 +174,19 @@ func main() {
 			engine.SetBlocker(bgp.NewRemote(cfg.BGPAPIURL), chStore)
 		}
 		go engine.Run(ctx)
+	}
+
+	// Start scheduled-report goroutine if enabled. Renders HTML+CSV summaries and
+	// delivers them via SMTP on the schedule stored in report_schedules.
+	if cfg.FeatureReports {
+		log.Printf("FEATURE_REPORTS=true — starting report scheduler (SMTP %s:%d)", cfg.SMTP.Host, cfg.SMTP.Port)
+		gen, err := reports.NewGenerator(chStore)
+		if err != nil {
+			log.Printf("warning: could not init report generator: %v", err)
+		} else {
+			svc := reports.NewService(chStore, gen, reports.NewSender(cfg.SMTP))
+			go svc.Run(ctx)
+		}
 	}
 
 	if err := c.Run(ctx); err != nil {

@@ -6,12 +6,31 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { TableSkeleton } from "@/components/ui/skeleton"
 import { useFeatureFlags } from "@/hooks/useFeatures"
-import { useStorageStatus, useSetRetention } from "@/hooks/useApi"
-import { Shield, Trash2, Plus, FileText, Pencil, HardDrive, Check, X } from "lucide-react"
+import {
+  useStorageStatus,
+  useSetRetention,
+  useReportSchedules,
+  useCreateReportSchedule,
+  useUpdateReportSchedule,
+  useDeleteReportSchedule,
+  useTestReport,
+} from "@/hooks/useApi"
+import { Shield, Trash2, Plus, FileText, Pencil, HardDrive, Check, X, Mail, Send } from "lucide-react"
 import { cn, formatBytes, formatNumber, formatPercent } from "@/lib/utils"
-import type { AlertRule, Hostgroup, WebhookConfig, AuditLogEntry, TableStorageStats, DiskStats } from "@/lib/types"
+import type {
+  AlertRule,
+  Hostgroup,
+  WebhookConfig,
+  AuditLogEntry,
+  TableStorageStats,
+  DiskStats,
+  ReportSchedule,
+  ReportFrequency,
+  ReportFormat,
+  ReportSection,
+} from "@/lib/types"
 
-type Tab = "links" | "storage" | "rules" | "hostgroups" | "webhooks" | "audit"
+type Tab = "links" | "storage" | "rules" | "hostgroups" | "webhooks" | "reports" | "audit"
 
 const TABS: { value: Tab; label: string; requiresFeature?: keyof ReturnType<typeof useFeatureFlags> }[] = [
   { value: "links", label: "Links" },
@@ -19,6 +38,7 @@ const TABS: { value: Tab; label: string; requiresFeature?: keyof ReturnType<type
   { value: "rules", label: "Alert Rules", requiresFeature: "alerts" },
   { value: "hostgroups", label: "Hostgroups", requiresFeature: "alerts" },
   { value: "webhooks", label: "Webhooks", requiresFeature: "alerts" },
+  { value: "reports", label: "Reports", requiresFeature: "reports" },
   { value: "audit", label: "Audit Log", requiresFeature: "alerts" },
 ]
 
@@ -67,6 +87,7 @@ export function Admin() {
       {tab === "rules" && features.alerts && <RulesTab />}
       {tab === "hostgroups" && features.alerts && <HostgroupsTab />}
       {tab === "webhooks" && features.alerts && <WebhooksTab />}
+      {tab === "reports" && features.reports && <ReportsTab />}
       {tab === "audit" && features.alerts && <AuditTab />}
     </div>
   )
@@ -856,6 +877,367 @@ function maskUrl(url: string): string {
   } catch {
     return url.length > 40 ? url.slice(0, 40) + "..." : url
   }
+}
+
+// =============================================================================
+// Reports tab — scheduled HTML+CSV email reports (Module D, FEATURE_REPORTS)
+// =============================================================================
+
+const REPORT_SECTIONS: { value: ReportSection; label: string }[] = [
+  { value: "overview", label: "Overview" },
+  { value: "top_as", label: "Top AS" },
+  { value: "top_country", label: "Top countries" },
+  { value: "capacity", label: "Capacity" },
+  { value: "alerts", label: "Alerts" },
+]
+
+const DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+interface ReportDraft {
+  name: string
+  frequency: ReportFrequency
+  hour: number
+  day_of_week: number
+  day_of_month: number
+  recipients: string
+  sections: string[]
+  format: ReportFormat
+  enabled: boolean
+}
+
+function emptyReportDraft(): ReportDraft {
+  return {
+    name: "",
+    frequency: "daily",
+    hour: 6,
+    day_of_week: 1,
+    day_of_month: 1,
+    recipients: "",
+    sections: ["overview", "top_as"],
+    format: "both",
+    enabled: true,
+  }
+}
+
+function parseSections(s: string): string[] {
+  return s.split(",").map((x) => x.trim()).filter(Boolean)
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0")
+}
+
+function formatSchedule(s: ReportSchedule): string {
+  const at = `${pad2(s.hour)}:00 UTC`
+  switch (s.frequency) {
+    case "weekly":
+      return `Weekly · ${DOW_LABELS[s.day_of_week] ?? "?"} ${at}`
+    case "monthly":
+      return `Monthly · day ${s.day_of_month} ${at}`
+    default:
+      return `Daily · ${at}`
+  }
+}
+
+function ReportsTab() {
+  const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState<ReportDraft>(() => emptyReportDraft())
+
+  const { data, isLoading, error, refetch } = useReportSchedules()
+  const createMutation = useCreateReportSchedule()
+  const updateMutation = useUpdateReportSchedule()
+
+  const resetForm = () => {
+    setShowForm(false)
+    setEditingId(null)
+    setDraft(emptyReportDraft())
+  }
+
+  const startEdit = (s: ReportSchedule) => {
+    setEditingId(s.id)
+    setDraft({
+      name: s.name,
+      frequency: s.frequency,
+      hour: s.hour,
+      day_of_week: s.day_of_week,
+      day_of_month: s.day_of_month || 1,
+      recipients: s.recipients,
+      sections: parseSections(s.sections),
+      format: s.format,
+      enabled: s.enabled,
+    })
+    setShowForm(true)
+  }
+
+  if (error) return <ErrorDisplay error={error as Error} onRetry={() => refetch()} />
+
+  const schedules: ReportSchedule[] = data?.data || []
+  const isEditing = editingId !== null
+  const isSaving = createMutation.isPending || updateMutation.isPending
+
+  const toggleSection = (key: ReportSection) => {
+    setDraft((d) => ({
+      ...d,
+      sections: d.sections.includes(key)
+        ? d.sections.filter((s) => s !== key)
+        : [...d.sections, key],
+    }))
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const payload: Partial<ReportSchedule> = {
+      name: draft.name,
+      frequency: draft.frequency,
+      hour: draft.hour,
+      day_of_week: draft.frequency === "weekly" ? draft.day_of_week : 0,
+      day_of_month: draft.frequency === "monthly" ? draft.day_of_month : 0,
+      recipients: draft.recipients,
+      sections: draft.sections.join(","),
+      format: draft.format,
+      enabled: draft.enabled,
+    }
+    if (isEditing) {
+      updateMutation.mutate({ id: editingId, schedule: payload }, { onSuccess: resetForm })
+    } else {
+      createMutation.mutate(payload, { onSuccess: resetForm })
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="size-3.5" />
+            Scheduled reports ({schedules.length})
+          </CardTitle>
+          <button
+            onClick={() => (showForm ? resetForm() : setShowForm(true))}
+            className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+          >
+            <Plus className="size-3" />
+            {showForm ? "Cancel" : "Add"}
+          </button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {showForm && (
+          <form onSubmit={handleSubmit} className="space-y-2 mb-4 p-3 border border-border rounded bg-muted/20">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Field label="Name">
+                <input
+                  type="text"
+                  required
+                  value={draft.name}
+                  onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+                  placeholder="Weekly NOC summary"
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </Field>
+              <Field label="Format">
+                <select
+                  value={draft.format}
+                  onChange={(e) => setDraft((d) => ({ ...d, format: e.target.value as ReportFormat }))}
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <option value="html">HTML only</option>
+                  <option value="csv">CSV only</option>
+                  <option value="both">HTML + CSV</option>
+                </select>
+              </Field>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-3">
+              <Field label="Frequency">
+                <select
+                  value={draft.frequency}
+                  onChange={(e) => setDraft((d) => ({ ...d, frequency: e.target.value as ReportFrequency }))}
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </Field>
+              <Field label="Hour (UTC)">
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  required
+                  value={draft.hour}
+                  onChange={(e) => setDraft((d) => ({ ...d, hour: Number(e.target.value) }))}
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </Field>
+              {draft.frequency === "weekly" && (
+                <Field label="Day of week">
+                  <select
+                    value={draft.day_of_week}
+                    onChange={(e) => setDraft((d) => ({ ...d, day_of_week: Number(e.target.value) }))}
+                    className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    {DOW_LABELS.map((label, i) => (
+                      <option key={label} value={i}>{label}</option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              {draft.frequency === "monthly" && (
+                <Field label="Day of month">
+                  <input
+                    type="number"
+                    min={1}
+                    max={28}
+                    value={draft.day_of_month}
+                    onChange={(e) => setDraft((d) => ({ ...d, day_of_month: Number(e.target.value) }))}
+                    className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                </Field>
+              )}
+            </div>
+
+            <Field label="Recipients">
+              <input
+                type="text"
+                required
+                value={draft.recipients}
+                onChange={(e) => setDraft((d) => ({ ...d, recipients: e.target.value }))}
+                placeholder="noc@example.net, ops@example.net"
+                className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+            </Field>
+
+            <div className="flex items-start gap-2">
+              <span className="text-[10px] text-muted-foreground w-20 shrink-0 pt-1">Sections</span>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {REPORT_SECTIONS.map((s) => (
+                  <label key={s.value} className="inline-flex items-center gap-1.5 text-xs cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={draft.sections.includes(s.value)}
+                      onChange={() => toggleSection(s.value)}
+                      className="size-3.5 rounded border-input accent-primary"
+                    />
+                    {s.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSaving || draft.sections.length === 0}
+              className="px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {isEditing ? "Save" : "Create"}
+            </button>
+          </form>
+        )}
+
+        {isLoading ? (
+          <TableSkeleton rows={3} cols={6} />
+        ) : schedules.length === 0 ? (
+          <EmptyState message="No report schedules configured" />
+        ) : (
+          <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Enabled</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Schedule</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Recipients</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Sections</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Format</th>
+                  <th className="pb-1.5 text-right font-medium text-muted-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {schedules.map((s) => (
+                  <ReportRow key={s.id} schedule={s} editing={editingId === s.id} onEdit={() => startEdit(s)} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ReportRow({ schedule, editing, onEdit }: { schedule: ReportSchedule; editing: boolean; onEdit: () => void }) {
+  const updateMutation = useUpdateReportSchedule()
+  const deleteMutation = useDeleteReportSchedule()
+  const testMutation = useTestReport()
+
+  const toggleEnabled = () => {
+    updateMutation.mutate({
+      id: schedule.id,
+      schedule: { ...schedule, enabled: !schedule.enabled },
+    })
+  }
+
+  const sendTest = () => {
+    testMutation.mutate(schedule.id, {
+      onError: (err) => alert(`Test failed: ${(err as Error).message}`),
+    })
+  }
+
+  return (
+    <tr className={cn("border-b border-border/40 last:border-0 hover:bg-accent/50", editing && "bg-primary/5")}>
+      <td className="py-1.5">
+        <button
+          onClick={toggleEnabled}
+          disabled={updateMutation.isPending}
+          className={cn(
+            "px-1.5 py-0.5 text-[10px] rounded border font-medium disabled:opacity-50",
+            schedule.enabled ? "border-success/40 bg-success/10 text-success" : "border-input bg-muted/50 text-muted-foreground"
+          )}
+        >
+          {schedule.enabled ? "ON" : "OFF"}
+        </button>
+      </td>
+      <td className="py-1.5 font-medium">{schedule.name}</td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground whitespace-nowrap">{formatSchedule(schedule)}</td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden md:table-cell truncate max-w-[16rem]">
+        {schedule.recipients}
+      </td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden lg:table-cell">{schedule.sections}</td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground">{schedule.format}</td>
+      <td className="py-1.5 text-right">
+        <div className="flex justify-end gap-0.5">
+          <button
+            onClick={sendTest}
+            disabled={testMutation.isPending}
+            className={cn(
+              "p-1 rounded transition-colors disabled:opacity-50",
+              testMutation.isSuccess ? "text-success" : "hover:bg-accent"
+            )}
+            title="Send test report now"
+          >
+            {testMutation.isSuccess ? <Check className="size-3" /> : <Send className="size-3" />}
+          </button>
+          <button
+            onClick={onEdit}
+            className="p-1 rounded hover:bg-accent transition-colors"
+            title="Edit schedule"
+          >
+            <Pencil className="size-3" />
+          </button>
+          <button
+            onClick={() => { if (confirm(`Delete report "${schedule.name}"?`)) deleteMutation.mutate(schedule.id) }}
+            className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
+            title="Delete schedule"
+          >
+            <Trash2 className="size-3" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  )
 }
 
 // =============================================================================
