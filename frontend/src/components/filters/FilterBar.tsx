@@ -36,19 +36,25 @@ export function FilterBar() {
   return (
     <div className="border-b border-border bg-muted/20">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-3 py-1.5 overflow-x-auto scrollbar-none">
-          <FilterGroup label="Period">
-            {relativePresets.map((p) => (
-              <FilterButton key={p.value} active={period === p.value} onClick={() => setPeriod(p.value)}>
-                {p.label}
-              </FilterButton>
-            ))}
-            {windowedPresets.map((p) => (
-              <FilterButton key={p.value} active={period === p.value} onClick={() => setPeriod(p.value)}>
-                {p.label}
-              </FilterButton>
-            ))}
-          </FilterGroup>
+        <div className="flex items-center gap-3 py-1.5">
+          {/* Only the presets scroll horizontally on narrow screens. The Custom
+              popover must live OUTSIDE this overflow container: setting
+              overflow-x also forces overflow-y to `auto`, which would clip the
+              popover as it opens downward (it looked like "Custom does nothing"). */}
+          <div className="flex items-center gap-3 overflow-x-auto scrollbar-none min-w-0">
+            <FilterGroup label="Period">
+              {relativePresets.map((p) => (
+                <FilterButton key={p.value} active={period === p.value} onClick={() => setPeriod(p.value)}>
+                  {p.label}
+                </FilterButton>
+              ))}
+              {windowedPresets.map((p) => (
+                <FilterButton key={p.value} active={period === p.value} onClick={() => setPeriod(p.value)}>
+                  {p.label}
+                </FilterButton>
+              ))}
+            </FilterGroup>
+          </div>
 
           <div className="h-4 w-px bg-border shrink-0" aria-hidden="true" />
 
