@@ -22,6 +22,10 @@ type AlertViolation struct {
 	// When set on a violation whose TargetIP is nil, the engine uses it for the
 	// alert's target identity and records it in the alert details.
 	TargetLabel string
+	// Extra carries rule-type-specific key/values that the engine merges into
+	// the alert's details.Extra map (e.g. anomaly baseline/current/deviation and
+	// the top-contributor explanation). Nil for rule types that don't use it.
+	Extra map[string]any
 }
 
 // EvalVolumeInbound queries traffic_by_dst_1min for destinations exceeding a bps/pps threshold.

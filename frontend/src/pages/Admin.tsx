@@ -381,6 +381,20 @@ const RULE_TYPE_META: Record<string, {
   connection_flood: { label: "Connection flood",     description: "Distinct flow count per destination — Slowloris/half-open scan signature", fields: ["count"], fieldLabels: { count: "Min flow count" } },
   subnet_flood:    { label: "Carpet bomb (subnet)", description: "Aggregate traffic to a /N subnet level before thresholding — detects distributed attacks that stay below per-host limits", fields: ["bps", "pps"] },
   smtp_abuse:      { label: "SMTP abuse (spam relay)", description: "Detects internal hosts sending traffic to SMTP ports (25/465/587) above normal levels — compromised spam relay indicator", fields: ["pps", "count"], fieldLabels: { pps: "Max pps to SMTP", count: "Max connections" } },
+  anomaly:         { label: "Traffic anomaly (baseline)", description: "Statistical baseline on per-link hourly throughput: fires when the current hour exceeds median + k·MAD of the same hour-of-week over the last 8 weeks. No fixed bps/pps threshold — tune with the sensitivity (k).", fields: [] },
+}
+
+// Anomaly rules carry sensitivity k as threshold_count = round(k*10) so the
+// feature needs no schema change (e.g. k=2.5 → threshold_count=25). These two
+// helpers convert between the two representations for the rule editor.
+const ANOMALY_DEFAULT_K = 2.5
+
+function kFromThresholdCount(count?: number): number {
+  return count && count > 0 ? count / 10 : ANOMALY_DEFAULT_K
+}
+
+function thresholdCountFromK(k: number): number {
+  return Math.round(k * 10)
 }
 
 function RulesTab() {
@@ -454,7 +468,17 @@ function RulesTab() {
               <Field label="Type">
                 <select
                   value={draft.rule_type || ""}
-                  onChange={(e) => setDraft((d) => ({ ...d, rule_type: e.target.value as AlertRule["rule_type"], threshold_bps: 0, threshold_pps: 0, threshold_count: 0 }))}
+                  onChange={(e) => {
+                    const rt = e.target.value as AlertRule["rule_type"]
+                    setDraft((d) => ({
+                      ...d,
+                      rule_type: rt,
+                      threshold_bps: 0,
+                      threshold_pps: 0,
+                      // Anomaly rules seed threshold_count with the default k.
+                      threshold_count: rt === "anomaly" ? thresholdCountFromK(ANOMALY_DEFAULT_K) : 0,
+                    }))
+                  }}
                   className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   required
                 >
@@ -477,7 +501,7 @@ function RulesTab() {
                 className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </Field>
-            {meta && (
+            {meta && meta.fields.length > 0 && (
               <div className="grid gap-2 sm:grid-cols-2">
                 {meta.fields.includes("bps") && (
                   <Field label={meta.fieldLabels?.bps || "Threshold bps"}>
@@ -529,6 +553,39 @@ function RulesTab() {
                 />
                 <span className="text-[10px] text-muted-foreground ml-1">/{draft.subnet_prefix_len || 24} IPv4 aggregation</span>
               </Field>
+            )}
+            {draft.rule_type === "anomaly" && (
+              <>
+                <Field label="Link filter">
+                  <input
+                    type="text"
+                    value={draft.target_filter || ""}
+                    onChange={(e) => setDraft((d) => ({ ...d, target_filter: e.target.value }))}
+                    placeholder="(all links)"
+                    className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                </Field>
+                <p className="text-[10px] text-muted-foreground italic px-1">
+                  Optional — restrict evaluation to a single link tag. Empty evaluates every link.
+                </p>
+                <Field label="Sensitivity (k)">
+                  <input
+                    type="number"
+                    min={0.5}
+                    step={0.1}
+                    value={kFromThresholdCount(draft.threshold_count)}
+                    onChange={(e) => setDraft((d) => ({ ...d, threshold_count: thresholdCountFromK(Number(e.target.value)) }))}
+                    className="w-24 h-7 px-2 rounded border border-input bg-background text-xs font-mono tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                  <span className="text-[10px] text-muted-foreground ml-1">higher = less sensitive</span>
+                </Field>
+                <p className="text-[10px] text-muted-foreground italic px-1">
+                  Fires when the current hour&apos;s throughput exceeds{" "}
+                  <span className="font-mono">median + k·MAD</span> of the same hour-of-week over the
+                  last 8 weeks (median absolute deviation — robust to outliers). k=2.5 flags a moderate
+                  spike; raise it to suppress noise, lower it to catch smaller deviations.
+                </p>
+              </>
             )}
             <HostgroupSelect value={draft.hostgroup_id} onChange={(id) => setDraft((d) => ({ ...d, hostgroup_id: id }))} />
             <div className="grid gap-2 sm:grid-cols-3">
@@ -666,6 +723,11 @@ function emptyRule(): Partial<AlertRule> {
 }
 
 function formatThreshold(r: AlertRule): React.ReactNode {
+  // Anomaly rules have no fixed threshold — threshold_count carries the
+  // sensitivity k as k*10. Surface it as "k=N.N" rather than a raw count.
+  if (r.rule_type === "anomaly") {
+    return <span className="tabular-nums">k={kFromThresholdCount(r.threshold_count).toFixed(1)}</span>
+  }
   // A rule may legitimately set multiple thresholds (e.g. amplification with
   // both a unique-source count AND a sustained-bps floor). Render each
   // populated value on its own line so they never blur together visually.

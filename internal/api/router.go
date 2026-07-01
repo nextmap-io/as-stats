@@ -188,6 +188,9 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Get("/alerts/summary", h.AlertsSummary)
 			// Live threats — pre-trigger view of top destinations vs. rules
 			r.Get("/threats/live", h.LiveThreats)
+			// Anomaly explainability — decompose a link's window into top
+			// contributing ASes / source IPs / dst ports (Module E).
+			r.Get("/anomaly/explain", h.AnomalyExplain)
 			// Alert actions require CSRF + optional admin role
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.CSRF())
