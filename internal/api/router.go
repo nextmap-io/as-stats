@@ -143,6 +143,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Get("/top/as/traffic", h.TopASTraffic)
 			r.Get("/top/ip", h.TopIP)
 			r.Get("/top/prefix", h.TopPrefix)
+			r.Get("/top/country", h.TopCountry)
 			r.Get("/links", h.Links)
 			r.Get("/links/traffic", h.LinksTraffic)
 			r.Get("/links/capacity", h.LinksCapacity)

@@ -14,6 +14,7 @@ type NavItem = { to: string; label: string }
 const baseNav: NavItem[] = [
   { to: "/", label: "Dashboard" },
   { to: "/top/as", label: "Top AS" },
+  { to: "/countries", label: "Countries" },
   { to: "/top/ip", label: "Top IP" },
   { to: "/top/prefix", label: "Prefixes" },
   { to: "/links", label: "Links" },

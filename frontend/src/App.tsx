@@ -8,6 +8,7 @@ import { Dashboard } from "@/pages/Dashboard"
 import { TopAS } from "@/pages/TopAS"
 import { TopIP } from "@/pages/TopIP"
 import { TopPrefixes } from "@/pages/TopPrefixes"
+import { Countries } from "@/pages/Countries"
 import { ASDetail } from "@/pages/ASDetail"
 import { IPDetail } from "@/pages/IPDetail"
 import { Links } from "@/pages/Links"
@@ -43,6 +44,7 @@ function AppWithProviders() {
             <Route path="/top/as" element={<TopAS />} />
             <Route path="/top/ip" element={<TopIP />} />
             <Route path="/top/prefix" element={<TopPrefixes />} />
+            <Route path="/countries" element={<Countries />} />
             <Route path="/as/:asn" element={<ASDetail />} />
             <Route path="/ip/:ip" element={<IPDetail />} />
             <Route path="/links" element={<Links />} />

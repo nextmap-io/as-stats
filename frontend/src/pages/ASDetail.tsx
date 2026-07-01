@@ -9,6 +9,7 @@ import { formatNumber, formatBytes } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 import { ExternalLink, Search } from "lucide-react"
 import { IPWithPTR } from "@/components/PTR"
+import { countryFlag, countryName, hasCountry } from "@/lib/countries"
 
 export function ASDetail() {
   const { asn } = useParams<{ asn: string }>()
@@ -38,6 +39,15 @@ export function ASDetail() {
           AS{detail.as_number}
           {detail.as_name && (
             <span className="ml-2 text-sm font-normal text-muted-foreground">{detail.as_name}</span>
+          )}
+          {hasCountry(detail.country) && (
+            <span
+              className="ml-2 text-sm font-normal text-muted-foreground"
+              title={countryName(detail.country)}
+            >
+              <span aria-hidden>{countryFlag(detail.country)}</span>{" "}
+              <span className="font-mono text-xs">{detail.country}</span>
+            </span>
           )}
         </h1>
         <div className="flex items-center gap-3 text-[10px]">

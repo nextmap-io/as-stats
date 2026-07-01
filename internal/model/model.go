@@ -67,10 +67,25 @@ type TrafficPoint struct {
 type ASTraffic struct {
 	ASNumber uint32  `json:"as_number"`
 	ASName   string  `json:"as_name"`
+	Country  string  `json:"country,omitempty"` // ISO 3166-1 alpha-2, from as_names.country (may be empty)
 	Bytes    uint64  `json:"bytes"`
 	Packets  uint64  `json:"packets"`
 	Flows    uint64  `json:"flows"`
 	Percent  float64 `json:"pct"`
+}
+
+// CountryTraffic represents traffic aggregated to a single country, derived by
+// joining the AS traffic tables to as_names.country (AS-level geo, no per-IP
+// lookup). Country is the ISO 3166-1 alpha-2 code, or "Unknown" when the source
+// AS has no country populated. Name is the resolved human-readable country name
+// (optional — empty if the code is not recognised).
+type CountryTraffic struct {
+	Country string  `json:"country"`
+	Name    string  `json:"name,omitempty"`
+	Bytes   uint64  `json:"bytes"`
+	Packets uint64  `json:"packets"`
+	Flows   uint64  `json:"flows"`
+	Percent float64 `json:"pct"`
 }
 
 // IPTraffic represents traffic statistics for a single IP.

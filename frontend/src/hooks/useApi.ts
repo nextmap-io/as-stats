@@ -45,6 +45,14 @@ export function useTopPrefix(filters: QueryFilters) {
   })
 }
 
+export function useTopCountry(filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["top-country", filters],
+    queryFn: () => api.topCountry(filters),
+    refetchInterval: REFETCH,
+  })
+}
+
 export function useASDetail(asn: number, filters: QueryFilters) {
   return useQuery({
     queryKey: ["as-detail", asn, filters],
