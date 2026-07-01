@@ -1,6 +1,21 @@
 export interface ASTraffic {
   as_number: number
   as_name: string
+  /** ISO 3166-1 alpha-2 code from as_names.country. Optional — empty when the
+   *  source AS has no country populated or the backend build predates Module C. */
+  country?: string
+  bytes: number
+  packets: number
+  flows: number
+  pct: number
+}
+
+/** Traffic aggregated to a single country (AS-level geo, no per-IP lookup).
+ *  Mirrors internal/model.CountryTraffic. `country` is the ISO 3166-1 alpha-2
+ *  code (or "Unknown"); `name` is the resolved human-readable name (optional). */
+export interface CountryTraffic {
+  country: string
+  name?: string
   bytes: number
   packets: number
   flows: number
@@ -85,6 +100,8 @@ export interface QueryFilters {
 export interface ASDetailData {
   as_number: number
   as_name: string
+  /** ISO 3166-1 alpha-2 code (optional — see ASTraffic.country). */
+  country?: string
   time_series: TrafficPoint[]
   v4_series?: LinkTimeSeries[]
   v6_series?: LinkTimeSeries[]

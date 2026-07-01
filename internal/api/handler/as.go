@@ -39,13 +39,15 @@ func (h *Handler) ASDetail(w http.ResponseWriter, r *http.Request) {
 	// P95 per IP version
 	p95v4In, p95v4Out, p95v6In, p95v6Out, _ := h.Store.ASP95(r.Context(), asn, p)
 
-	// Get AS name
+	// Get AS name + country (country is best-effort; empty when not populated)
 	asName, _ := h.Store.GetASName(r.Context(), asn)
+	country, _ := h.Store.GetASCountry(r.Context(), asn)
 
 	writeJSON(w, http.StatusOK, Response{
 		Data: map[string]any{
 			"as_number":    asn,
 			"as_name":      asName,
+			"country":      country,
 			"time_series":  ts,
 			"v4_series":    v4Series,
 			"v6_series":    v6Series,

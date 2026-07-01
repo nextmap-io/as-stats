@@ -8,6 +8,7 @@ import { DataTable, PercentBar, type Column } from "@/components/DataTable"
 import { ExportButton, type ExportColumn } from "@/components/ExportButton"
 import { formatNumber } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
+import { countryFlag, hasCountry } from "@/lib/countries"
 import type { ASTraffic } from "@/lib/types"
 
 export function TopAS() {
@@ -40,7 +41,16 @@ export function TopAS() {
       header: "Name",
       sortable: true,
       className: "truncate max-w-64",
-      render: (as) => as.as_name || "-",
+      render: (as) => (
+        <span className="inline-flex items-center gap-1.5">
+          {hasCountry(as.country) && (
+            <span aria-hidden title={as.country} className="leading-none">
+              {countryFlag(as.country)}
+            </span>
+          )}
+          <span className="truncate">{as.as_name || "-"}</span>
+        </span>
+      ),
     },
     {
       key: "bytes",
@@ -82,6 +92,7 @@ export function TopAS() {
   const exportColumns: ExportColumn<ASTraffic>[] = [
     { key: "as_number", header: "ASN", value: (r) => r.as_number },
     { key: "as_name", header: "Name", value: (r) => r.as_name },
+    { key: "country", header: "Country", value: (r) => r.country ?? "" },
     { key: "bytes", header: "Bytes", value: (r) => r.bytes },
     { key: "packets", header: "Packets", value: (r) => r.packets },
     { key: "flows", header: "Flows", value: (r) => r.flows },

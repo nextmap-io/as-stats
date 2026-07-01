@@ -8,6 +8,7 @@ import type {
   ASTraffic,
   ASTrafficDetail,
   AuditLogEntry,
+  CountryTraffic,
   BGPBlock,
   BGPSessionStatus,
   Features,
@@ -103,6 +104,7 @@ export const api = {
   topASTraffic: (filters?: QueryFilters) => fetchAPI<ASTrafficDetail[]>("/top/as/traffic", filters),
   topIP: (filters?: QueryFilters) => fetchAPI<IPTraffic[]>("/top/ip", filters),
   topPrefix: (filters?: QueryFilters) => fetchAPI<PrefixTraffic[]>("/top/prefix", filters),
+  topCountry: (filters?: QueryFilters) => fetchAPI<CountryTraffic[]>("/top/country", filters),
 
   asDetail: (asn: number, filters?: QueryFilters) => fetchAPI<ASDetailData>(`/as/${asn}`, filters),
   asPeers: (asn: number, filters?: QueryFilters) => fetchAPI<ASTraffic[]>(`/as/${asn}/peers`, filters),

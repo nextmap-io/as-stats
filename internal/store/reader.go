@@ -27,6 +27,7 @@ func (s *ClickHouseStore) TopAS(ctx context.Context, p QueryParams) ([]model.AST
 		SELECT
 			as_number,
 			any(an.as_name) AS as_name,
+			any(an.country) AS country,
 			sum(t.bytes) AS total_bytes,
 			sum(t.packets) AS total_packets,
 			sum(t.flow_count) AS total_flows
@@ -57,7 +58,7 @@ func (s *ClickHouseStore) TopAS(ctx context.Context, p QueryParams) ([]model.AST
 	var results []model.ASTraffic
 	for rows.Next() {
 		var r model.ASTraffic
-		if err := rows.Scan(&r.ASNumber, &r.ASName, &r.Bytes, &r.Packets, &r.Flows); err != nil {
+		if err := rows.Scan(&r.ASNumber, &r.ASName, &r.Country, &r.Bytes, &r.Packets, &r.Flows); err != nil {
 			return nil, 0, err
 		}
 		results = append(results, r)
@@ -1110,6 +1111,19 @@ func (s *ClickHouseStore) GetASName(ctx context.Context, asn uint32) (string, er
 		return "", err
 	}
 	return name, nil
+}
+
+// GetASCountry returns the ISO 3166-1 alpha-2 country for an AS, or "" when the
+// as_names.country column is not populated for it (graceful degradation).
+func (s *ClickHouseStore) GetASCountry(ctx context.Context, asn uint32) (string, error) {
+	var country string
+	err := s.conn.QueryRow(ctx, `SELECT country FROM as_names FINAL WHERE as_number = @asn`,
+		clickhouse.Named("asn", asn),
+	).Scan(&country)
+	if err != nil {
+		return "", err
+	}
+	return country, nil
 }
 
 // Helper: query time series data
