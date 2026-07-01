@@ -100,6 +100,10 @@ export function Header() {
   if (features.bgp) {
     navItems.push({ to: "/bgp", label: "BGP Blocks" })
   }
+  // System status — admin only (aggregates ingestion, storage/retention, features, alerts)
+  if (user && user.role === "admin") {
+    navItems.push({ to: "/status", label: "Status" })
+  }
 
   // Active alerts count for the badge
   const { data: alertsSummary } = useQuery({
