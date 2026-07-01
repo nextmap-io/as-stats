@@ -2,11 +2,12 @@ import { useState } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import { useTheme } from "@/hooks/useTheme"
 import { useUnit } from "@/hooks/useUnit"
+import { useDensity } from "@/hooks/useDensity"
 import { useStatus } from "@/hooks/useApi"
 import { useFeatureFlags } from "@/hooks/useFeatures"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
-import { Search, Sun, Moon, Monitor, Activity, Menu, X, LogOut, Bell, Shield } from "lucide-react"
+import { Search, Sun, Moon, Monitor, Activity, Menu, X, LogOut, Bell, Shield, Rows2, Rows3 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 type NavItem = { to: string; label: string }
@@ -25,6 +26,7 @@ const baseNav: NavItem[] = [
 export function Header() {
   const { theme, setTheme } = useTheme()
   const { unit, toggleUnit } = useUnit()
+  const { density, toggle: toggleDensity } = useDensity()
   const [searchQuery, setSearchQuery] = useState("")
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const navigate = useNavigate()
@@ -191,6 +193,16 @@ export function Header() {
             title={`Showing ${unit} — click to cycle`}
           >
             {unit}
+          </button>
+
+          <button
+            onClick={toggleDensity}
+            className="inline-flex size-8 items-center justify-center rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+            aria-label={`Table density: ${density} — click to toggle`}
+            aria-pressed={density === "compact"}
+            title={`Density: ${density} — click to toggle`}
+          >
+            {density === "compact" ? <Rows2 className="size-3.5" /> : <Rows3 className="size-3.5" />}
           </button>
 
           <button

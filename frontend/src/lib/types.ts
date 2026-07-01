@@ -35,6 +35,21 @@ export interface CountryTraffic {
   pct: number
 }
 
+// Traffic heatmap (U8). Mirrors internal/model.HeatmapCell / HeatmapData. The
+// backend always returns a dense 7×24 grid (day 1=Monday..7=Sunday, hour 0-23),
+// zero-filling absent slots, so the frontend never handles gaps. Both rates are
+// bits per second.
+export interface HeatmapCell {
+  day: number
+  hour: number
+  mean_bps: number
+  peak_bps: number
+}
+
+export interface HeatmapData {
+  cells: HeatmapCell[]
+}
+
 export interface IPTraffic {
   ip: string
   as_number: number

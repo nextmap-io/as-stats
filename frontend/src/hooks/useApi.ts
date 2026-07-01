@@ -169,6 +169,14 @@ export function useLinkColors() {
   return colors
 }
 
+export function useTrafficHeatmap(filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["traffic-heatmap", filters],
+    queryFn: () => api.trafficHeatmap(filters),
+    refetchInterval: REFETCH,
+  })
+}
+
 export function useStatus() {
   return useQuery({
     queryKey: ["status"],

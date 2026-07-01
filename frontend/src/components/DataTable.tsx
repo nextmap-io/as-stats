@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react"
 import { useSearchParams } from "react-router-dom"
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react"
 import { cn, formatPercent } from "@/lib/utils"
+import { useDensity } from "@/hooks/useDensity"
 
 export type ColumnAlign = "left" | "right" | "center"
 
@@ -71,6 +72,12 @@ export function DataTable<T>({
 }: DataTableProps<T>) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [scrollTop, setScrollTop] = useState(0)
+  const { density } = useDensity()
+  const compact = density === "compact"
+  // Compact mode tightens vertical rhythm and shrinks the virtualization row
+  // estimate so windowing math stays accurate.
+  const cellPad = compact ? "py-0.5" : "py-1.5"
+  const effectiveRowHeight = compact ? Math.max(20, rowHeight - 9) : rowHeight
 
   const sortKey = searchParams.get(sortParam)
   const sortDir: SortDir = searchParams.get(dirParam) === "asc" ? "asc" : "desc"
@@ -126,11 +133,11 @@ export function DataTable<T>({
   let topPad = 0
   let bottomPad = 0
   if (virtualize && viewport != null) {
-    start = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN)
-    const count = Math.ceil(viewport / rowHeight) + OVERSCAN * 2
+    start = Math.max(0, Math.floor(scrollTop / effectiveRowHeight) - OVERSCAN)
+    const count = Math.ceil(viewport / effectiveRowHeight) + OVERSCAN * 2
     end = Math.min(sortedRows.length, start + count)
-    topPad = start * rowHeight
-    bottomPad = (sortedRows.length - end) * rowHeight
+    topPad = start * effectiveRowHeight
+    bottomPad = (sortedRows.length - end) * effectiveRowHeight
   }
   const visibleRows = sortedRows.slice(start, end)
 
@@ -140,7 +147,7 @@ export function DataTable<T>({
       style={viewport != null ? { maxHeight: viewport } : undefined}
       onScroll={virtualize ? (e) => setScrollTop(e.currentTarget.scrollTop) : undefined}
     >
-      <table className={cn("w-full text-xs", tableClassName)}>
+      <table className={cn("w-full", compact ? "text-[11px]" : "text-xs", tableClassName)}>
         <thead className="sticky top-0 z-10 bg-card">
           <tr className="border-b border-border">
             {columns.map((col) => {
@@ -204,7 +211,7 @@ export function DataTable<T>({
                   <td
                     key={col.key}
                     className={cn(
-                      "py-1.5",
+                      cellPad,
                       col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "text-left",
                       col.numeric && "font-mono tabular-nums",
                       col.hideOnMobile && "hidden sm:table-cell",

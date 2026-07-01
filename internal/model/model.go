@@ -135,6 +135,25 @@ type Conversation struct {
 	Flows          uint64 `json:"flows"`
 }
 
+// HeatmapCell is one cell of the day-of-week × hour-of-day throughput heatmap
+// (U8). Day follows the ClickHouse toDayOfWeek convention (1=Monday .. 7=Sunday)
+// and Hour is 0-23. MeanBps is the average throughput across all hourly buckets
+// that fell in this (Day, Hour) slot over the selected window; PeakBps is the
+// maximum across those buckets. Both are bits per second.
+type HeatmapCell struct {
+	Day     uint8   `json:"day"`
+	Hour    uint8   `json:"hour"`
+	MeanBps float64 `json:"mean_bps"`
+	PeakBps float64 `json:"peak_bps"`
+}
+
+// HeatmapData is the full 7×24 grid returned by GET /traffic/heatmap. Every
+// (Day, Hour) slot is always present — slots with no data are zero-filled — so
+// the frontend can render a dense grid without gap handling.
+type HeatmapData struct {
+	Cells []HeatmapCell `json:"cells"`
+}
+
 // LinkTraffic represents traffic statistics for a link.
 type LinkTraffic struct {
 	Tag          string `json:"tag"`
