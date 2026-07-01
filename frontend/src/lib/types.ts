@@ -1,3 +1,7 @@
+/** Traffic-asymmetry class (F2). "content" = mostly egress (hosting/CDN),
+ *  "eyeball" = mostly ingress (access/broadband), "balanced" otherwise. */
+export type AsymmetryClass = "eyeball" | "content" | "balanced"
+
 export interface ASTraffic {
   as_number: number
   as_name: string
@@ -8,6 +12,15 @@ export interface ASTraffic {
   packets: number
   flows: number
   pct: number
+  /** Mean packet size = sum(bytes)/max(sum(packets),1) (F1). Present on the
+   *  Top-N paths; 0 on peer/link paths that don't compute it. */
+  avg_pkt_size: number
+  /** In/out asymmetry (F2). Populated by /top/as and /as/{asn}; omitted
+   *  (undefined) on peer/link responses. `ratio` = bytes_out / max(bytes_in,1). */
+  bytes_in?: number
+  bytes_out?: number
+  ratio?: number
+  class?: AsymmetryClass
 }
 
 /** Traffic aggregated to a single country (AS-level geo, no per-IP lookup).
@@ -29,6 +42,8 @@ export interface IPTraffic {
   bytes: number
   packets: number
   flows: number
+  /** Mean packet size = sum(bytes)/max(sum(packets),1) (F1). */
+  avg_pkt_size: number
 }
 
 export interface PrefixTraffic {
@@ -37,6 +52,25 @@ export interface PrefixTraffic {
   as_name: string
   bytes: number
   packets: number
+  flows: number
+  /** Mean packet size = sum(bytes)/max(sum(packets),1) (F1). */
+  avg_pkt_size: number
+}
+
+/** One bidirectional top-talker row (F3). Mirrors internal/model.Conversation.
+ *  A→B and B→A are folded into a single row via a canonical endpoint ordering;
+ *  forward is the A→B direction, reverse is B→A. For the dst_port_proto
+ *  dimension endpoint_a is the protocol number and endpoint_b the dst port,
+ *  both as strings, and everything counts as forward (no reverse). */
+export interface Conversation {
+  endpoint_a: string
+  endpoint_b: string
+  total_bytes: number
+  total_packets: number
+  forward_bytes: number
+  forward_packets: number
+  reverse_bytes: number
+  reverse_packets: number
   flows: number
 }
 
@@ -95,6 +129,10 @@ export interface QueryFilters {
   limit?: number
   offset?: number
   q?: string
+  /** Multi-metric Top-N sort key (F1): bytes | packets | flows. */
+  metric?: string
+  /** Conversation grouping dimension (F3): src_dst_ip | src_dst_as | dst_port_proto. */
+  dim?: string
 }
 
 export interface ASDetailData {
@@ -113,6 +151,12 @@ export interface ASDetailData {
   p95_v4_out?: number
   p95_v6_in?: number
   p95_v6_out?: number
+  /** In/out asymmetry (F2). bytes_in/bytes_out are direction totals over the
+   *  window; ratio = bytes_out / max(bytes_in,1); class classifies the mix. */
+  bytes_in?: number
+  bytes_out?: number
+  ratio?: number
+  class?: AsymmetryClass
 }
 
 export interface IPDetailData {

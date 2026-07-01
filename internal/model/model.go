@@ -72,6 +72,15 @@ type ASTraffic struct {
 	Packets  uint64  `json:"packets"`
 	Flows    uint64  `json:"flows"`
 	Percent  float64 `json:"pct"`
+	// AvgPktSize is sum(bytes)/max(sum(packets),1) — mean packet size in bytes.
+	AvgPktSize float64 `json:"avg_pkt_size"`
+	// In/out asymmetry (F2). BytesIn/BytesOut are sumIf on the direction column;
+	// Ratio is BytesOut/max(BytesIn,1); Class is one of eyeball/content/balanced.
+	// Populated only by TopAS and ASAsymmetry — omitempty on the peer/link paths.
+	BytesIn  uint64  `json:"bytes_in,omitempty"`
+	BytesOut uint64  `json:"bytes_out,omitempty"`
+	Ratio    float64 `json:"ratio,omitempty"`
+	Class    string  `json:"class,omitempty"`
 }
 
 // CountryTraffic represents traffic aggregated to a single country, derived by
@@ -90,22 +99,40 @@ type CountryTraffic struct {
 
 // IPTraffic represents traffic statistics for a single IP.
 type IPTraffic struct {
-	IP       string `json:"ip"`
-	ASNumber uint32 `json:"as_number"`
-	ASName   string `json:"as_name"`
-	Bytes    uint64 `json:"bytes"`
-	Packets  uint64 `json:"packets"`
-	Flows    uint64 `json:"flows"`
+	IP         string  `json:"ip"`
+	ASNumber   uint32  `json:"as_number"`
+	ASName     string  `json:"as_name"`
+	Bytes      uint64  `json:"bytes"`
+	Packets    uint64  `json:"packets"`
+	Flows      uint64  `json:"flows"`
+	AvgPktSize float64 `json:"avg_pkt_size"`
 }
 
 // PrefixTraffic represents traffic statistics for a single prefix.
 type PrefixTraffic struct {
-	Prefix   string `json:"prefix"`
-	ASNumber uint32 `json:"as_number"`
-	ASName   string `json:"as_name"`
-	Bytes    uint64 `json:"bytes"`
-	Packets  uint64 `json:"packets"`
-	Flows    uint64 `json:"flows"`
+	Prefix     string  `json:"prefix"`
+	ASNumber   uint32  `json:"as_number"`
+	ASName     string  `json:"as_name"`
+	Bytes      uint64  `json:"bytes"`
+	Packets    uint64  `json:"packets"`
+	Flows      uint64  `json:"flows"`
+	AvgPktSize float64 `json:"avg_pkt_size"`
+}
+
+// Conversation is one bidirectional top-talker row (F3). A→B and B→A flows are
+// folded into a single row via a canonical (least/greatest) ordering of the two
+// endpoints, so a pair appears once regardless of who initiated. Forward is the
+// A→B direction (the canonically-lower endpoint as source); Reverse is B→A.
+type Conversation struct {
+	EndpointA      string `json:"endpoint_a"`
+	EndpointB      string `json:"endpoint_b"`
+	TotalBytes     uint64 `json:"total_bytes"`
+	TotalPackets   uint64 `json:"total_packets"`
+	ForwardBytes   uint64 `json:"forward_bytes"`
+	ForwardPackets uint64 `json:"forward_packets"`
+	ReverseBytes   uint64 `json:"reverse_bytes"`
+	ReversePackets uint64 `json:"reverse_packets"`
+	Flows          uint64 `json:"flows"`
 }
 
 // LinkTraffic represents traffic statistics for a link.

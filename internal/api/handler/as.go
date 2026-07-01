@@ -43,6 +43,9 @@ func (h *Handler) ASDetail(w http.ResponseWriter, r *http.Request) {
 	asName, _ := h.Store.GetASName(r.Context(), asn)
 	country, _ := h.Store.GetASCountry(r.Context(), asn)
 
+	// In/out asymmetry (F2) — best-effort; zero values on error.
+	bytesIn, bytesOut, ratio, class, _ := h.Store.ASAsymmetry(r.Context(), asn, p)
+
 	writeJSON(w, http.StatusOK, Response{
 		Data: map[string]any{
 			"as_number":    asn,
@@ -59,6 +62,10 @@ func (h *Handler) ASDetail(w http.ResponseWriter, r *http.Request) {
 			"p95_v4_out":   p95v4Out,
 			"p95_v6_in":    p95v6In,
 			"p95_v6_out":   p95v6Out,
+			"bytes_in":     bytesIn,
+			"bytes_out":    bytesOut,
+			"ratio":        ratio,
+			"class":        class,
 		},
 		Meta: &ResponseMeta{From: p.From, To: p.To},
 	})

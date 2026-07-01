@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"sort"
 	"strings"
@@ -11,6 +12,49 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/nextmap-io/as-stats/internal/model"
 )
+
+// metricColumns whitelists the `metric` query param (F1 multi-metric Top-N)
+// and maps it to the aggregated ORDER BY column. This is the ONLY place a
+// metric name is turned into SQL — the raw param is never interpolated. Unknown
+// values fall through to bytes via orderColumnForMetric.
+var metricColumns = map[string]string{
+	"bytes":   "total_bytes",
+	"packets": "total_packets",
+	"flows":   "total_flows",
+}
+
+// orderColumnForMetric resolves a (possibly untrusted) metric name to a
+// hardcoded ORDER BY column, defaulting to total_bytes for anything unknown.
+func orderColumnForMetric(metric string) string {
+	if col, ok := metricColumns[metric]; ok {
+		return col
+	}
+	return "total_bytes"
+}
+
+// Asymmetry classification thresholds (F2). ratio = bytesOut / max(bytesIn, 1).
+const (
+	asymmetryContentRatio = 4.0  // out >> in  → content/hosting
+	asymmetryEyeballRatio = 0.25 // in >> out  → eyeball/access
+)
+
+// classifyAsymmetry computes the out/in byte ratio and a coarse traffic class
+// for an AS. "content" = mostly egress (hosting/CDN), "eyeball" = mostly ingress
+// (access/broadband), "balanced" otherwise.
+func classifyAsymmetry(bytesIn, bytesOut uint64) (float64, string) {
+	if bytesIn == 0 && bytesOut == 0 {
+		return 0, "balanced" // no traffic — nothing to classify
+	}
+	ratio := float64(bytesOut) / math.Max(float64(bytesIn), 1)
+	switch {
+	case ratio > asymmetryContentRatio:
+		return ratio, "content"
+	case ratio < asymmetryEyeballRatio:
+		return ratio, "eyeball"
+	default:
+		return ratio, "balanced"
+	}
+}
 
 // TopAS returns the top ASes by traffic volume.
 func (s *ClickHouseStore) TopAS(ctx context.Context, p QueryParams) ([]model.ASTraffic, uint64, error) {
@@ -23,6 +67,9 @@ func (s *ClickHouseStore) TopAS(ctx context.Context, p QueryParams) ([]model.AST
 		excludeArgs = append(excludeArgs, clickhouse.Named("exclude_as", p.ExcludeAS))
 	}
 
+	// F1: sort column comes from a hardcoded whitelist, never the raw param.
+	orderCol := orderColumnForMetric(p.Metric)
+
 	query := fmt.Sprintf(`
 		SELECT
 			as_number,
@@ -30,15 +77,18 @@ func (s *ClickHouseStore) TopAS(ctx context.Context, p QueryParams) ([]model.AST
 			any(an.country) AS country,
 			sum(t.bytes) AS total_bytes,
 			sum(t.packets) AS total_packets,
-			sum(t.flow_count) AS total_flows
+			sum(t.flow_count) AS total_flows,
+			sum(t.bytes) / greatest(sum(t.packets), 1) AS avg_pkt_size,
+			sumIf(t.bytes, t.direction = 'in') AS bytes_in,
+			sumIf(t.bytes, t.direction = 'out') AS bytes_out
 		FROM traffic_by_as t
 		LEFT JOIN as_names an ON t.as_number = an.as_number
 		WHERE t.ts >= @from AND t.ts < @to
 		%s %s %s
 		GROUP BY as_number
-		ORDER BY total_bytes DESC
+		ORDER BY %s DESC
 		LIMIT @limit OFFSET @offset
-	`, dirFilter, linkFilter, excludeAS)
+	`, dirFilter, linkFilter, excludeAS, orderCol)
 
 	args := append([]any{
 		clickhouse.Named("from", p.From),
@@ -58,9 +108,10 @@ func (s *ClickHouseStore) TopAS(ctx context.Context, p QueryParams) ([]model.AST
 	var results []model.ASTraffic
 	for rows.Next() {
 		var r model.ASTraffic
-		if err := rows.Scan(&r.ASNumber, &r.ASName, &r.Country, &r.Bytes, &r.Packets, &r.Flows); err != nil {
+		if err := rows.Scan(&r.ASNumber, &r.ASName, &r.Country, &r.Bytes, &r.Packets, &r.Flows, &r.AvgPktSize, &r.BytesIn, &r.BytesOut); err != nil {
 			return nil, 0, err
 		}
+		r.Ratio, r.Class = classifyAsymmetry(r.BytesIn, r.BytesOut)
 		results = append(results, r)
 	}
 
@@ -102,6 +153,8 @@ func (s *ClickHouseStore) TopIP(ctx context.Context, p QueryParams) ([]model.IPT
 		ipFilter = "AND " + p.LocalIPFilter
 	}
 
+	orderCol := orderColumnForMetric(p.Metric)
+
 	query := fmt.Sprintf(`
 		SELECT
 			toString(t.ip_address) AS ip,
@@ -109,15 +162,16 @@ func (s *ClickHouseStore) TopIP(ctx context.Context, p QueryParams) ([]model.IPT
 			any(an.as_name) AS as_name,
 			sum(t.bytes) AS total_bytes,
 			sum(t.packets) AS total_packets,
-			sum(t.flow_count) AS total_flows
+			sum(t.flow_count) AS total_flows,
+			sum(t.bytes) / greatest(sum(t.packets), 1) AS avg_pkt_size
 		FROM traffic_by_ip t
 		LEFT JOIN as_names an ON t.as_number = an.as_number
 		WHERE t.ts >= @from AND t.ts < @to
 		%s %s %s
 		GROUP BY ip, t.as_number
-		ORDER BY total_bytes DESC
+		ORDER BY %s DESC
 		LIMIT @limit OFFSET @offset
-	`, dirFilter, linkFilter, ipFilter)
+	`, dirFilter, linkFilter, ipFilter, orderCol)
 
 	args := append([]any{
 		clickhouse.Named("from", p.From),
@@ -136,7 +190,7 @@ func (s *ClickHouseStore) TopIP(ctx context.Context, p QueryParams) ([]model.IPT
 	var results []model.IPTraffic
 	for rows.Next() {
 		var r model.IPTraffic
-		if err := rows.Scan(&r.IP, &r.ASNumber, &r.ASName, &r.Bytes, &r.Packets, &r.Flows); err != nil {
+		if err := rows.Scan(&r.IP, &r.ASNumber, &r.ASName, &r.Bytes, &r.Packets, &r.Flows, &r.AvgPktSize); err != nil {
 			return nil, 0, err
 		}
 		r.IP = cleanIPv4Mapped(r.IP)
@@ -184,6 +238,8 @@ func (s *ClickHouseStore) TopPrefix(ctx context.Context, p QueryParams) ([]model
 		}
 	}
 
+	orderCol := orderColumnForMetric(p.Metric)
+
 	query := fmt.Sprintf(`
 		SELECT
 			%s AS grouped_prefix,
@@ -191,15 +247,16 @@ func (s *ClickHouseStore) TopPrefix(ctx context.Context, p QueryParams) ([]model
 			any(an.as_name) AS as_name,
 			sum(t.bytes) AS total_bytes,
 			sum(t.packets) AS total_packets,
-			sum(t.flow_count) AS total_flows
+			sum(t.flow_count) AS total_flows,
+			sum(t.bytes) / greatest(sum(t.packets), 1) AS avg_pkt_size
 		FROM traffic_by_prefix t
 		LEFT JOIN as_names an ON t.as_number = an.as_number
 		WHERE t.ts >= @from AND t.ts < @to
 		%s %s %s
 		GROUP BY grouped_prefix, t.as_number
-		ORDER BY total_bytes DESC
+		ORDER BY %s DESC
 		LIMIT @limit OFFSET @offset
-	`, prefixExpr, dirFilter, linkFilter, prefixFilter)
+	`, prefixExpr, dirFilter, linkFilter, prefixFilter, orderCol)
 
 	args := append([]any{
 		clickhouse.Named("from", p.From),
@@ -219,7 +276,7 @@ func (s *ClickHouseStore) TopPrefix(ctx context.Context, p QueryParams) ([]model
 	var results []model.PrefixTraffic
 	for rows.Next() {
 		var r model.PrefixTraffic
-		if err := rows.Scan(&r.Prefix, &r.ASNumber, &r.ASName, &r.Bytes, &r.Packets, &r.Flows); err != nil {
+		if err := rows.Scan(&r.Prefix, &r.ASNumber, &r.ASName, &r.Bytes, &r.Packets, &r.Flows, &r.AvgPktSize); err != nil {
 			return nil, 0, err
 		}
 		results = append(results, r)
@@ -479,6 +536,36 @@ func (s *ClickHouseStore) ASPeers(ctx context.Context, asn uint32, p QueryParams
 	}
 
 	return results, nil
+}
+
+// ASAsymmetry returns the in/out byte totals, out/in ratio and traffic class
+// for a single AS over the query window (F2). It mirrors the per-row asymmetry
+// columns TopAS computes, for the /as/{asn} detail view. Uses traffic_by_as to
+// stay consistent with TopAS's numbers.
+func (s *ClickHouseStore) ASAsymmetry(ctx context.Context, asn uint32, p QueryParams) (bytesIn, bytesOut uint64, ratio float64, class string, err error) {
+	linkFilter, linkArgs := buildLinkFilter(p.LinkTags)
+
+	query := fmt.Sprintf(`
+		SELECT
+			sumIf(t.bytes, t.direction = 'in') AS bytes_in,
+			sumIf(t.bytes, t.direction = 'out') AS bytes_out
+		FROM traffic_by_as t
+		WHERE t.as_number = @asn
+		  AND t.ts >= @from AND t.ts < @to
+		  %s
+	`, linkFilter)
+
+	args := append([]any{
+		clickhouse.Named("asn", asn),
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+	}, linkArgs...)
+
+	if err = s.conn.QueryRow(ctx, query, args...).Scan(&bytesIn, &bytesOut); err != nil {
+		return 0, 0, 0, "", fmt.Errorf("query AS asymmetry: %w", err)
+	}
+	ratio, class = classifyAsymmetry(bytesIn, bytesOut)
+	return bytesIn, bytesOut, ratio, class, nil
 }
 
 // ASTopIPs returns the top internal IPs communicating with a given AS.
@@ -1368,9 +1455,10 @@ func (s *ClickHouseStore) TopASTrafficSeries(ctx context.Context, p QueryParams)
 }
 
 // pickASTable selects the best source table for AS queries based on time range.
-//   <= 90 days: traffic_by_as (5-min granularity)
-//   <= 2 years: traffic_by_as_hourly (1-hour granularity)
-//   > 2 years:  traffic_by_as_daily (1-day granularity)
+//
+//	<= 90 days: traffic_by_as (5-min granularity)
+//	<= 2 years: traffic_by_as_hourly (1-hour granularity)
+//	> 2 years:  traffic_by_as_daily (1-day granularity)
 func pickASTable(from, to time.Time) string {
 	dur := to.Sub(from)
 	switch {

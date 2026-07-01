@@ -53,6 +53,14 @@ export function useTopCountry(filters: QueryFilters) {
   })
 }
 
+export function useConversations(filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["conversations", filters],
+    queryFn: () => api.conversations(filters),
+    refetchInterval: REFETCH,
+  })
+}
+
 export function useASDetail(asn: number, filters: QueryFilters) {
   return useQuery({
     queryKey: ["as-detail", asn, filters],

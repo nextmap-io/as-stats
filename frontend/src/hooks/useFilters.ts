@@ -11,6 +11,7 @@ export function useFilters() {
     to: searchParams.get("to") || undefined,
     link: searchParams.get("link") || undefined,
     direction: searchParams.get("direction") || undefined,
+    metric: searchParams.get("metric") || undefined,
     limit: searchParams.get("limit") ? Number(searchParams.get("limit")) : undefined,
     offset: searchParams.get("offset") ? Number(searchParams.get("offset")) : undefined,
   }), [searchParams])
