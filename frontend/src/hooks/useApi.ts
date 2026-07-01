@@ -177,10 +177,10 @@ export function useTrafficHeatmap(filters: QueryFilters) {
   })
 }
 
-export function useStatus() {
+export function useStatus(filters?: QueryFilters) {
   return useQuery({
-    queryKey: ["status"],
-    queryFn: () => api.status(),
+    queryKey: ["status", filters],
+    queryFn: () => api.status(filters),
     refetchInterval: 30_000,
   })
 }

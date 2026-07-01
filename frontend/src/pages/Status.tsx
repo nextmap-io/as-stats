@@ -2,6 +2,7 @@ import { Link } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { useStatus, useStorageStatus } from "@/hooks/useApi"
+import { useFilters } from "@/hooks/useFilters"
 import { useFeatureFlags } from "@/hooks/useFeatures"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState } from "@/components/ui/error"
@@ -38,7 +39,10 @@ export function Status() {
   const user = meRes?.data
   const features = useFeatureFlags()
 
-  const { data: statusRes } = useStatus()
+  // Ingestion (routers + flow volume) tracks the FilterBar window; storage,
+  // features and active alerts are point-in-time and ignore it.
+  const { filters } = useFilters()
+  const { data: statusRes } = useStatus(filters)
   const { data: storageRes } = useStorageStatus()
   const { data: alertsRes } = useQuery({
     queryKey: ["alerts-summary"],
@@ -87,11 +91,14 @@ export function Status() {
       <Card>
         <CardHeader>
           <CardTitle>Ingestion</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Routers and flow volume over the selected window (raw flows, ≤7&nbsp;days).
+          </p>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <Stat label="Active routers" value={formatNumber(routers.length)} />
-            <Stat label="Flow rows (raw)" value={formatNumber(status?.total_rows ?? 0)} />
+            <Stat label="Flows (window)" value={formatNumber(status?.total_rows ?? 0)} />
             <Stat label="DB size" value={formatBytes(status?.db_size ?? 0)} />
             <Stat label="Compressed (aggregates)" value={formatBytes(totalCompressed)} />
           </div>
