@@ -1,4 +1,4 @@
-import { AlertTriangle, RefreshCw } from "lucide-react"
+import { AlertTriangle, RefreshCw, Inbox } from "lucide-react"
 import { Card, CardContent } from "./card"
 
 interface ErrorDisplayProps {
@@ -33,11 +33,40 @@ export function ErrorDisplay({ error, onRetry, title = "Something went wrong" }:
   )
 }
 
-export function EmptyState({ message, icon }: { message: string; icon?: React.ReactNode }) {
+interface EmptyStateProps {
+  /** Headline shown to the user. */
+  message: string
+  /** Optional secondary hint line under the headline. */
+  hint?: string
+  /** Optional leading icon. */
+  icon?: React.ReactNode
+  /** Optional call-to-action rendered below the text (e.g. a button). */
+  action?: React.ReactNode
+}
+
+export function EmptyState({ message, hint, icon, action }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground animate-fade-in">
+    <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground animate-fade-in">
       {icon && <div className="mb-3 opacity-40">{icon}</div>}
       <p className="text-sm">{message}</p>
+      {hint && <p className="mt-1 text-xs text-muted-foreground/70">{hint}</p>}
+      {action && <div className="mt-4">{action}</div>}
     </div>
+  )
+}
+
+/**
+ * Reusable "no data in the selected time window" empty state — the common case
+ * where a query succeeds but the current period simply has no rows. Prompts the
+ * user to widen the range rather than implying an error.
+ */
+export function NoDataInWindow({ hint = "Try widening the time range.", action }: { hint?: string; action?: React.ReactNode }) {
+  return (
+    <EmptyState
+      icon={<Inbox className="size-8" />}
+      message="No data in this window"
+      hint={hint}
+      action={action}
+    />
   )
 }

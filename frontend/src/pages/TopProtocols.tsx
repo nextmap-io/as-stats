@@ -6,6 +6,7 @@ import { useUnit } from "@/hooks/useUnit"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { TableSkeleton } from "@/components/ui/skeleton"
+import { ExportButton, type ExportColumn } from "@/components/ExportButton"
 import { BarChart3 } from "lucide-react"
 import type { ProtocolTraffic } from "@/lib/types"
 
@@ -29,13 +30,25 @@ export function TopProtocols() {
   inbound.sort((a, b) => b.bytes - a.bytes)
   outbound.sort((a, b) => b.bytes - a.bytes)
 
+  const exportColumns: ExportColumn<ProtocolTraffic>[] = [
+    { key: "protocol", header: "Protocol", value: (p) => p.protocol_name || String(p.protocol) },
+    { key: "direction", header: "Direction", value: (p) => p.direction },
+    { key: "bytes", header: "Bytes", value: (p) => p.bytes },
+    { key: "packets", header: "Packets", value: (p) => p.packets },
+    { key: "flows", header: "Flows", value: (p) => p.flows },
+    { key: "pct", header: "Percent", value: (p) => p.pct },
+  ]
+
   return (
     <div className="space-y-4 animate-fade-in">
       <div className="flex items-baseline justify-between">
         <h1 className="text-lg font-semibold tracking-tight">Top Protocols</h1>
-        <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
-          5-min aggregation
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
+            5-min aggregation
+          </span>
+          <ExportButton rows={[...inbound, ...outbound]} columns={exportColumns} filename="top-protocols" />
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
