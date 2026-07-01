@@ -252,7 +252,7 @@ type AlertRule struct {
 	ID              string    `json:"id"`
 	Name            string    `json:"name"`
 	Description     string    `json:"description,omitempty"`
-	RuleType        string    `json:"rule_type"` // volume_in, volume_out, syn_flood, amplification, port_scan, icmp_flood, udp_flood, connection_flood, subnet_flood, custom
+	RuleType        string    `json:"rule_type"` // volume_in, volume_out, syn_flood, amplification, port_scan, icmp_flood, udp_flood, connection_flood, subnet_flood, smtp_abuse, disk_usage, link_capacity, anomaly, custom
 	Enabled         bool      `json:"enabled"`
 	ThresholdBps    uint64    `json:"threshold_bps,omitempty"`
 	ThresholdPps    uint64    `json:"threshold_pps,omitempty"`
@@ -361,6 +361,51 @@ type LiveThreat struct {
 	WorstPercent    float64 `json:"worst_pct"`            // % of the closest matching threshold (0..∞)
 	WorstRule       string  `json:"worst_rule,omitempty"` // name of the rule the row is closest to
 	Status          string  `json:"status"`               // "ok" | "warn" (>50%) | "critical" (>=100%)
+}
+
+// AnomalyContributorAS is one source AS contributing to a link's traffic during
+// an anomaly window, ranked by bytes (Module E explainability).
+type AnomalyContributorAS struct {
+	ASNumber uint32  `json:"as_number"`
+	ASName   string  `json:"as_name,omitempty"`
+	Bytes    uint64  `json:"bytes"`
+	Packets  uint64  `json:"packets"`
+	Percent  float64 `json:"pct"`
+}
+
+// AnomalyContributorIP is one source IP contributing to a link's traffic during
+// an anomaly window, ranked by bytes (Module E explainability).
+type AnomalyContributorIP struct {
+	IP      string  `json:"ip"`
+	Bytes   uint64  `json:"bytes"`
+	Packets uint64  `json:"packets"`
+	Percent float64 `json:"pct"`
+}
+
+// AnomalyContributorPort is one destination (protocol, port) contributing to a
+// link's traffic during an anomaly window, ranked by bytes (Module E).
+type AnomalyContributorPort struct {
+	Protocol     uint8   `json:"protocol"`
+	ProtocolName string  `json:"protocol_name,omitempty"`
+	Port         uint16  `json:"port"`
+	Service      string  `json:"service,omitempty"`
+	Bytes        uint64  `json:"bytes"`
+	Packets      uint64  `json:"packets"`
+	Percent      float64 `json:"pct"`
+}
+
+// AnomalyExplanation decomposes the traffic on a link during a window into its
+// top contributing source ASes, source IPs, and destination ports by bytes
+// (Module E). It answers "why did this link's throughput spike" without a full
+// flow search. Returned by GET /anomaly/explain and also attached to an alert's
+// details when an anomaly rule fires.
+type AnomalyExplanation struct {
+	Target     string                   `json:"target"` // link tag
+	From       time.Time                `json:"from"`
+	To         time.Time                `json:"to"`
+	TopASes    []AnomalyContributorAS   `json:"top_ases"`
+	TopSources []AnomalyContributorIP   `json:"top_sources"`
+	TopPorts   []AnomalyContributorPort `json:"top_ports"`
 }
 
 // RetentionPolicy is the desired retention for one TTL-bearing table, stored in

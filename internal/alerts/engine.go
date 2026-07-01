@@ -46,9 +46,11 @@ type Store interface {
 	EvalSMTPAbuse(ctx context.Context, thresholdPps, thresholdCount uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
 	EvalDiskUsage(ctx context.Context, thresholdPct uint64) ([]store.AlertViolation, error)
 	EvalLinkCapacity(ctx context.Context, thresholdPct uint64, window uint32) ([]store.AlertViolation, error)
+	EvalAnomaly(ctx context.Context, k float64, linkFilter string) ([]store.AlertViolation, error)
 
 	ListHostgroups(ctx context.Context) ([]model.Hostgroup, error)
 	TopSourcesForTarget(ctx context.Context, targetIP net.IP, window uint32, limit int) ([]string, error)
+	AnomalyExplain(ctx context.Context, target string, from, to time.Time) (model.AnomalyExplanation, error)
 
 	FindActiveAlert(ctx context.Context, ruleID string, targetIP net.IP) (string, time.Time, error)
 	InsertAlert(ctx context.Context, a model.Alert) error
@@ -297,6 +299,14 @@ func (e *Engine) evaluateRule(ctx context.Context, rule model.AlertRule, webhook
 		// disk_usage. The violation carries the link tag in TargetLabel.
 		metricType = "percent"
 		violations, err = e.store.EvalLinkCapacity(ctx, rule.ThresholdCount, rule.WindowSeconds)
+	case "anomaly":
+		// Statistical baseline anomaly on per-link hourly throughput. The metric
+		// is bps (current hour). Sensitivity k is carried in ThresholdCount as
+		// k*10 (e.g. 25 → k=2.5), so the feature needs no schema change.
+		// TargetFilter, if set, restricts evaluation to a single link tag.
+		metricType = "bps"
+		k := float64(rule.ThresholdCount) / 10.0
+		violations, err = e.store.EvalAnomaly(ctx, k, rule.TargetFilter)
 	default:
 		// 'custom' not implemented in phase 1
 		return
@@ -319,6 +329,21 @@ func (e *Engine) evaluateRule(ctx context.Context, rule model.AlertRule, webhook
 		if violations[i].TargetIP != nil {
 			if srcs, terr := e.store.TopSourcesForTarget(ctx, violations[i].TargetIP, rule.WindowSeconds, 5); terr == nil && len(srcs) > 0 {
 				violations[i].TopSources = srcs
+			}
+		}
+		// Anomaly rules target a link (no IP): enrich with the top-contributor
+		// breakdown over the last complete hour so triage sees *why* the link
+		// spiked. Attached into details.Extra alongside the baseline stats.
+		if rule.RuleType == "anomaly" && violations[i].TargetLabel != "" {
+			to := time.Now().UTC().Truncate(time.Hour)
+			from := to.Add(-time.Hour)
+			if expl, eerr := e.store.AnomalyExplain(ctx, violations[i].TargetLabel, from, to); eerr == nil {
+				if violations[i].Extra == nil {
+					violations[i].Extra = map[string]any{}
+				}
+				violations[i].Extra["explanation"] = expl
+			} else {
+				log.Printf("alert engine: anomaly explain error for %s: %v", violations[i].TargetLabel, eerr)
 			}
 		}
 		e.handleViolation(ctx, rule, violations[i], metricType, webhooks)
@@ -379,6 +404,14 @@ func (e *Engine) handleViolation(ctx context.Context, rule model.AlertRule, v st
 	}
 	if v.TargetLabel != "" {
 		details.Extra = map[string]any{"target": v.TargetLabel}
+	}
+	// Merge rule-type-specific extras (e.g. anomaly baseline/current/deviation
+	// and the top-contributor explanation) into the details payload.
+	for k, val := range v.Extra {
+		if details.Extra == nil {
+			details.Extra = map[string]any{}
+		}
+		details.Extra[k] = val
 	}
 	detailsJSON := store.MarshalAlertDetails(details)
 
@@ -797,6 +830,23 @@ func EnsureDefaultRules(ctx context.Context, s interface {
 			WindowSeconds:   86400,
 			CooldownSeconds: 21600,
 			Severity:        "warning",
+			Action:          "notify",
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+
+		// ── Statistical anomaly (disabled by default) ────────────
+		{
+			ID:          uuid.NewString(),
+			Name:        "Link throughput anomaly (example)",
+			Description: "Fires when a link's current-hour throughput exceeds median + k·MAD of the same hour-of-week over the last 8 weeks. Disabled by default: needs per-deployment tuning of sensitivity (threshold_count carries k·10, so 25 → k=2.5) and only fires once enough hourly history has accumulated.",
+			RuleType:    "anomaly",
+			Enabled:     false, // disabled: baseline needs weeks of history + tuning
+			// ThresholdCount carries k*10 for anomaly rules (25 → k=2.5).
+			ThresholdCount:  25,
+			WindowSeconds:   3600,
+			CooldownSeconds: 3600,
+			Severity:        "info",
 			Action:          "notify",
 			CreatedAt:       now,
 			UpdatedAt:       now,

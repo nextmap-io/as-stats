@@ -2,6 +2,7 @@ import type {
   Alert,
   AlertRule,
   AlertsSummary,
+  AnomalyExplanation,
   ApiResponse,
   ASDetailData,
   ASInfo,
@@ -179,6 +180,13 @@ export const api = {
   alertsSummary: () => fetchAPI<AlertsSummary>("/alerts/summary"),
   liveThreats: (window?: number, limit?: number) =>
     fetchAPI<LiveThreat[]>("/threats/live", { ...(window && { window }), ...(limit && { limit }) } as QueryFilters),
+
+  // ─── Anomaly explainability (Module E) ───────────────────
+  // Decomposes a link's traffic over the window into its top contributing
+  // source ASes / IPs / destination ports. `target` is the link tag; the
+  // window comes from filters (from/to or period). Gated by FEATURE_ALERTS.
+  anomalyExplain: (target: string, filters?: QueryFilters) =>
+    fetchAPI<AnomalyExplanation>("/anomaly/explain", { ...filters, target }),
   ackAlert: (id: string) =>
     fetchAPI<unknown>(`/alerts/${id}/ack`, undefined, { method: "POST" }),
   resolveAlert: (id: string) =>

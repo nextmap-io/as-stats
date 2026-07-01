@@ -142,6 +142,8 @@ export interface QueryFilters {
   /** Comparison overlay toggle (Module D). "prev" enables the previous-period
    *  overlay on time-series charts. */
   compare?: string
+  /** Anomaly explainability target (Module E): the link tag to decompose. */
+  target?: string
 }
 
 export interface ASDetailData {
@@ -527,6 +529,9 @@ export interface AlertRule {
     | "connection_flood"
     | "subnet_flood"
     | "smtp_abuse"
+    | "disk_usage"
+    | "link_capacity"
+    | "anomaly"
     | "custom"
     | ""
   enabled: boolean
@@ -571,6 +576,77 @@ export interface WebhookConfig {
 export interface AlertsSummary {
   total: number
   by_severity: Record<string, number>
+}
+
+// =============================================================================
+// Anomaly detection + explainability (Module E)
+// =============================================================================
+
+/** One source AS contributing to a link's traffic during an anomaly window.
+ *  Mirrors internal/model.AnomalyContributorAS. */
+export interface AnomalyContributorAS {
+  as_number: number
+  as_name?: string
+  bytes: number
+  packets: number
+  pct: number
+}
+
+/** One source IP contributing to a link's traffic during an anomaly window.
+ *  Mirrors internal/model.AnomalyContributorIP. */
+export interface AnomalyContributorIP {
+  ip: string
+  bytes: number
+  packets: number
+  pct: number
+}
+
+/** One destination (protocol, port) contributing to a link's traffic during an
+ *  anomaly window. Mirrors internal/model.AnomalyContributorPort. */
+export interface AnomalyContributorPort {
+  protocol: number
+  protocol_name?: string
+  port: number
+  service?: string
+  bytes: number
+  packets: number
+  pct: number
+}
+
+/** Decomposition of a link's traffic over a window into its top contributing
+ *  source ASes, source IPs, and destination ports by bytes. Mirrors
+ *  internal/model.AnomalyExplanation — payload of GET /anomaly/explain and also
+ *  stored under an anomaly alert's details.extra.explanation. */
+export interface AnomalyExplanation {
+  target: string
+  from: string
+  to: string
+  top_ases: AnomalyContributorAS[]
+  top_sources: AnomalyContributorIP[]
+  top_ports: AnomalyContributorPort[]
+}
+
+/** Rule-type-specific extras merged into an alert's details.extra by the alert
+ *  engine. For anomaly rules this carries the baseline statistics and the stored
+ *  contributor explanation; other rule types may add their own keys. */
+export interface AlertDetailsExtra {
+  target?: string
+  baseline?: number
+  current?: number
+  deviation?: number
+  samples_count?: number
+  sensitivity_k?: number
+  explanation?: AnomalyExplanation
+  [key: string]: unknown
+}
+
+/** Parsed shape of the JSON blob stored in Alert.details. Mirrors
+ *  internal/store.AlertDetails. */
+export interface AlertDetailsPayload {
+  top_sources?: string[]
+  unique_count?: number
+  window_seconds?: number
+  extra?: AlertDetailsExtra
 }
 
 // =============================================================================

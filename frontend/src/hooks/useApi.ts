@@ -185,6 +185,17 @@ export function useSearch(query: string) {
   })
 }
 
+// ─── Anomaly explainability (Module E) ─────────────────────
+// On-demand decomposition of a link's anomalous window. Disabled until a
+// target link tag is provided (e.g. when the operator clicks "Explain").
+export function useAnomalyExplain(target: string, filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["anomaly-explain", target, filters],
+    queryFn: () => api.anomalyExplain(target, filters),
+    enabled: !!target,
+  })
+}
+
 export function useStorageStatus() {
   return useQuery({
     queryKey: ["storage"],

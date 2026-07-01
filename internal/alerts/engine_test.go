@@ -70,6 +70,12 @@ func (m *mockStore) EvalDiskUsage(ctx context.Context, _ uint64) ([]store.AlertV
 func (m *mockStore) EvalLinkCapacity(ctx context.Context, _ uint64, _ uint32) ([]store.AlertViolation, error) {
 	return m.violations["link_capacity"], nil
 }
+func (m *mockStore) EvalAnomaly(ctx context.Context, _ float64, _ string) ([]store.AlertViolation, error) {
+	return m.violations["anomaly"], nil
+}
+func (m *mockStore) AnomalyExplain(ctx context.Context, target string, from, to time.Time) (model.AnomalyExplanation, error) {
+	return model.AnomalyExplanation{Target: target, From: from, To: to}, nil
+}
 func (m *mockStore) ListHostgroups(ctx context.Context) ([]model.Hostgroup, error) {
 	return nil, nil
 }
