@@ -9,6 +9,7 @@ import { formatNumber, formatBytes } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 import { ExternalLink, Search } from "lucide-react"
 import { IPWithPTR } from "@/components/PTR"
+import { RatioBar, AsymmetryBadge } from "@/components/Asymmetry"
 import { countryFlag, countryName, hasCountry } from "@/lib/countries"
 
 export function ASDetail() {
@@ -118,6 +119,13 @@ export function ASDetail() {
             </span>
           ) : null}
         </div>
+        {(detail.bytes_in || detail.bytes_out) ? (
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">Asymmetry:</span>
+            <RatioBar bytesIn={detail.bytes_in || 0} bytesOut={detail.bytes_out || 0} />
+            <AsymmetryBadge cls={detail.class} />
+          </div>
+        ) : null}
       </div>
 
       {/* IPv4 + IPv6 traffic charts side by side, split by link */}

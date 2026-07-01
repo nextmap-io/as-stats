@@ -4,9 +4,11 @@ import { useTopPrefix } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { QueryBoundary } from "@/components/QueryBoundary"
-import { DataTable, type Column } from "@/components/DataTable"
+import { DataTable, PercentBar, type Column } from "@/components/DataTable"
 import { ExportButton, type ExportColumn } from "@/components/ExportButton"
-import { formatNumber } from "@/lib/utils"
+import { MetricToggle } from "@/components/MetricToggle"
+import { asMetric, metricValue } from "@/lib/metric"
+import { formatNumber, formatBytes, cn } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 import type { PrefixTraffic } from "@/lib/types"
 
@@ -20,64 +22,95 @@ export function TopPrefixes() {
   const query = useTopPrefix({ ...filters, limit: 50, scope: scope === "all" ? undefined : scope })
   const rows = query.data?.data ?? []
   const offset = filters.offset || 0
+  const metric = asMetric(filters.metric)
+  const metricTotal = rows.reduce((s, r) => s + metricValue(r, metric), 0)
 
-  const columns = useMemo<Column<PrefixTraffic>[]>(() => [
-    {
-      key: "rank",
-      header: "#",
-      className: "text-muted-foreground w-8",
-      render: (_row, i) => offset + i + 1,
-    },
-    {
-      key: "prefix",
-      header: "Prefix",
-      sortable: true,
-      className: "font-mono text-[11px]",
-      render: (pfx) => pfx.prefix,
-    },
-    {
-      key: "as_number",
-      header: "AS",
-      sortable: true,
-      render: (pfx) =>
-        pfx.as_number > 0 ? (
-          <Link to={`/as/${pfx.as_number}${filterSearch}`} className="hover:underline">
-            <span className="font-mono">AS{pfx.as_number}</span>
-            {pfx.as_name && <span className="ml-1 text-muted-foreground">{pfx.as_name}</span>}
-          </Link>
-        ) : (
-          "-"
+  const columns = useMemo<Column<PrefixTraffic>[]>(() => {
+    const metricCell = (m: typeof metric) =>
+      cn(metric === m ? "text-foreground font-medium" : "text-muted-foreground")
+    const metricHeader = (m: typeof metric) => (metric === m ? "text-primary" : undefined)
+    return [
+      {
+        key: "rank",
+        header: "#",
+        className: "text-muted-foreground w-8",
+        render: (_row, i) => offset + i + 1,
+      },
+      {
+        key: "prefix",
+        header: "Prefix",
+        sortable: true,
+        className: "font-mono text-[11px]",
+        render: (pfx) => pfx.prefix,
+      },
+      {
+        key: "as_number",
+        header: "AS",
+        sortable: true,
+        render: (pfx) =>
+          pfx.as_number > 0 ? (
+            <Link to={`/as/${pfx.as_number}${filterSearch}`} className="hover:underline">
+              <span className="font-mono">AS{pfx.as_number}</span>
+              {pfx.as_name && <span className="ml-1 text-muted-foreground">{pfx.as_name}</span>}
+            </Link>
+          ) : (
+            "-"
+          ),
+      },
+      {
+        key: "bytes",
+        header: "Traffic",
+        align: "right",
+        numeric: true,
+        sortable: true,
+        headerClassName: metricHeader("bytes"),
+        render: (pfx) => formatTraffic(pfx.bytes, periodSeconds),
+      },
+      {
+        key: "packets",
+        header: "Packets",
+        align: "right",
+        numeric: true,
+        sortable: true,
+        hideOnMobile: true,
+        className: metricCell("packets"),
+        headerClassName: metricHeader("packets"),
+        render: (pfx) => formatNumber(pfx.packets),
+      },
+      {
+        key: "flows",
+        header: "Flows",
+        align: "right",
+        numeric: true,
+        sortable: true,
+        hideOnMobile: true,
+        className: metricCell("flows"),
+        headerClassName: metricHeader("flows"),
+        render: (pfx) => formatNumber(pfx.flows),
+      },
+      {
+        key: "avg_pkt_size",
+        header: "Avg Pkt",
+        align: "right",
+        numeric: true,
+        sortable: true,
+        hideOnMobile: true,
+        className: "text-muted-foreground",
+        render: (pfx) => formatBytes(pfx.avg_pkt_size || 0),
+      },
+      {
+        key: "pct",
+        header: "%",
+        align: "right",
+        sortable: true,
+        hideOnMobile: true,
+        sortValue: (pfx) => metricValue(pfx, metric),
+        render: (pfx) => (
+          <PercentBar pct={metricTotal > 0 ? (metricValue(pfx, metric) / metricTotal) * 100 : 0} />
         ),
-    },
-    {
-      key: "bytes",
-      header: "Traffic",
-      align: "right",
-      numeric: true,
-      sortable: true,
-      render: (pfx) => formatTraffic(pfx.bytes, periodSeconds),
-    },
-    {
-      key: "packets",
-      header: "Packets",
-      align: "right",
-      numeric: true,
-      sortable: true,
-      hideOnMobile: true,
-      className: "text-muted-foreground",
-      render: (pfx) => formatNumber(pfx.packets),
-    },
-    {
-      key: "flows",
-      header: "Flows",
-      align: "right",
-      numeric: true,
-      sortable: true,
-      hideOnMobile: true,
-      className: "text-muted-foreground",
-      render: (pfx) => formatNumber(pfx.flows),
-    },
-  ], [offset, filterSearch, formatTraffic, periodSeconds])
+      },
+    ]
+  }, [offset, filterSearch, formatTraffic, periodSeconds, metric, metricTotal])
 
   const exportColumns: ExportColumn<PrefixTraffic>[] = [
     { key: "prefix", header: "Prefix", value: (r) => r.prefix },
@@ -86,6 +119,7 @@ export function TopPrefixes() {
     { key: "bytes", header: "Bytes", value: (r) => r.bytes },
     { key: "packets", header: "Packets", value: (r) => r.packets },
     { key: "flows", header: "Flows", value: (r) => r.flows },
+    { key: "avg_pkt_size", header: "Avg Pkt Size", value: (r) => Math.round(r.avg_pkt_size || 0) },
   ]
 
   return (
@@ -112,11 +146,14 @@ export function TopPrefixes() {
               {scope === "internal" ? "Internal" : scope === "external" ? "External" : "All"} prefixes by traffic volume
               {scope === "internal" && <span className="font-normal text-muted-foreground ml-2">(grouped by announced prefix)</span>}
             </CardTitle>
-            <ExportButton rows={rows} columns={exportColumns} filename="top-prefixes" />
+            <div className="flex items-center gap-2">
+              <MetricToggle value={metric} onChange={(v) => setFilter("metric", v)} />
+              <ExportButton rows={rows} columns={exportColumns} filename="top-prefixes" />
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          <QueryBoundary query={query} isEmpty={(d) => d.data.length === 0} loadingCols={6}>
+          <QueryBoundary query={query} isEmpty={(d) => d.data.length === 0} loadingCols={7}>
             {(data) => (
               <>
                 <DataTable

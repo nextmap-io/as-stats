@@ -35,9 +35,9 @@ func New(s *store.ClickHouseStore) *Handler {
 
 // Response is the standard JSON response envelope.
 type Response struct {
-	Data   any              `json:"data"`
-	Meta   *ResponseMeta    `json:"meta,omitempty"`
-	Error  string           `json:"error,omitempty"`
+	Data  any           `json:"data"`
+	Meta  *ResponseMeta `json:"meta,omitempty"`
+	Error string        `json:"error,omitempty"`
 }
 
 // ResponseMeta contains metadata about the response.
@@ -117,6 +117,12 @@ func parseQueryParams(r *http.Request) store.QueryParams {
 
 	if v := r.URL.Query().Get("direction"); v == "in" || v == "out" {
 		p.Direction = v
+	}
+
+	// F1 multi-metric Top-N: whitelist the sort metric. The store resolves it
+	// to a hardcoded column and falls back to bytes for anything unrecognised.
+	if v := r.URL.Query().Get("metric"); v == "bytes" || v == "packets" || v == "flows" {
+		p.Metric = v
 	}
 
 	if v := r.URL.Query().Get("ip_version"); v == "4" || v == "6" {

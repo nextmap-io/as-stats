@@ -8,6 +8,7 @@ import type {
   ASTraffic,
   ASTrafficDetail,
   AuditLogEntry,
+  Conversation,
   CountryTraffic,
   BGPBlock,
   BGPSessionStatus,
@@ -105,6 +106,11 @@ export const api = {
   topIP: (filters?: QueryFilters) => fetchAPI<IPTraffic[]>("/top/ip", filters),
   topPrefix: (filters?: QueryFilters) => fetchAPI<PrefixTraffic[]>("/top/prefix", filters),
   topCountry: (filters?: QueryFilters) => fetchAPI<CountryTraffic[]>("/top/country", filters),
+
+  // ─── Conversations (F3) — bidirectional top talkers ──────
+  // Requires FEATURE_FLOW_SEARCH server-side. `dim` selects the grouping
+  // (src_dst_ip | src_dst_as | dst_port_proto).
+  conversations: (filters?: QueryFilters) => fetchAPI<Conversation[]>("/conversations", filters),
 
   asDetail: (asn: number, filters?: QueryFilters) => fetchAPI<ASDetailData>(`/as/${asn}`, filters),
   asPeers: (asn: number, filters?: QueryFilters) => fetchAPI<ASTraffic[]>(`/as/${asn}/peers`, filters),

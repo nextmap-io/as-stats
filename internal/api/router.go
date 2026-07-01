@@ -159,6 +159,8 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		if cfg.FeatureFlowSearch {
 			r.Get("/flows/search", h.FlowSearch)
 			r.Get("/flows/timeseries", h.FlowTimeSeries)
+			// Conversations explorer (F3) — bidirectional top talkers.
+			r.Get("/conversations", h.Conversations)
 		}
 
 		// Alerts (gated by FEATURE_ALERTS)

@@ -89,6 +89,7 @@ export function Header() {
   }
   if (features.flow_search) {
     navItems.push({ to: "/flows", label: "Flow Search" })
+    navItems.push({ to: "/conversations", label: "Conversations" })
   }
   if (features.alerts) {
     navItems.push({ to: "/live", label: "Live Threats" })
