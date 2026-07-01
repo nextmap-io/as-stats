@@ -17,6 +17,7 @@ import { Capacity } from "@/pages/Capacity"
 import { SearchPage } from "@/pages/SearchPage"
 import { FlowSearch } from "@/pages/FlowSearch"
 import { Conversations } from "@/pages/Conversations"
+import { Changes } from "@/pages/Changes"
 import { TopProtocols } from "@/pages/TopProtocols"
 import { TopPorts } from "@/pages/TopPorts"
 import { Alerts } from "@/pages/Alerts"
@@ -54,6 +55,7 @@ function AppWithProviders() {
             <Route path="/search" element={<SearchPage />} />
             <Route path="/flows" element={<FlowSearch />} />
             <Route path="/conversations" element={<Conversations />} />
+            <Route path="/changes" element={<Changes />} />
             <Route path="/top/protocol" element={<TopProtocols />} />
             <Route path="/top/port" element={<TopPorts />} />
             <Route path="/alerts" element={<Alerts />} />

@@ -133,6 +133,15 @@ export interface QueryFilters {
   metric?: string
   /** Conversation grouping dimension (F3): src_dst_ip | src_dst_as | dst_port_proto. */
   dim?: string
+  /** Changes dimension (Module D): as | prefix | port | country (movers) or
+   *  as | ip | prefix (talkers). */
+  dimension?: string
+  /** Comparison window preset/duration for the /changes endpoints (optional —
+   *  from/to/period already carry the window otherwise). */
+  window?: string
+  /** Comparison overlay toggle (Module D). "prev" enables the previous-period
+   *  overlay on time-series charts. */
+  compare?: string
 }
 
 export interface ASDetailData {
@@ -177,10 +186,64 @@ export interface LinkDetailData {
   as_series?: ASTrafficDetail[]
   p95_in?: number
   p95_out?: number
+  // p50/p95/p99 of per-bucket throughput (bytes per bucket), per direction
+  // (Module D). Surfaced alongside p95_in/p95_out on the link detail response.
+  p50_in?: number
+  p50_out?: number
+  p99_in?: number
+  p99_out?: number
   capacity_mbps?: number
   // p95 of per-bucket (in+out) throughput as a fraction of capacity, %.
   // null when capacity is unset.
   utilization_pct?: number | null
+}
+
+// =============================================================================
+// Comparison — movers / talkers (Module D). Mirrors internal/model.Mover,
+// internal/model.TalkerChange, and the handler's MoversResponse/TalkersResponse.
+// =============================================================================
+
+/** One entity's change in total bytes between the current window and the
+ *  immediately-prior equal-length window. `key` is the entity identity within
+ *  the dimension (ASN as string for "as", the prefix for "prefix",
+ *  "<protocol>/<port>" for "port", ISO country code for "country"); `label` is
+ *  an optional human name. `delta` = current − previous (signed); `pct` is the
+ *  relative change vs. previous (0 when previous is 0). */
+export interface Mover {
+  dimension: string
+  key: string
+  label?: string
+  current: number
+  previous: number
+  delta: number
+  pct: number
+}
+
+/** An entity that appeared ("new" — no prior traffic, traffic now) or
+ *  disappeared ("gone" — prior traffic, none now) between the current and prior
+ *  equal-length windows. `bytes` is the non-zero volume (current for "new",
+ *  previous for "gone"). */
+export interface TalkerChange {
+  dimension: string
+  key: string
+  label?: string
+  bytes: number
+  status: "new" | "gone"
+}
+
+/** Payload of GET /changes/movers. `gainers` (delta > 0) and `losers`
+ *  (delta < 0) are each ranked by |delta| desc. */
+export interface MoversResponse {
+  dimension: string
+  gainers: Mover[]
+  losers: Mover[]
+}
+
+/** Payload of GET /changes/talkers. */
+export interface TalkersResponse {
+  dimension: string
+  new: TalkerChange[]
+  gone: TalkerChange[]
 }
 
 // =============================================================================

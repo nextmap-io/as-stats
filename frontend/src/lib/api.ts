@@ -25,6 +25,7 @@ import type {
   LinkTimeSeries,
   LinkTraffic,
   LiveThreat,
+  MoversResponse,
   Overview,
   PortTraffic,
   PrefixTraffic,
@@ -32,6 +33,7 @@ import type {
   QueryFilters,
   RetentionPolicy,
   StorageStats,
+  TalkersResponse,
   TrafficPoint,
   UserInfo,
   WebhookConfig,
@@ -111,6 +113,14 @@ export const api = {
   // Requires FEATURE_FLOW_SEARCH server-side. `dim` selects the grouping
   // (src_dst_ip | src_dst_as | dst_port_proto).
   conversations: (filters?: QueryFilters) => fetchAPI<Conversation[]>("/conversations", filters),
+
+  // ─── Changes (Module D) — movers / talkers ───────────────
+  // `dim` selects the dimension: movers accept as|prefix|port|country, talkers
+  // accept as|ip|prefix. Current vs. immediately-prior equal-length window.
+  movers: (dim: string, filters?: QueryFilters) =>
+    fetchAPI<MoversResponse>("/changes/movers", { ...filters, dimension: dim }),
+  talkers: (dim: string, filters?: QueryFilters) =>
+    fetchAPI<TalkersResponse>("/changes/talkers", { ...filters, dimension: dim }),
 
   asDetail: (asn: number, filters?: QueryFilters) => fetchAPI<ASDetailData>(`/as/${asn}`, filters),
   asPeers: (asn: number, filters?: QueryFilters) => fetchAPI<ASTraffic[]>(`/as/${asn}/peers`, filters),

@@ -5,10 +5,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { PageSkeleton } from "@/components/ui/skeleton"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
+import { TrafficChart } from "@/components/charts/TrafficChart"
 import { ExpandableChart } from "@/components/ExpandableChart"
+import { ComparisonToggle } from "@/components/ComparisonToggle"
+import { previousWindow, shiftSeries, sumLinkSeries, useCompareEnabled } from "@/lib/comparison"
 import { formatNumber } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { BarChart3 } from "lucide-react"
 import type { LinkTraffic, ASTrafficDetail } from "@/lib/types"
 
@@ -24,6 +27,26 @@ export function Dashboard() {
   const { formatTraffic } = useUnit()
   const linkColors = useLinkColors()
   const [showAll, setShowAll] = useState(false)
+
+  // Comparison overlay (Module D). The dashboard has no single total series, so
+  // build one by summing the per-link series it already fetches (v4 + v6). When
+  // off, the prev queries reuse the active filters so they dedupe with the main
+  // link-traffic queries — no extra requests.
+  const compare = useCompareEnabled()
+  const { prevFilters, windowMs } = previousWindow(filters, periodSeconds)
+  const { data: prevV4 } = useLinksTraffic(4, compare ? prevFilters : filters)
+  const { data: prevV6 } = useLinksTraffic(6, compare ? prevFilters : filters)
+  const totalSeries = useMemo(
+    () => (compare ? sumLinkSeries([...(ipv4Traffic?.data || []), ...(ipv6Traffic?.data || [])]) : []),
+    [compare, ipv4Traffic, ipv6Traffic],
+  )
+  const prevTotalSeries = useMemo(
+    () =>
+      compare
+        ? shiftSeries(sumLinkSeries([...(prevV4?.data || []), ...(prevV6?.data || [])]), windowMs)
+        : undefined,
+    [compare, prevV4, prevV6, windowMs],
+  )
 
   if (isLoading) return <PageSkeleton />
   if (error) return <ErrorDisplay error={error} onRetry={() => refetch()} />
@@ -68,7 +91,20 @@ export function Dashboard() {
         <StatPill label="Out" value={formatTraffic(overview.total_bytes_out, periodSeconds)} accent="out" />
         <StatPill label="ASes" value={formatNumber(overview.active_as_count)} />
         <StatPill label="Flows" value={formatNumber(overview.total_flows)} />
+        <ComparisonToggle />
       </div>
+
+      {/* Total traffic vs previous period (comparison overlay, opt-in) */}
+      {compare && totalSeries.length > 0 && (
+        <Card className="overflow-visible">
+          <CardHeader className="pb-2">
+            <CardTitle>Total traffic vs previous period</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TrafficChart data={totalSeries} previous={prevTotalSeries} height={280} timeBounds={timeBounds} />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Global traffic charts: IPv4 / IPv6 by link */}
       {((ipv4Traffic?.data && ipv4Traffic.data.length > 0) || (ipv6Traffic?.data && ipv6Traffic.data.length > 0)) && (

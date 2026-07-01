@@ -52,6 +52,10 @@ func (h *Handler) LinkDetail(w http.ResponseWriter, r *http.Request) {
 	// P95 for this link
 	inP95, outP95, _ := h.Store.LinkP95(r.Context(), tag, p)
 
+	// p50/p95/p99 percentiles (Module D) — p50 and p99 surfaced alongside the
+	// existing p95 keys.
+	inPct, outPct, _ := h.Store.LinkPercentiles(r.Context(), tag, p)
+
 	// Per-AS time series on this link
 	asSeries, _ := h.Store.LinkASTimeSeries(r.Context(), tag, p)
 
@@ -75,6 +79,10 @@ func (h *Handler) LinkDetail(w http.ResponseWriter, r *http.Request) {
 			"as_series":       asSeries,
 			"p95_in":          inP95,
 			"p95_out":         outP95,
+			"p50_in":          inPct.P50,
+			"p50_out":         outPct.P50,
+			"p99_in":          inPct.P99,
+			"p99_out":         outPct.P99,
 			"capacity_mbps":   capacityMbps,
 			"utilization_pct": utilizationPct,
 		},

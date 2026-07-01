@@ -11,8 +11,35 @@ import { LoadDurationChart } from "@/components/charts/LoadDurationChart"
 const AS_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6", "#1abc9c", "#e67e22", "#2980b9", "#e91e63", "#00bcd4"]
 import { ExpandableChart } from "@/components/ExpandableChart"
 import { QueryBoundary } from "@/components/QueryBoundary"
+import { ComparisonToggle } from "@/components/ComparisonToggle"
+import { previousWindow, shiftSeries, useCompareEnabled } from "@/lib/comparison"
 import { formatNumber, formatPercent } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
+
+/** One percentile row (p50/p95/p99) showing in + out throughput. Renders
+ *  nothing when neither direction is present (older backend). */
+function PercentileItem({
+  label,
+  inVal,
+  outVal,
+  bucketSeconds,
+}: {
+  label: string
+  inVal?: number
+  outVal?: number
+  bucketSeconds: number
+}) {
+  const { formatTraffic } = useUnit()
+  if (inVal == null && outVal == null) return null
+  return (
+    <div>
+      <span className="text-muted-foreground uppercase tracking-wide text-[10px]">{label}</span>{" "}
+      <span className="font-semibold text-traffic-in">{formatTraffic(inVal ?? 0, bucketSeconds)}</span>
+      <span className="text-muted-foreground"> / </span>
+      <span className="font-semibold text-traffic-out">{formatTraffic(outVal ?? 0, bucketSeconds)}</span>
+    </div>
+  )
+}
 
 export function LinkDetail() {
   const { tag } = useParams<{ tag: string }>()
@@ -20,6 +47,16 @@ export function LinkDetail() {
   const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useLinkDetail(tag || "", filters)
   const loadCurveQuery = useLinkLoadCurve(tag || "", filters)
+
+  // Comparison overlay (Module D). When off, the prev query reuses the active
+  // filters so it dedupes with the main query — no extra request.
+  const compare = useCompareEnabled()
+  const { prevFilters, windowMs } = previousWindow(filters, periodSeconds)
+  const prevDetail = useLinkDetail(tag || "", compare ? prevFilters : filters)
+  const prevSeries =
+    compare && prevDetail.data?.data?.time_series
+      ? shiftSeries(prevDetail.data.data.time_series, windowMs)
+      : undefined
 
   const { data: linksData } = useQuery({
     queryKey: ["admin-links"],
@@ -57,21 +94,21 @@ export function LinkDetail() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-lg font-semibold tracking-tight">Link: {detail.tag}</h1>
-        {linkConfig?.description && (
-          <p className="text-xs text-muted-foreground mt-0.5">{linkConfig.description}</p>
-        )}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight">Link: {detail.tag}</h1>
+          {linkConfig?.description && (
+            <p className="text-xs text-muted-foreground mt-0.5">{linkConfig.description}</p>
+          )}
+        </div>
+        <ComparisonToggle className="shrink-0" />
       </div>
 
-      {/* P95 + Capacity */}
+      {/* Percentiles (p50 / p95 / p99, in & out) + Capacity */}
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
-        {detail.p95_in != null && (
-          <div><span className="text-muted-foreground">P95 in:</span> <span className="font-semibold text-traffic-in">{formatTraffic(detail.p95_in, bucketSeconds)}</span></div>
-        )}
-        {detail.p95_out != null && (
-          <div><span className="text-muted-foreground">P95 out:</span> <span className="font-semibold text-traffic-out">{formatTraffic(detail.p95_out, bucketSeconds)}</span></div>
-        )}
+        <PercentileItem label="p50" inVal={detail.p50_in} outVal={detail.p50_out} bucketSeconds={bucketSeconds} />
+        <PercentileItem label="p95" inVal={detail.p95_in} outVal={detail.p95_out} bucketSeconds={bucketSeconds} />
+        <PercentileItem label="p99" inVal={detail.p99_in} outVal={detail.p99_out} bucketSeconds={bucketSeconds} />
         {capacityMbps > 0 && (
           <>
             <div><span className="text-muted-foreground">Capacity:</span> <span className="font-semibold">{capacityMbps.toLocaleString()} Mbps</span></div>
@@ -81,6 +118,25 @@ export function LinkDetail() {
           </>
         )}
       </div>
+
+      {/* Total traffic vs previous period (comparison overlay, opt-in) */}
+      {compare && detail.time_series?.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Total traffic vs previous period</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TrafficChart
+              data={detail.time_series}
+              previous={prevSeries}
+              height={300}
+              p95In={detail.p95_in}
+              p95Out={detail.p95_out}
+              timeBounds={timeBounds}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Top AS stacked chart */}
       {detail.as_series && detail.as_series.length > 0 && (
