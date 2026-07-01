@@ -116,6 +116,59 @@ export interface LinkDetailData {
   as_series?: ASTrafficDetail[]
   p95_in?: number
   p95_out?: number
+  capacity_mbps?: number
+  // p95 of per-bucket (in+out) throughput as a fraction of capacity, %.
+  // null when capacity is unset.
+  utilization_pct?: number | null
+}
+
+// =============================================================================
+// Capacity planning (Module B) — mirrors internal/model.LinkCapacity / LoadCurve
+// =============================================================================
+
+// LinkCapacity mirrors internal/model.LinkCapacity — one row of GET /links/capacity.
+// current_bps / p95_bps are bits-per-second (already scaled server-side).
+// utilization_pct is null when the link has no configured capacity.
+// forecast_days_* estimate days until the daily p95 trend crosses NN% of capacity:
+// absent/null when capacity is unset or the trend is flat/declining; 0 when
+// already at/over the level; >0 otherwise.
+export interface LinkCapacity {
+  tag: string
+  description: string
+  capacity_mbps: number
+  current_bps: number
+  p95_bps: number
+  utilization_pct: number | null
+  trend_bps_per_day?: number
+  forecast_days_80?: number | null
+  forecast_days_95?: number | null
+  forecast_days_100?: number | null
+}
+
+// LoadCurveQuantiles mirrors internal/model.LoadCurveQuantiles — bps.
+export interface LoadCurveQuantiles {
+  p50: number
+  p90: number
+  p95: number
+  p99: number
+  p100: number
+}
+
+// HistogramBin mirrors internal/model.HistogramBin — one throughput bucket.
+export interface HistogramBin {
+  lower_bps: number
+  upper_bps: number
+  count: number
+}
+
+// LoadCurve mirrors internal/model.LoadCurve — payload of GET /link/{tag}/load-curve.
+// points are bits-per-second, sorted descending, downsampled to <=500 points.
+export interface LoadCurve {
+  tag: string
+  sample_count: number
+  points: number[]
+  quantiles: LoadCurveQuantiles
+  histogram: HistogramBin[]
 }
 
 export interface LinkTimeSeries {

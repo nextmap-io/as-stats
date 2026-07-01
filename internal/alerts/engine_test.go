@@ -67,6 +67,9 @@ func (m *mockStore) EvalSMTPAbuse(ctx context.Context, _, _ uint64, _ uint32, _ 
 func (m *mockStore) EvalDiskUsage(ctx context.Context, _ uint64) ([]store.AlertViolation, error) {
 	return m.violations["disk_usage"], nil
 }
+func (m *mockStore) EvalLinkCapacity(ctx context.Context, _ uint64, _ uint32) ([]store.AlertViolation, error) {
+	return m.violations["link_capacity"], nil
+}
 func (m *mockStore) ListHostgroups(ctx context.Context) ([]model.Hostgroup, error) {
 	return nil, nil
 }

@@ -45,6 +45,7 @@ type Store interface {
 	EvalSubnetFlood(ctx context.Context, thresholdBps, thresholdPps uint64, aggPrefix int, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
 	EvalSMTPAbuse(ctx context.Context, thresholdPps, thresholdCount uint64, window uint32, localPrefixes []string) ([]store.AlertViolation, error)
 	EvalDiskUsage(ctx context.Context, thresholdPct uint64) ([]store.AlertViolation, error)
+	EvalLinkCapacity(ctx context.Context, thresholdPct uint64, window uint32) ([]store.AlertViolation, error)
 
 	ListHostgroups(ctx context.Context) ([]model.Hostgroup, error)
 	TopSourcesForTarget(ctx context.Context, targetIP net.IP, window uint32, limit int) ([]string, error)
@@ -290,6 +291,12 @@ func (e *Engine) evaluateRule(ctx context.Context, rule model.AlertRule, webhook
 		// percentage threshold (0..100) and prefixes are irrelevant.
 		metricType = "percent"
 		violations, err = e.store.EvalDiskUsage(ctx, rule.ThresholdCount)
+	case "link_capacity":
+		// Link capacity is link-scoped, not IP-scoped: ThresholdCount carries
+		// the utilization percentage threshold (0..100), same convention as
+		// disk_usage. The violation carries the link tag in TargetLabel.
+		metricType = "percent"
+		violations, err = e.store.EvalLinkCapacity(ctx, rule.ThresholdCount, rule.WindowSeconds)
 	default:
 		// 'custom' not implemented in phase 1
 		return
@@ -321,6 +328,11 @@ func (e *Engine) evaluateRule(ctx context.Context, rule model.AlertRule, webhook
 func (e *Engine) handleViolation(ctx context.Context, rule model.AlertRule, v store.AlertViolation, metricType string, webhooks map[string]model.WebhookConfig) {
 	now := time.Now().UTC()
 	target := v.TargetIP.String()
+	// Non-IP targets (e.g. link_capacity) carry their identity in TargetLabel;
+	// use it for the alert's target string and cooldown/dedup key.
+	if v.TargetIP == nil && v.TargetLabel != "" {
+		target = v.TargetLabel
+	}
 	cooldownKey := rule.ID + "|" + target
 
 	// Check in-memory cooldown (fast path)
@@ -364,6 +376,9 @@ func (e *Engine) handleViolation(ctx context.Context, rule model.AlertRule, v st
 		UniqueCount:  v.UniqueCount,
 		WindowSecond: rule.WindowSeconds,
 		TopSources:   v.TopSources,
+	}
+	if v.TargetLabel != "" {
+		details.Extra = map[string]any{"target": v.TargetLabel}
 	}
 	detailsJSON := store.MarshalAlertDetails(details)
 
@@ -767,6 +782,22 @@ func EnsureDefaultRules(ctx context.Context, s interface {
 			CooldownSeconds: 3600,
 			Severity:        "critical",
 			Action:          "ack_required",
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		},
+
+		// ── Capacity planning ────────────────────────────────────
+		{
+			ID:              uuid.NewString(),
+			Name:            "Link capacity high",
+			Description:     "A link's 95th-percentile utilization exceeded 80% of its configured capacity over the last 24h — plan an upgrade",
+			RuleType:        "link_capacity",
+			Enabled:         true,
+			ThresholdCount:  80, // percent (carried in threshold_count for link_capacity)
+			WindowSeconds:   86400,
+			CooldownSeconds: 21600,
+			Severity:        "warning",
+			Action:          "notify",
 			CreatedAt:       now,
 			UpdatedAt:       now,
 		},

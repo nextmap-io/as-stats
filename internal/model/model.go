@@ -360,3 +360,57 @@ type StorageStats struct {
 	Tables []TableStorageStats `json:"tables"`
 	Disks  []DiskStats         `json:"disks"`
 }
+
+// LinkCapacity summarizes utilization and a linear-regression saturation
+// forecast for one link over a selected window. It is the row type for
+// GET /links/capacity.
+//
+// UtilizationPct is nil when the link has no configured capacity (capacity_mbps
+// == 0), because a percentage against an unknown ceiling is meaningless.
+//
+// ForecastDaysNN estimate how many days until the daily p95 trend (linear
+// regression over ~90 days of traffic_by_link_daily) crosses NN% of capacity:
+//   - nil  when capacity is unset OR the trend is flat/declining (slope <= 0)
+//     OR there are too few daily samples to fit a line
+//   - 0    when the projected value already meets/exceeds the level
+//   - >0   estimated days from now otherwise
+type LinkCapacity struct {
+	Tag             string   `json:"tag"`
+	Description     string   `json:"description"`
+	CapacityMbps    uint32   `json:"capacity_mbps"`
+	CurrentBps      uint64   `json:"current_bps"` // latest bucket throughput (in+out)
+	P95Bps          uint64   `json:"p95_bps"`     // p95 of per-bucket (in+out) over the window
+	UtilizationPct  *float64 `json:"utilization_pct"`
+	TrendBpsPerDay  float64  `json:"trend_bps_per_day,omitempty"`
+	ForecastDays80  *float64 `json:"forecast_days_80,omitempty"`
+	ForecastDays95  *float64 `json:"forecast_days_95,omitempty"`
+	ForecastDays100 *float64 `json:"forecast_days_100,omitempty"`
+}
+
+// LoadCurveQuantiles holds the standard load-duration quantiles, in bps.
+type LoadCurveQuantiles struct {
+	P50  float64 `json:"p50"`
+	P90  float64 `json:"p90"`
+	P95  float64 `json:"p95"`
+	P99  float64 `json:"p99"`
+	P100 float64 `json:"p100"`
+}
+
+// HistogramBin is one bucket of a throughput histogram (bps range + count).
+type HistogramBin struct {
+	LowerBps float64 `json:"lower_bps"`
+	UpperBps float64 `json:"upper_bps"`
+	Count    uint64  `json:"count"`
+}
+
+// LoadCurve is a load-duration curve for a link over a window: per-bucket
+// throughput samples sorted descending (downsampled to <=500 points for the
+// chart), summary quantiles, and a ~20-bin histogram. It is the payload for
+// GET /link/{tag}/load-curve.
+type LoadCurve struct {
+	Tag         string             `json:"tag"`
+	SampleCount int                `json:"sample_count"`
+	Points      []float64          `json:"points"` // bps, sorted descending
+	Quantiles   LoadCurveQuantiles `json:"quantiles"`
+	Histogram   []HistogramBin     `json:"histogram"`
+}

@@ -55,14 +55,28 @@ func (h *Handler) LinkDetail(w http.ResponseWriter, r *http.Request) {
 	// Per-AS time series on this link
 	asSeries, _ := h.Store.LinkASTimeSeries(r.Context(), tag, p)
 
+	// Capacity + utilization. utilization_pct is the p95 of per-bucket (in+out)
+	// throughput over the window as a fraction of configured capacity — the same
+	// definition used by the Capacity page. Nil when capacity is unset.
+	capacityMbps, _ := h.Store.LinkCapacityMbps(r.Context(), tag)
+	var utilizationPct *float64
+	if capacityMbps > 0 {
+		if p95Total, err := h.Store.LinkP95Total(r.Context(), tag, p.From, p.To); err == nil {
+			u := float64(p95Total) / (float64(capacityMbps) * 1e6) * 100
+			utilizationPct = &u
+		}
+	}
+
 	writeJSON(w, http.StatusOK, Response{
 		Data: map[string]any{
-			"tag":         tag,
-			"time_series": ts,
-			"top_as":      topAS,
-			"as_series":   asSeries,
-			"p95_in":      inP95,
-			"p95_out":     outP95,
+			"tag":             tag,
+			"time_series":     ts,
+			"top_as":          topAS,
+			"as_series":       asSeries,
+			"p95_in":          inP95,
+			"p95_out":         outP95,
+			"capacity_mbps":   capacityMbps,
+			"utilization_pct": utilizationPct,
 		},
 		Meta: &ResponseMeta{From: p.From, To: p.To},
 	})
