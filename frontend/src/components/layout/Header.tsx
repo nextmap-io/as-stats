@@ -17,6 +17,7 @@ const baseNav: NavItem[] = [
   { to: "/top/ip", label: "Top IP" },
   { to: "/top/prefix", label: "Prefixes" },
   { to: "/links", label: "Links" },
+  { to: "/capacity", label: "Capacity" },
 ]
 
 export function Header() {

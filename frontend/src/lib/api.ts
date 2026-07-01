@@ -15,8 +15,10 @@ import type {
   FlowSearchFilters,
   IPDetailData,
   IPTraffic,
+  LinkCapacity,
   LinkConfig,
   LinkDetailData,
+  LoadCurve,
   Hostgroup,
   LinkTimeSeries,
   LinkTraffic,
@@ -112,6 +114,9 @@ export const api = {
   links: (filters?: QueryFilters) => fetchAPI<LinkTraffic[]>("/links", filters),
   linksTraffic: (filters?: QueryFilters) => fetchAPI<LinkTimeSeries[]>("/links/traffic", filters),
   linkDetail: (tag: string, filters?: QueryFilters) => fetchAPI<LinkDetailData>(`/link/${tag}`, filters),
+  linksCapacity: (filters?: QueryFilters) => fetchAPI<LinkCapacity[]>("/links/capacity", filters),
+  linkLoadCurve: (tag: string, filters?: QueryFilters) =>
+    fetchAPI<LoadCurve>(`/link/${tag}/load-curve`, filters),
 
   status: () => fetchAPI<{ routers: { router_ip: string; last_seen: string; flow_count: number }[]; total_rows: number; db_size: number }>("/status"),
   dnsPtr: (ip: string) => fetchAPI<{ ip: string; ptr: string }>("/dns/ptr", { ip } as QueryFilters),

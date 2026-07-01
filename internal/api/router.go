@@ -145,6 +145,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Get("/top/prefix", h.TopPrefix)
 			r.Get("/links", h.Links)
 			r.Get("/links/traffic", h.LinksTraffic)
+			r.Get("/links/capacity", h.LinksCapacity)
 
 			// Port stats (gated by FEATURE_PORT_STATS)
 			if cfg.FeaturePortStats {
@@ -205,6 +206,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 
 		// Link detail (not cached — specific to one link)
 		r.Get("/link/{tag}", h.LinkDetail)
+		r.Get("/link/{tag}/load-curve", h.LinkLoadCurve)
 
 		// Status
 		r.Get("/status", h.Status)

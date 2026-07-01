@@ -1,15 +1,17 @@
 import { Link, useParams } from "react-router-dom"
-import { useLinkDetail } from "@/hooks/useApi"
+import { useLinkDetail, useLinkLoadCurve } from "@/hooks/useApi"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TrafficChart } from "@/components/charts/TrafficChart"
 import { ASTrafficChart } from "@/components/charts/ASTrafficChart"
+import { LoadDurationChart } from "@/components/charts/LoadDurationChart"
 
 const AS_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6", "#1abc9c", "#e67e22", "#2980b9", "#e91e63", "#00bcd4"]
 import { ExpandableChart } from "@/components/ExpandableChart"
-import { formatNumber } from "@/lib/utils"
+import { QueryBoundary } from "@/components/QueryBoundary"
+import { formatNumber, formatPercent } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 
 export function LinkDetail() {
@@ -17,6 +19,7 @@ export function LinkDetail() {
   const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds } = useFilters()
   const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useLinkDetail(tag || "", filters)
+  const loadCurveQuery = useLinkLoadCurve(tag || "", filters)
 
   const { data: linksData } = useQuery({
     queryKey: ["admin-links"],
@@ -31,10 +34,20 @@ export function LinkDetail() {
   const detail = data?.data
   if (!detail) return null
 
-  const capacityBps = (linkConfig?.capacity_mbps || 0) * 1_000_000
+  // Capacity + utilization come from the API (detail); fall back to the link
+  // config only for capacity if the detail response predates the field.
+  const capacityMbps = detail.capacity_mbps || linkConfig?.capacity_mbps || 0
+  const capacityBps = capacityMbps * 1_000_000
   const p95InBps = detail.p95_in ? (detail.p95_in * 8) / bucketSeconds : 0
   const p95OutBps = detail.p95_out ? (detail.p95_out * 8) / bucketSeconds : 0
   const p95MaxBps = Math.max(p95InBps, p95OutBps)
+  // utilization_pct is p95(in+out) / capacity; nil when capacity unset.
+  const utilizationPct =
+    detail.utilization_pct != null
+      ? detail.utilization_pct
+      : capacityBps > 0
+        ? (p95MaxBps / capacityBps) * 100
+        : null
 
   // Colors for AS in the chart and table
   const asColors: Record<number, string> = {}
@@ -59,10 +72,12 @@ export function LinkDetail() {
         {detail.p95_out != null && (
           <div><span className="text-muted-foreground">P95 out:</span> <span className="font-semibold text-traffic-out">{formatTraffic(detail.p95_out, bucketSeconds)}</span></div>
         )}
-        {capacityBps > 0 && (
+        {capacityMbps > 0 && (
           <>
-            <div><span className="text-muted-foreground">Capacity:</span> <span className="font-semibold">{linkConfig?.capacity_mbps} Mbps</span></div>
-            <div><span className="text-muted-foreground">Usage:</span> <span className={`font-semibold ${p95MaxBps / capacityBps > 0.8 ? "text-destructive" : p95MaxBps / capacityBps > 0.5 ? "text-warning" : "text-success"}`}>{((p95MaxBps / capacityBps) * 100).toFixed(1)}%</span></div>
+            <div><span className="text-muted-foreground">Capacity:</span> <span className="font-semibold">{capacityMbps.toLocaleString()} Mbps</span></div>
+            {utilizationPct != null && (
+              <div><span className="text-muted-foreground">Utilization:</span> <span className={`font-semibold ${utilizationPct >= 90 ? "text-destructive" : utilizationPct >= 70 ? "text-warning" : "text-success"}`}>{formatPercent(utilizationPct)}</span></div>
+            )}
           </>
         )}
       </div>
@@ -89,6 +104,30 @@ export function LinkDetail() {
           </CardContent>
         </Card>
       )}
+
+      {/* Load-duration curve */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Load-Duration Curve</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <QueryBoundary
+            query={loadCurveQuery}
+            isEmpty={(d) => d.data.points.length === 0}
+            skeleton={<div className="h-[300px] animate-pulse rounded bg-muted/40" />}
+          >
+            {(d) => (
+              <ExpandableChart title={`Load-Duration Curve — ${detail.tag}`}>
+                <LoadDurationChart curve={d.data} capacityBps={capacityBps} height={300} />
+              </ExpandableChart>
+            )}
+          </QueryBoundary>
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            Throughput sorted descending against the fraction of the window it was met or exceeded.
+            {capacityBps > 0 && " The dashed line marks the configured capacity."}
+          </p>
+        </CardContent>
+      </Card>
 
       {/* Top AS table with color dots */}
       {detail.top_as?.length > 0 && (

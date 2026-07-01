@@ -105,6 +105,23 @@ export function useLinkDetail(tag: string, filters: QueryFilters) {
   })
 }
 
+export function useLinksCapacity(filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["links-capacity", filters],
+    queryFn: () => api.linksCapacity(filters),
+    refetchInterval: REFETCH,
+  })
+}
+
+export function useLinkLoadCurve(tag: string, filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["link-load-curve", tag, filters],
+    queryFn: () => api.linkLoadCurve(tag, filters),
+    enabled: !!tag,
+    refetchInterval: REFETCH,
+  })
+}
+
 export function useLinkColors() {
   const { data } = useQuery({
     queryKey: ["admin-links"],

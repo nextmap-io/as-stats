@@ -18,6 +18,10 @@ type AlertViolation struct {
 	MetricValue float64
 	TopSources  []string // for amplification/port scan context
 	UniqueCount uint64
+	// TargetLabel identifies a non-IP target (e.g. a link tag for link_capacity).
+	// When set on a violation whose TargetIP is nil, the engine uses it for the
+	// alert's target identity and records it in the alert details.
+	TargetLabel string
 }
 
 // EvalVolumeInbound queries traffic_by_dst_1min for destinations exceeding a bps/pps threshold.
