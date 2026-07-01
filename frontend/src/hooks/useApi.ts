@@ -61,6 +61,22 @@ export function useConversations(filters: QueryFilters) {
   })
 }
 
+export function useMovers(dim: string, filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["movers", dim, filters],
+    queryFn: () => api.movers(dim, filters),
+    refetchInterval: REFETCH,
+  })
+}
+
+export function useTalkers(dim: string, filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["talkers", dim, filters],
+    queryFn: () => api.talkers(dim, filters),
+    refetchInterval: REFETCH,
+  })
+}
+
 export function useASDetail(asn: number, filters: QueryFilters) {
   return useQuery({
     queryKey: ["as-detail", asn, filters],

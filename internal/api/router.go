@@ -148,6 +148,11 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Get("/links/traffic", h.LinksTraffic)
 			r.Get("/links/capacity", h.LinksCapacity)
 
+			// Comparison — movers / talkers (Module D). Always available;
+			// port dimension is gated inside the handler on FEATURE_PORT_STATS.
+			r.Get("/changes/movers", h.Movers)
+			r.Get("/changes/talkers", h.Talkers)
+
 			// Port stats (gated by FEATURE_PORT_STATS)
 			if cfg.FeaturePortStats {
 				r.Get("/top/protocol", h.TopProtocols)

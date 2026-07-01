@@ -456,3 +456,44 @@ type LoadCurve struct {
 	Quantiles   LoadCurveQuantiles `json:"quantiles"`
 	Histogram   []HistogramBin     `json:"histogram"`
 }
+
+// Percentiles holds p50/p95/p99 of per-bucket throughput (bytes per bucket) for
+// one direction on a link (Module D). Surfaced alongside the existing p95 on the
+// link detail response.
+type Percentiles struct {
+	P50 uint64 `json:"p50"`
+	P95 uint64 `json:"p95"`
+	P99 uint64 `json:"p99"`
+}
+
+// Mover is one entity's change in traffic volume between the current window and
+// the immediately-prior equal-length window (Module D). Key is the entity
+// identity within the dimension: the ASN (as string) for "as", the prefix for
+// "prefix", "<protocol>/<port>" for "port", or the ISO country code (or
+// "Unknown") for "country". Label is an optional human name (AS name). Delta is
+// Current - Previous (signed); Pct is the relative change vs. Previous (0 when
+// Previous is 0, since the change is then unbounded — such entities surface as
+// new/gone talkers instead).
+type Mover struct {
+	Dimension string  `json:"dimension"`
+	Key       string  `json:"key"`
+	Label     string  `json:"label,omitempty"`
+	Current   uint64  `json:"current"`
+	Previous  uint64  `json:"previous"`
+	Delta     int64   `json:"delta"`
+	Pct       float64 `json:"pct"`
+}
+
+// TalkerChange is an entity that either APPEARED (no traffic in the prior
+// window, traffic now — Status "new") or DISAPPEARED (traffic in the prior
+// window, none now — Status "gone") between the current and prior equal-length
+// windows (Module D). Key/Label follow the same convention as Mover for the
+// supported dimensions (as/ip/prefix). Bytes is the non-zero volume (current
+// for "new", previous for "gone").
+type TalkerChange struct {
+	Dimension string `json:"dimension"`
+	Key       string `json:"key"`
+	Label     string `json:"label,omitempty"`
+	Bytes     uint64 `json:"bytes"`
+	Status    string `json:"status"` // "new" | "gone"
+}

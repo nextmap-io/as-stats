@@ -19,6 +19,7 @@ const baseNav: NavItem[] = [
   { to: "/top/prefix", label: "Prefixes" },
   { to: "/links", label: "Links" },
   { to: "/capacity", label: "Capacity" },
+  { to: "/changes", label: "Changes" },
 ]
 
 export function Header() {
