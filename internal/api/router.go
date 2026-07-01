@@ -101,6 +101,10 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		h.BGPBlocker = bgp.NewNoop()
 	}
 	sessions := middleware.NewSessionStore()
+	// Read-only API token authenticator (Module G). The api_tokens table is
+	// always created, so this is wired unconditionally; it is only consulted
+	// from AuthMiddleware, which is applied only when AUTH_ENABLED=true.
+	tokenAuth := middleware.NewAPITokenAuthenticator(s)
 
 	// Prometheus metrics middleware (must be applied before routes so it
 	// captures every request including /healthz and /metrics itself)
@@ -133,7 +137,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 
 		// Apply auth middleware if enabled
 		if cfg.AuthEnabled {
-			r.Use(middleware.AuthMiddleware(cfg, sessions))
+			r.Use(middleware.AuthMiddleware(cfg, sessions, tokenAuth))
 		}
 
 		// Audit log middleware: records sensitive actions (only if alerts/audit
@@ -268,6 +272,9 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			// Storage & retention observability (core — always available).
 			r.Get("/storage", h.StorageStatus)
 
+			// Read-only API tokens (core — always available).
+			r.Get("/tokens", h.ListTokens)
+
 			if cfg.FeatureAlerts {
 				r.Get("/rules", h.ListRules)
 				r.Get("/webhooks", h.ListWebhooks)
@@ -286,6 +293,10 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 
 			// Retention policy edit (core — always available).
 			r.Put("/retention/{table}", h.SetRetention)
+
+			// API token mint / revoke (core — always available).
+			r.Post("/tokens", h.CreateToken)
+			r.Delete("/tokens/{id}", h.RevokeToken)
 
 			if cfg.FeatureAlerts {
 				r.Post("/rules", h.CreateRule)

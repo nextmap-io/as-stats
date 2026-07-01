@@ -254,3 +254,30 @@ export function useTestReport() {
     mutationFn: (id: string) => api.testReport(id),
   })
 }
+
+// ─── Read-only API tokens (admin, Module G) ────────────────
+
+const API_TOKENS_KEY = ["api-tokens"]
+
+export function useAPITokens() {
+  return useQuery({
+    queryKey: API_TOKENS_KEY,
+    queryFn: () => api.listAPITokens(),
+  })
+}
+
+export function useCreateAPIToken() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { name: string; expires_in_days?: number }) => api.createAPIToken(body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: API_TOKENS_KEY }),
+  })
+}
+
+export function useRevokeAPIToken() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.revokeAPIToken(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: API_TOKENS_KEY }),
+  })
+}

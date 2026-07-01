@@ -14,8 +14,11 @@ import {
   useUpdateReportSchedule,
   useDeleteReportSchedule,
   useTestReport,
+  useAPITokens,
+  useCreateAPIToken,
+  useRevokeAPIToken,
 } from "@/hooks/useApi"
-import { Shield, Trash2, Plus, FileText, Pencil, HardDrive, Check, X, Mail, Send } from "lucide-react"
+import { Shield, Trash2, Plus, FileText, Pencil, HardDrive, Check, X, Mail, Send, KeyRound, Copy } from "lucide-react"
 import { cn, formatBytes, formatNumber, formatPercent } from "@/lib/utils"
 import type {
   AlertRule,
@@ -28,13 +31,16 @@ import type {
   ReportFrequency,
   ReportFormat,
   ReportSection,
+  APIToken,
+  APITokenCreated,
 } from "@/lib/types"
 
-type Tab = "links" | "storage" | "rules" | "hostgroups" | "webhooks" | "reports" | "audit"
+type Tab = "links" | "storage" | "tokens" | "rules" | "hostgroups" | "webhooks" | "reports" | "audit"
 
 const TABS: { value: Tab; label: string; requiresFeature?: keyof ReturnType<typeof useFeatureFlags> }[] = [
   { value: "links", label: "Links" },
   { value: "storage", label: "Storage" },
+  { value: "tokens", label: "Tokens" },
   { value: "rules", label: "Alert Rules", requiresFeature: "alerts" },
   { value: "hostgroups", label: "Hostgroups", requiresFeature: "alerts" },
   { value: "webhooks", label: "Webhooks", requiresFeature: "alerts" },
@@ -84,6 +90,7 @@ export function Admin() {
 
       {tab === "links" && <LinksTab />}
       {tab === "storage" && <StorageTab />}
+      {tab === "tokens" && <TokensTab />}
       {tab === "rules" && features.alerts && <RulesTab />}
       {tab === "hostgroups" && features.alerts && <HostgroupsTab />}
       {tab === "webhooks" && features.alerts && <WebhooksTab />}
@@ -354,6 +361,270 @@ function StorageRow({ table }: { table: TableStorageStats }) {
         >
           {table.ttl_enabled ? "ON" : "OFF"}
         </button>
+      </td>
+    </tr>
+  )
+}
+
+// =============================================================================
+// Tokens tab — read-only API tokens (Module G)
+//
+// Tokens grant viewer-role, GET/HEAD-only programmatic access via a Bearer
+// header. The plaintext is returned exactly once on creation and never stored;
+// list rows expose only the display prefix, never the hash or plaintext.
+// =============================================================================
+
+// The backend stores "never expires" / "never used" as the Unix epoch
+// (1970-01-01T00:00:00Z), i.e. a non-positive timestamp. Treat those as unset.
+function isUnsetTime(ts: string): boolean {
+  const t = new Date(ts).getTime()
+  return !Number.isFinite(t) || t <= 0
+}
+
+type TokenStatus = "active" | "revoked" | "expired"
+
+function tokenStatus(t: APIToken): TokenStatus {
+  if (t.revoked) return "revoked"
+  if (!isUnsetTime(t.expires_at) && new Date(t.expires_at).getTime() < Date.now()) return "expired"
+  return "active"
+}
+
+// minExpiryDate is tomorrow (UTC) as YYYY-MM-DD — the earliest selectable expiry
+// for a new token. Kept in a helper so the impure Date.now stays out of render.
+function minExpiryDate(): string {
+  return new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
+}
+
+// daysUntil converts a YYYY-MM-DD date (interpreted as end-of-day UTC) into a
+// whole number of days from now, for the backend's expires_in_days contract.
+// Returns 0 (never) for an empty/past date.
+function daysUntil(dateStr: string): number {
+  if (!dateStr) return 0
+  const target = new Date(`${dateStr}T23:59:59Z`).getTime()
+  if (!Number.isFinite(target)) return 0
+  const days = Math.ceil((target - Date.now()) / 86_400_000)
+  return days > 0 ? days : 0
+}
+
+function TokensTab() {
+  const [showForm, setShowForm] = useState(false)
+  const [name, setName] = useState("")
+  const [expiryDate, setExpiryDate] = useState("")
+  // Plaintext of the just-minted token — shown once, then dismissed forever.
+  const [minted, setMinted] = useState<APITokenCreated | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const { data, isLoading, error, refetch } = useAPITokens()
+  const createMutation = useCreateAPIToken()
+  const revokeMutation = useRevokeAPIToken()
+
+  const resetForm = () => {
+    setShowForm(false)
+    setName("")
+    setExpiryDate("")
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed) return
+    createMutation.mutate(
+      { name: trimmed, expires_in_days: daysUntil(expiryDate) },
+      {
+        onSuccess: (res) => {
+          setMinted(res.data)
+          setCopied(false)
+          resetForm()
+        },
+      },
+    )
+  }
+
+  const copyToken = async () => {
+    if (!minted) return
+    try {
+      await navigator.clipboard.writeText(minted.token)
+      setCopied(true)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  if (error) return <ErrorDisplay error={error as Error} onRetry={() => refetch()} />
+
+  const tokens: APIToken[] = data?.data || []
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <KeyRound className="size-3.5" />
+            API tokens ({tokens.length})
+          </CardTitle>
+          <button
+            onClick={() => (showForm ? resetForm() : setShowForm(true))}
+            className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+          >
+            <Plus className="size-3" />
+            {showForm ? "Cancel" : "Mint token"}
+          </button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <p className="text-[10px] text-muted-foreground mb-3">
+          Read-only tokens grant <span className="font-mono">GET</span>-only programmatic access via an{" "}
+          <span className="font-mono">Authorization: Bearer</span> header. They carry viewer permissions and
+          bypass CSRF for token auth only.
+        </p>
+
+        {/* One-time plaintext reveal — shown once after minting, never again. */}
+        {minted && (
+          <div className="mb-4 p-3 rounded border border-warning/50 bg-warning/10 space-y-2">
+            <div className="flex items-center gap-1.5 text-warning">
+              <KeyRound className="size-3.5" />
+              <span className="text-xs font-semibold">Copy your new token now</span>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              This is the only time <span className="font-medium">{minted.name}</span> will be shown. It cannot be
+              retrieved again — store it somewhere safe.
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 px-2 py-1.5 rounded border border-input bg-background font-mono text-[11px] break-all select-all">
+                {minted.token}
+              </code>
+              <button
+                onClick={copyToken}
+                className={cn(
+                  "inline-flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium rounded border transition-colors shrink-0",
+                  copied
+                    ? "border-success/40 bg-success/10 text-success"
+                    : "border-input bg-muted/50 hover:bg-accent"
+                )}
+                title="Copy token to clipboard"
+              >
+                {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+            <button
+              onClick={() => setMinted(null)}
+              className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+            >
+              I&apos;ve saved it — dismiss
+            </button>
+          </div>
+        )}
+
+        {showForm && (
+          <form onSubmit={handleSubmit} className="space-y-2 mb-4 p-3 border border-border rounded bg-muted/20">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Field label="Name">
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Grafana datasource"
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </Field>
+              <Field label="Expires">
+                <input
+                  type="date"
+                  value={expiryDate}
+                  min={minExpiryDate()}
+                  onChange={(e) => setExpiryDate(e.target.value)}
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </Field>
+            </div>
+            <p className="text-[10px] text-muted-foreground italic px-1">
+              Leave the expiry empty for a token that never expires.
+            </p>
+            <button
+              type="submit"
+              disabled={createMutation.isPending || !name.trim()}
+              className="px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              Mint token
+            </button>
+          </form>
+        )}
+
+        {isLoading ? (
+          <TableSkeleton rows={4} cols={6} />
+        ) : tokens.length === 0 ? (
+          <EmptyState message="No API tokens — mint one for read-only programmatic access" />
+        ) : (
+          <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Prefix</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Owner</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Created</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Last used</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Expires</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Status</th>
+                  <th className="pb-1.5 text-right font-medium text-muted-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tokens.map((t) => (
+                  <TokenRow key={t.id} token={t} onRevoke={(id) => revokeMutation.mutate(id)} revoking={revokeMutation.isPending} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function TokenRow({ token, onRevoke, revoking }: { token: APIToken; onRevoke: (id: string) => void; revoking: boolean }) {
+  const status = tokenStatus(token)
+  return (
+    <tr className="border-b border-border/40 last:border-0 hover:bg-accent/50">
+      <td className="py-1.5 font-medium">{token.name}</td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground">{token.token_prefix}…</td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden md:table-cell truncate max-w-[14rem]">{token.owner || "—"}</td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden lg:table-cell whitespace-nowrap">
+        {new Date(token.created_at).toLocaleString()}
+      </td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden lg:table-cell whitespace-nowrap">
+        {isUnsetTime(token.last_used_at) ? "never" : new Date(token.last_used_at).toLocaleString()}
+      </td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground whitespace-nowrap">
+        {isUnsetTime(token.expires_at) ? "never" : new Date(token.expires_at).toLocaleString()}
+      </td>
+      <td className="py-1.5">
+        <span
+          className={cn(
+            "px-1.5 py-0.5 text-[9px] font-medium rounded border uppercase",
+            status === "active" && "border-success/40 bg-success/10 text-success",
+            status === "revoked" && "border-destructive/40 bg-destructive/10 text-destructive",
+            status === "expired" && "border-warning/40 bg-warning/10 text-warning"
+          )}
+        >
+          {status}
+        </span>
+      </td>
+      <td className="py-1.5 text-right">
+        {status === "active" ? (
+          <button
+            onClick={() => { if (confirm(`Revoke token "${token.name}"? This cannot be undone.`)) onRevoke(token.id) }}
+            disabled={revoking}
+            className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors disabled:opacity-50"
+            title="Revoke token"
+          >
+            <Trash2 className="size-3" />
+          </button>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
       </td>
     </tr>
   )

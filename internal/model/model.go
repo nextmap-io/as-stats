@@ -418,6 +418,30 @@ type RetentionPolicy struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// APIToken is a read-only programmatic access token (Module G). The plaintext
+// token and its SHA-256 hash are NEVER exposed in this struct — token_hash is
+// deliberately absent so it can never be serialized to an API response or log.
+// The token grants viewer-role, GET/HEAD-only access via a Bearer header.
+type APIToken struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	TokenPrefix string    `json:"token_prefix"` // first ~10 chars, for display only
+	Owner       string    `json:"owner"`
+	CreatedAt   time.Time `json:"created_at"`
+	LastUsedAt  time.Time `json:"last_used_at"`
+	ExpiresAt   time.Time `json:"expires_at"` // Unix <= 0 means "never expires"
+	Revoked     bool      `json:"revoked"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// APITokenCreated wraps a freshly minted APIToken together with its one-time
+// plaintext value. The plaintext is returned to the caller exactly once (on
+// creation) and is never persisted or retrievable again.
+type APITokenCreated struct {
+	APIToken
+	Token string `json:"token"` // plaintext — shown once, never stored
+}
+
 // TableStorageStats holds per-table storage observability metrics derived from
 // system.parts / system.mutations and joined with the configured retention.
 type TableStorageStats struct {
