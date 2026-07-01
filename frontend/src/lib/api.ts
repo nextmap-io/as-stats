@@ -144,7 +144,7 @@ export const api = {
   // ─── Traffic heatmap (U8) — 7×24 day-of-week × hour-of-day grid ──────────
   trafficHeatmap: (filters?: QueryFilters) => fetchAPI<HeatmapData>("/traffic/heatmap", filters),
 
-  status: () => fetchAPI<{ routers: { router_ip: string; last_seen: string; flow_count: number }[]; total_rows: number; db_size: number }>("/status"),
+  status: (filters?: QueryFilters) => fetchAPI<{ routers: { router_ip: string; last_seen: string; flow_count: number }[]; total_rows: number; db_size: number }>("/status", filters),
   dnsPtr: (ip: string) => fetchAPI<{ ip: string; ptr: string }>("/dns/ptr", { ip } as QueryFilters),
   search: (q: string) => fetchAPI<ASInfo[]>("/search", { q }),
 
