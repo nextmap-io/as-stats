@@ -335,8 +335,39 @@ export interface Features {
   port_stats: boolean
   alerts: boolean
   bgp: boolean
+  reports: boolean
   local_as?: number
   auth: boolean
+}
+
+// =============================================================================
+// Scheduled reports (Admin → Reports, Module D)
+// =============================================================================
+
+// ReportSchedule mirrors internal/model.ReportSchedule exactly. A cron
+// goroutine in the collector renders an HTML summary + CSV over a
+// frequency-derived window (daily → 24h, weekly → 7d, monthly → 30d) and
+// delivers it via SMTP. `hour` is the UTC hour (0-23) the report fires;
+// `day_of_week` (0-6, 0 = Sunday) applies to weekly; `day_of_month` (1-28)
+// to monthly. `recipients` and `sections` are comma-separated.
+export type ReportFrequency = "daily" | "weekly" | "monthly"
+export type ReportFormat = "html" | "csv" | "both"
+export type ReportSection = "overview" | "top_as" | "top_country" | "capacity" | "alerts"
+
+export interface ReportSchedule {
+  id: string
+  name: string
+  frequency: ReportFrequency
+  hour: number
+  day_of_week: number
+  day_of_month: number
+  recipients: string
+  sections: string
+  format: ReportFormat
+  enabled: boolean
+  last_run_at: string
+  created_at: string
+  updated_at: string
 }
 
 // =============================================================================

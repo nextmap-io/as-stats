@@ -31,6 +31,7 @@ import type {
   PrefixTraffic,
   ProtocolTraffic,
   QueryFilters,
+  ReportSchedule,
   RetentionPolicy,
   StorageStats,
   TalkersResponse,
@@ -222,6 +223,17 @@ export const api = {
       method: "PUT",
       body,
     }),
+
+  // ─── Scheduled reports (admin, FEATURE_REPORTS) ──────────
+  listReportSchedules: () => fetchAPI<ReportSchedule[]>("/admin/reports"),
+  createReportSchedule: (schedule: Partial<ReportSchedule>) =>
+    fetchAPI<ReportSchedule>("/admin/reports", undefined, { method: "POST", body: schedule }),
+  updateReportSchedule: (id: string, schedule: Partial<ReportSchedule>) =>
+    fetchAPI<ReportSchedule>(`/admin/reports/${id}`, undefined, { method: "PUT", body: schedule }),
+  deleteReportSchedule: (id: string) =>
+    fetchAPI<unknown>(`/admin/reports/${id}`, undefined, { method: "DELETE" }),
+  testReport: (id: string) =>
+    fetchAPI<{ status: string }>(`/admin/reports/${id}/test`, undefined, { method: "POST" }),
 
   // ─── Audit log (admin) ───────────────────────────────────
   auditLog: (filters?: { from?: string; to?: string; user?: string; action?: string; limit?: number }) =>

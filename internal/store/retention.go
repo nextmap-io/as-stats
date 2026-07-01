@@ -372,7 +372,7 @@ func (s *ClickHouseStore) diskStats(ctx context.Context) ([]model.DiskStats, err
 
 // softDeleteTables lists the ReplacingMergeTree config tables that carry a
 // `deleted` tombstone column and can therefore be physically purged.
-var softDeleteTables = []string{"alert_rules", "webhook_configs", "hostgroups"}
+var softDeleteTables = []string{"alert_rules", "webhook_configs", "hostgroups", "report_schedules"}
 
 // PurgeSoftDeleted physically removes tombstoned (deleted = 1) rows older than
 // `days` from the config tables via lightweight ALTER ... DELETE mutations.

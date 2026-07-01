@@ -12,6 +12,7 @@ import (
 	"github.com/nextmap-io/as-stats/internal/api/middleware"
 	"github.com/nextmap-io/as-stats/internal/bgp"
 	"github.com/nextmap-io/as-stats/internal/config"
+	"github.com/nextmap-io/as-stats/internal/reports"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
 
@@ -59,6 +60,19 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 	h.FeaturePortStats = cfg.FeaturePortStats
 	h.FeatureAlerts = cfg.FeatureAlerts
 	h.FeatureBGP = cfg.BGPEnabled
+	h.FeatureReports = cfg.FeatureReports
+	h.AuthEnabled = cfg.AuthEnabled
+
+	// Report delivery service for the "send test report now" endpoint. Requires
+	// SMTP config; loadSMTP already enforces SMTP_HOST/SMTP_FROM when the feature
+	// is on, so a non-nil generator implies a usable sender.
+	if cfg.FeatureReports {
+		if gen, err := reports.NewGenerator(s); err != nil {
+			log.Printf("WARNING: report generator init failed: %v — test-send disabled", err)
+		} else {
+			h.ReportService = reports.NewService(s, gen, reports.NewSender(cfg.SMTP))
+		}
+	}
 
 	// BGP blocker: real ScriptBlocker when BGP_ENABLED=true, noop otherwise.
 	// The ScriptBlocker is initialized here (not in main.go) because the
@@ -258,6 +272,11 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 				r.Get("/audit", h.ListAuditLog)
 			}
 
+			// Scheduled reports (gated by FEATURE_REPORTS).
+			if cfg.FeatureReports {
+				r.Get("/reports", h.ListReports)
+			}
+
 			// Writes
 			r.Post("/links", h.LinkCreate)
 			r.Delete("/links/{tag}", h.LinkDelete)
@@ -275,6 +294,13 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 				r.Post("/hostgroups", h.CreateHostgroup)
 				r.Put("/hostgroups/{id}", h.UpdateHostgroup)
 				r.Delete("/hostgroups/{id}", h.DeleteHostgroup)
+			}
+
+			if cfg.FeatureReports {
+				r.Post("/reports", h.CreateReport)
+				r.Put("/reports/{id}", h.UpdateReport)
+				r.Delete("/reports/{id}", h.DeleteReport)
+				r.Post("/reports/{id}/test", h.TestReport)
 			}
 		})
 	})

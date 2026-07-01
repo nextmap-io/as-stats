@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
-import type { QueryFilters } from "@/lib/types"
+import type { QueryFilters, ReportSchedule } from "@/lib/types"
 
 const REFETCH = 300_000 // 5 minutes
 
@@ -199,5 +199,47 @@ export function useSetRetention() {
     mutationFn: ({ table, ttl_days, enabled }: { table: string; ttl_days: number; enabled: boolean }) =>
       api.setRetention(table, { ttl_days, enabled }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["storage"] }),
+  })
+}
+
+// ─── Scheduled reports (admin, FEATURE_REPORTS) ────────────
+
+const REPORTS_KEY = ["report-schedules"]
+
+export function useReportSchedules() {
+  return useQuery({
+    queryKey: REPORTS_KEY,
+    queryFn: () => api.listReportSchedules(),
+  })
+}
+
+export function useCreateReportSchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (schedule: Partial<ReportSchedule>) => api.createReportSchedule(schedule),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: REPORTS_KEY }),
+  })
+}
+
+export function useUpdateReportSchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, schedule }: { id: string; schedule: Partial<ReportSchedule> }) =>
+      api.updateReportSchedule(id, schedule),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: REPORTS_KEY }),
+  })
+}
+
+export function useDeleteReportSchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.deleteReportSchedule(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: REPORTS_KEY }),
+  })
+}
+
+export function useTestReport() {
+  return useMutation({
+    mutationFn: (id: string) => api.testReport(id),
   })
 }

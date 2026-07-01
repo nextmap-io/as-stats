@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nextmap-io/as-stats/internal/bgp"
+	"github.com/nextmap-io/as-stats/internal/reports"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
 
@@ -23,9 +24,17 @@ type Handler struct {
 	FeaturePortStats  bool
 	FeatureAlerts     bool
 	FeatureBGP        bool
+	FeatureReports    bool
 
 	// BGP blocker for blackhole actions (noop by default)
 	BGPBlocker bgp.Blocker
+
+	// ReportService renders + sends scheduled reports on demand (test endpoint).
+	// Nil when FEATURE_REPORTS is off or SMTP is not configured.
+	ReportService *reports.Service
+
+	// AuthEnabled mirrors APIConfig.AuthEnabled for the /features response.
+	AuthEnabled bool
 }
 
 // New creates a new Handler.
