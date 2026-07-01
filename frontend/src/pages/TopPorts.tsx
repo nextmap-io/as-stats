@@ -6,6 +6,7 @@ import { useUnit } from "@/hooks/useUnit"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { TableSkeleton } from "@/components/ui/skeleton"
+import { ExportButton, type ExportColumn } from "@/components/ExportButton"
 import { BarChart3 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { PortTraffic } from "@/lib/types"
@@ -55,6 +56,16 @@ export function TopPorts() {
       return next
     })
   }
+
+  const exportColumns: ExportColumn<PortTraffic>[] = [
+    { key: "port", header: "Port", value: (p) => p.port },
+    { key: "service", header: "Service", value: (p) => p.service ?? "" },
+    { key: "protocol", header: "Protocol", value: (p) => p.protocol_name || String(p.protocol) },
+    { key: "direction", header: "Direction", value: (p) => p.direction },
+    { key: "bytes", header: "Bytes", value: (p) => p.bytes },
+    { key: "flows", header: "Flows", value: (p) => p.flows },
+    { key: "pct", header: "Percent", value: (p) => p.pct },
+  ]
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -114,9 +125,12 @@ export function TopPorts() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle>
-            {direction === "in" ? "Destination ports (services accessed)" : "Source ports (services exposed)"}
-          </CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle>
+              {direction === "in" ? "Destination ports (services accessed)" : "Source ports (services exposed)"}
+            </CardTitle>
+            <ExportButton rows={rows} columns={exportColumns} filename={`top-ports-${direction}`} />
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
