@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Link } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { api } from "@/lib/api"
 import { useFilters } from "@/hooks/useFilters"
 import { useUnit } from "@/hooks/useUnit"
@@ -7,12 +7,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { TableSkeleton } from "@/components/ui/skeleton"
 import { ExportButton, type ExportColumn } from "@/components/ExportButton"
+import { ViewToggle } from "@/components/ViewToggle"
+import { asView } from "@/lib/view"
+import { TopNViz, type VizDatum } from "@/components/charts/TopNViz"
 import { BarChart3 } from "lucide-react"
 import type { ProtocolTraffic } from "@/lib/types"
 
 export function TopProtocols() {
   const { filters, periodSeconds, filterSearch } = useFilters()
   const { formatTraffic } = useUnit()
+  const [searchParams] = useSearchParams()
+  const view = asView(searchParams.get("view"))
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["top-protocol", filters],
     queryFn: () => api.topProtocol(filters),
@@ -47,33 +52,100 @@ export function TopProtocols() {
           <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
             5-min aggregation
           </span>
+          <ViewToggle />
           <ExportButton rows={[...inbound, ...outbound]} columns={exportColumns} filename="top-protocols" />
         </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <ProtocolTable
-          title="Inbound"
-          rows={inbound}
-          loading={isLoading}
-          accent="text-traffic-in"
-          formatTraffic={formatTraffic}
-          periodSeconds={periodSeconds}
-          filterSearch={filterSearch}
-          direction="in"
-        />
-        <ProtocolTable
-          title="Outbound"
-          rows={outbound}
-          loading={isLoading}
-          accent="text-traffic-out"
-          formatTraffic={formatTraffic}
-          periodSeconds={periodSeconds}
-          filterSearch={filterSearch}
-          direction="out"
-        />
+        {view !== "table" ? (
+          <>
+            <ProtocolViz
+              title="Inbound"
+              rows={inbound}
+              view={view}
+              accent="text-traffic-in"
+              formatTraffic={formatTraffic}
+              periodSeconds={periodSeconds}
+              filterSearch={filterSearch}
+              direction="in"
+            />
+            <ProtocolViz
+              title="Outbound"
+              rows={outbound}
+              view={view}
+              accent="text-traffic-out"
+              formatTraffic={formatTraffic}
+              periodSeconds={periodSeconds}
+              filterSearch={filterSearch}
+              direction="out"
+            />
+          </>
+        ) : (
+          <>
+            <ProtocolTable
+              title="Inbound"
+              rows={inbound}
+              loading={isLoading}
+              accent="text-traffic-in"
+              formatTraffic={formatTraffic}
+              periodSeconds={periodSeconds}
+              filterSearch={filterSearch}
+              direction="in"
+            />
+            <ProtocolTable
+              title="Outbound"
+              rows={outbound}
+              loading={isLoading}
+              accent="text-traffic-out"
+              formatTraffic={formatTraffic}
+              periodSeconds={periodSeconds}
+              filterSearch={filterSearch}
+              direction="out"
+            />
+          </>
+        )}
       </div>
     </div>
+  )
+}
+
+interface ProtocolVizProps {
+  title: string
+  rows: ProtocolTraffic[]
+  view: "treemap" | "donut"
+  accent: string
+  formatTraffic: (bytes: number, periodSeconds: number) => string
+  periodSeconds: number
+  filterSearch: string
+  direction: "in" | "out"
+}
+
+function ProtocolViz({ title, rows, view, accent, formatTraffic, periodSeconds, filterSearch, direction }: ProtocolVizProps) {
+  const sep = filterSearch ? "&" : "?"
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className={accent}>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <EmptyState message="No data" icon={<BarChart3 className="size-8" />} />
+        ) : (
+          <TopNViz
+            view={view}
+            height={320}
+            data={rows.map<VizDatum>((p) => ({
+              name: p.protocol_name || `proto:${p.protocol}`,
+              value: p.bytes,
+              path: `/top/port${filterSearch}${sep}protocol=${p.protocol}&direction=${direction}`,
+            }))}
+            formatValue={(v) => formatTraffic(v, periodSeconds)}
+            label={`${title} protocol composition`}
+          />
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

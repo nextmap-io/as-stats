@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { Link } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { useTopAS } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -7,6 +7,9 @@ import { QueryBoundary } from "@/components/QueryBoundary"
 import { DataTable, PercentBar, type Column } from "@/components/DataTable"
 import { ExportButton, type ExportColumn } from "@/components/ExportButton"
 import { MetricToggle } from "@/components/MetricToggle"
+import { ViewToggle } from "@/components/ViewToggle"
+import { asView } from "@/lib/view"
+import { TopNViz, type VizDatum } from "@/components/charts/TopNViz"
 import { asMetric, metricValue } from "@/lib/metric"
 import { RatioBar, AsymmetryBadge } from "@/components/Asymmetry"
 import { formatNumber, formatBytes, cn } from "@/lib/utils"
@@ -17,6 +20,8 @@ import type { ASTraffic } from "@/lib/types"
 export function TopAS() {
   const { filters, setFilter, periodSeconds, filterSearch } = useFilters()
   const { formatTraffic } = useUnit()
+  const [searchParams] = useSearchParams()
+  const view = asView(searchParams.get("view"))
   const query = useTopAS({ ...filters, limit: 50 })
   const rows = query.data?.data ?? []
 
@@ -170,6 +175,7 @@ export function TopAS() {
               Autonomous Systems by traffic volume
             </CardTitle>
             <div className="flex items-center gap-2">
+              <ViewToggle />
               <MetricToggle value={metric} onChange={(v) => setFilter("metric", v)} />
               <ExportButton rows={rows} columns={exportColumns} filename="top-as" />
             </div>
@@ -177,7 +183,19 @@ export function TopAS() {
         </CardHeader>
         <CardContent>
           <QueryBoundary query={query} isEmpty={(d) => d.data.length === 0} loadingCols={10}>
-            {(data) => (
+            {(data) =>
+              view !== "table" ? (
+                <TopNViz
+                  view={view}
+                  data={data.data.map<VizDatum>((as) => ({
+                    name: `AS${as.as_number}${as.as_name ? ` ${as.as_name}` : ""}`,
+                    value: metricValue(as, metric),
+                    path: `/as/${as.as_number}${filterSearch}`,
+                  }))}
+                  formatValue={(v) => (metric === "bytes" ? formatTraffic(v, periodSeconds) : formatNumber(v))}
+                  label={`Top autonomous systems by ${metric}`}
+                />
+              ) : (
               <>
                 <DataTable rows={data.data} columns={columns} rowKey={(as) => as.as_number} />
 
@@ -202,7 +220,8 @@ export function TopAS() {
                   </button>
                 </div>
               </>
-            )}
+              )
+            }
           </QueryBoundary>
         </CardContent>
       </Card>

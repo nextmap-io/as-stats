@@ -17,6 +17,7 @@ import type {
   BGPSessionStatus,
   Features,
   FlowLogEntry,
+  HeatmapData,
   FlowSearchFilters,
   IPDetailData,
   IPTraffic,
@@ -139,6 +140,9 @@ export const api = {
   linksCapacity: (filters?: QueryFilters) => fetchAPI<LinkCapacity[]>("/links/capacity", filters),
   linkLoadCurve: (tag: string, filters?: QueryFilters) =>
     fetchAPI<LoadCurve>(`/link/${tag}/load-curve`, filters),
+
+  // ─── Traffic heatmap (U8) — 7×24 day-of-week × hour-of-day grid ──────────
+  trafficHeatmap: (filters?: QueryFilters) => fetchAPI<HeatmapData>("/traffic/heatmap", filters),
 
   status: () => fetchAPI<{ routers: { router_ip: string; last_seen: string; flow_count: number }[]; total_rows: number; db_size: number }>("/status"),
   dnsPtr: (ip: string) => fetchAPI<{ ip: string; ptr: string }>("/dns/ptr", { ip } as QueryFilters),

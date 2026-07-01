@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { useTopIP } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -7,6 +7,9 @@ import { QueryBoundary } from "@/components/QueryBoundary"
 import { DataTable, PercentBar, type Column } from "@/components/DataTable"
 import { ExportButton, type ExportColumn } from "@/components/ExportButton"
 import { MetricToggle } from "@/components/MetricToggle"
+import { ViewToggle } from "@/components/ViewToggle"
+import { asView } from "@/lib/view"
+import { TopNViz, type VizDatum } from "@/components/charts/TopNViz"
 import { asMetric, metricValue } from "@/lib/metric"
 import { formatNumber, formatBytes, cn } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
@@ -18,6 +21,8 @@ type Scope = "all" | "internal" | "external"
 export function TopIP() {
   const { filters, setFilter, periodSeconds, filterSearch } = useFilters()
   const { formatTraffic } = useUnit()
+  const [searchParams] = useSearchParams()
+  const view = asView(searchParams.get("view"))
   const [scope, setScope] = useState<Scope>("all")
 
   const query = useTopIP({ ...filters, limit: 50, scope: scope === "all" ? undefined : scope })
@@ -151,6 +156,7 @@ export function TopIP() {
               {scope === "internal" ? "Internal" : scope === "external" ? "External" : "All"} IPs by traffic volume
             </CardTitle>
             <div className="flex items-center gap-2">
+              <ViewToggle />
               <MetricToggle value={metric} onChange={(v) => setFilter("metric", v)} />
               <ExportButton rows={rows} columns={exportColumns} filename="top-ip" />
             </div>
@@ -158,7 +164,19 @@ export function TopIP() {
         </CardHeader>
         <CardContent>
           <QueryBoundary query={query} isEmpty={(d) => d.data.length === 0} loadingCols={7}>
-            {(data) => (
+            {(data) =>
+              view !== "table" ? (
+                <TopNViz
+                  view={view}
+                  data={data.data.map<VizDatum>((ip) => ({
+                    name: ip.ip,
+                    value: metricValue(ip, metric),
+                    path: `/ip/${ip.ip}${filterSearch}`,
+                  }))}
+                  formatValue={(v) => (metric === "bytes" ? formatTraffic(v, periodSeconds) : formatNumber(v))}
+                  label={`Top IP addresses by ${metric}`}
+                />
+              ) : (
               <>
                 <DataTable rows={data.data} columns={columns} rowKey={(ip) => ip.ip} rowClassName="border-border/40" />
 
@@ -179,7 +197,8 @@ export function TopIP() {
                   </button>
                 </div>
               </>
-            )}
+              )
+            }
           </QueryBoundary>
         </CardContent>
       </Card>

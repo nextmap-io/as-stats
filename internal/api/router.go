@@ -166,6 +166,9 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Get("/links/traffic", h.LinksTraffic)
 			r.Get("/links/capacity", h.LinksCapacity)
 
+			// Traffic heatmap (U8) — 7×24 day-of-week × hour-of-day grid.
+			r.Get("/traffic/heatmap", h.TrafficHeatmap)
+
 			// Comparison — movers / talkers (Module D). Always available;
 			// port dimension is gated inside the handler on FEATURE_PORT_STATS.
 			r.Get("/changes/movers", h.Movers)

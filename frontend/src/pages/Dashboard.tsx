@@ -1,11 +1,13 @@
 import { Link } from "react-router-dom"
-import { useOverview, useLinksTraffic, useTopASTraffic, useLinkColors } from "@/hooks/useApi"
+import { useOverview, useLinksTraffic, useTopASTraffic, useLinkColors, useTrafficHeatmap } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { PageSkeleton } from "@/components/ui/skeleton"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
 import { TrafficChart } from "@/components/charts/TrafficChart"
+import { TrafficHeatmap } from "@/components/charts/TrafficHeatmap"
+import { QueryBoundary } from "@/components/QueryBoundary"
 import { ExpandableChart } from "@/components/ExpandableChart"
 import { ComparisonToggle } from "@/components/ComparisonToggle"
 import { previousWindow, shiftSeries, sumLinkSeries, useCompareEnabled } from "@/lib/comparison"
@@ -26,6 +28,7 @@ export function Dashboard() {
   const { data: topASv6 } = useTopASTraffic(6, filters)
   const { formatTraffic } = useUnit()
   const linkColors = useLinkColors()
+  const heatmap = useTrafficHeatmap(filters)
   const [showAll, setShowAll] = useState(false)
 
   // Comparison overlay (Module D). The dashboard has no single total series, so
@@ -139,6 +142,23 @@ export function Dashboard() {
           </Card>
         </div>
       )}
+
+      {/* Traffic heatmap — day-of-week × hour-of-day (U8) */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle>Traffic pattern — day × hour</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <QueryBoundary
+            query={heatmap}
+            isEmpty={(d) => d.data.cells.every((c) => c.mean_bps === 0 && c.peak_bps === 0)}
+            loadingRows={7}
+            loadingCols={12}
+          >
+            {(data) => <TrafficHeatmap cells={data.data.cells} />}
+          </QueryBoundary>
+        </CardContent>
+      </Card>
 
       {/* Top AS with IPv4 + IPv6 graphs per AS */}
       {topASList.length > 0 && (

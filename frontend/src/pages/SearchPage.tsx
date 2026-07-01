@@ -1,15 +1,7 @@
 import { Link, useSearchParams, Navigate } from "react-router-dom"
 import { useSearch } from "@/hooks/useApi"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-
-function detectRedirect(q: string): string | null {
-  const asMatch = q.match(/^[Aa][Ss]?(\d+)$/)
-  if (asMatch) return `/as/${asMatch[1]}`
-  if (/^\d+$/.test(q)) return `/as/${q}`
-  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/.test(q) || (q.includes(":") && !q.includes(" ")))
-    return `/ip/${encodeURIComponent(q.split("/")[0])}`
-  return null
-}
+import { detectRedirect } from "@/lib/detectRedirect"
 
 export function SearchPage() {
   const [searchParams] = useSearchParams()
