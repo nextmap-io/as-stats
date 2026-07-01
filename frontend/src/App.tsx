@@ -14,6 +14,7 @@ import { IPDetail } from "@/pages/IPDetail"
 import { Links } from "@/pages/Links"
 import { LinkDetail } from "@/pages/LinkDetail"
 import { Capacity } from "@/pages/Capacity"
+import { Status } from "@/pages/Status"
 import { SearchPage } from "@/pages/SearchPage"
 import { FlowSearch } from "@/pages/FlowSearch"
 import { Conversations } from "@/pages/Conversations"
@@ -52,6 +53,7 @@ function AppWithProviders() {
             <Route path="/links" element={<Links />} />
             <Route path="/link/:tag" element={<LinkDetail />} />
             <Route path="/capacity" element={<Capacity />} />
+            <Route path="/status" element={<Status />} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/flows" element={<FlowSearch />} />
             <Route path="/conversations" element={<Conversations />} />
