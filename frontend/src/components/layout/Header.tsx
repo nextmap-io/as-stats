@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import { useTheme } from "@/hooks/useTheme"
 import { useUnit } from "@/hooks/useUnit"
@@ -7,21 +7,11 @@ import { useStatus } from "@/hooks/useApi"
 import { useFeatureFlags } from "@/hooks/useFeatures"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
-import { Search, Sun, Moon, Monitor, Activity, Menu, X, LogOut, Bell, Shield, Rows2, Rows3 } from "lucide-react"
+import { Search, Sun, Moon, Monitor, Activity, Menu, X, LogOut, Bell, ChevronDown, Rows2, Rows3 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 type NavItem = { to: string; label: string }
-
-const baseNav: NavItem[] = [
-  { to: "/", label: "Dashboard" },
-  { to: "/top/as", label: "Top AS" },
-  { to: "/countries", label: "Countries" },
-  { to: "/top/ip", label: "Top IP" },
-  { to: "/top/prefix", label: "Prefixes" },
-  { to: "/links", label: "Links" },
-  { to: "/capacity", label: "Capacity" },
-  { to: "/changes", label: "Changes" },
-]
+type NavGroup = { label: string; items: NavItem[] }
 
 export function Header() {
   const { theme, setTheme } = useTheme()
@@ -29,6 +19,9 @@ export function Header() {
   const { density, toggle: toggleDensity } = useDensity()
   const [searchQuery, setSearchQuery] = useState("")
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  // Which top-level dropdown is open (by group label), or null. Only one at a time.
+  const [openMenu, setOpenMenu] = useState<string | null>(null)
+  const navRef = useRef<HTMLElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -36,6 +29,9 @@ export function Header() {
     e.preventDefault()
     const q = searchQuery.trim()
     if (!q) return
+    // Any successful search navigates away — collapse open menus first.
+    setOpenMenu(null)
+    setMobileMenuOpen(false)
 
     // Direct navigation for known patterns
     const asMatch = q.match(/^[Aa][Ss]?(\d+)$/)
@@ -83,27 +79,59 @@ export function Header() {
 
   // Feature flags
   const features = useFeatureFlags()
+  const isAdmin = user?.role === "admin"
 
-  // Build nav items dynamically based on enabled features
-  const navItems: NavItem[] = [...baseNav]
+  // Build the grouped navigation. Each group's items are feature-gated; a group
+  // with no visible items is dropped entirely so empty menus never render.
+  const groups: NavGroup[] = []
+
+  const traffic: NavItem[] = [
+    { to: "/top/as", label: "Top AS" },
+    { to: "/top/ip", label: "Top IP" },
+    { to: "/top/prefix", label: "Prefixes" },
+    { to: "/countries", label: "Countries" },
+  ]
   if (features.port_stats) {
-    navItems.push({ to: "/top/protocol", label: "Protocols" })
-    navItems.push({ to: "/top/port", label: "Ports" })
+    traffic.push({ to: "/top/protocol", label: "Protocols" })
+    traffic.push({ to: "/top/port", label: "Ports" })
   }
+  groups.push({ label: "Traffic", items: traffic })
+
+  groups.push({
+    label: "Network",
+    items: [
+      { to: "/links", label: "Links" },
+      { to: "/capacity", label: "Capacity" },
+      { to: "/changes", label: "Changes" },
+    ],
+  })
+
   if (features.flow_search) {
-    navItems.push({ to: "/flows", label: "Flow Search" })
-    navItems.push({ to: "/conversations", label: "Conversations" })
+    groups.push({
+      label: "Forensics",
+      items: [
+        { to: "/flows", label: "Flow Search" },
+        { to: "/conversations", label: "Conversations" },
+      ],
+    })
   }
+
+  const security: NavItem[] = []
   if (features.alerts) {
-    navItems.push({ to: "/live", label: "Live Threats" })
+    security.push({ to: "/live", label: "Live Threats" })
+    security.push({ to: "/alerts", label: "Alerts" })
   }
   if (features.bgp) {
-    navItems.push({ to: "/bgp", label: "BGP Blocks" })
+    security.push({ to: "/bgp", label: "BGP Blocks" })
   }
-  // System status — admin only (aggregates ingestion, storage/retention, features, alerts)
-  if (user && user.role === "admin") {
-    navItems.push({ to: "/status", label: "Status" })
-  }
+  if (security.length) groups.push({ label: "Security", items: security })
+
+  const system: NavItem[] = []
+  if (isAdmin) system.push({ to: "/status", label: "Status" })
+  // The admin console is reachable by alert-feature viewers too (writes are
+  // still server-gated), mirroring the previous shield-icon visibility.
+  if (isAdmin || features.alerts) system.push({ to: "/admin", label: "Admin" })
+  if (system.length) groups.push({ label: "System", items: system })
 
   // Active alerts count for the badge
   const { data: alertsSummary } = useQuery({
@@ -123,6 +151,25 @@ export function Header() {
 
   const ThemeIcon = theme === "dark" ? Moon : theme === "light" ? Sun : Monitor
 
+  // Close the open dropdown on outside click or Escape. Only wired while a menu
+  // is open so we don't keep global listeners around needlessly. (Item clicks
+  // close via onClose; search navigation closes in handleSearch.)
+  useEffect(() => {
+    if (!openMenu) return
+    const onDown = (e: MouseEvent) => {
+      if (navRef.current && !navRef.current.contains(e.target as Node)) setOpenMenu(null)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenMenu(null)
+    }
+    document.addEventListener("mousedown", onDown)
+    document.addEventListener("keydown", onKey)
+    return () => {
+      document.removeEventListener("mousedown", onDown)
+      document.removeEventListener("keydown", onKey)
+    }
+  }, [openMenu])
+
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
       <div className="flex h-12 items-center gap-3 px-4 lg:px-6">
@@ -135,11 +182,23 @@ export function Header() {
           title={statusTitle}
         />
 
-        <nav className="hidden md:flex items-center gap-0.5 ml-4" aria-label="Main navigation">
-          {navItems.map(item => (
-            <NavLink key={item.to} to={item.to} active={isActive(location.pathname, item.to)}>
-              {item.label}
-            </NavLink>
+        {/* Desktop nav: a Dashboard link plus grouped dropdown menus. No overflow
+            container here — a scroll ancestor would clip the dropdown panels. */}
+        <nav ref={navRef} className="hidden md:flex items-center gap-0.5 ml-4" aria-label="Main navigation">
+          <NavLink to="/" active={isActive(location.pathname, "/")}>
+            Dashboard
+          </NavLink>
+          {groups.map(group => (
+            <NavMenu
+              key={group.label}
+              group={group}
+              pathname={location.pathname}
+              open={openMenu === group.label}
+              onToggle={() => setOpenMenu(prev => (prev === group.label ? null : group.label))}
+              // Hover-swap: once any menu is open, hovering another switches to it.
+              onHover={() => setOpenMenu(prev => (prev !== null ? group.label : prev))}
+              onClose={() => setOpenMenu(null)}
+            />
           ))}
         </nav>
 
@@ -176,17 +235,6 @@ export function Header() {
                   {activeAlerts > 99 ? "99+" : activeAlerts}
                 </span>
               )}
-            </Link>
-          )}
-
-          {(features.alerts || (user && user.role === "admin")) && (
-            <Link
-              to="/admin"
-              className="inline-flex size-8 items-center justify-center rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
-              aria-label="Admin"
-              title="Admin console"
-            >
-              <Shield className="size-3.5" />
             </Link>
           )}
 
@@ -257,27 +305,122 @@ export function Header() {
               className="h-8 w-full rounded border border-input bg-muted/50 pl-7 pr-3 text-xs outline-none"
             />
           </form>
-          <div className="flex flex-col gap-0.5">
-            {navItems.map(item => (
-              <Link
-                key={item.to}
-                to={item.to}
-                onClick={() => setMobileMenuOpen(false)}
-                className={cn(
-                  "px-3 py-2 text-xs font-medium rounded transition-colors",
-                  isActive(location.pathname, item.to)
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                )}
-                aria-current={isActive(location.pathname, item.to) ? "page" : undefined}
-              >
-                {item.label}
-              </Link>
+          <div className="flex flex-col gap-3">
+            <MobileLink to="/" label="Dashboard" pathname={location.pathname} onNavigate={() => setMobileMenuOpen(false)} />
+            {groups.map(group => (
+              <div key={group.label}>
+                <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+                  {group.label}
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  {group.items.map(item => (
+                    <MobileLink
+                      key={item.to}
+                      to={item.to}
+                      label={item.label}
+                      pathname={location.pathname}
+                      onNavigate={() => setMobileMenuOpen(false)}
+                    />
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </nav>
       )}
     </header>
+  )
+}
+
+// NavMenu renders one top-level dropdown: a trigger button plus a panel of
+// links. The panel is absolutely positioned and must not sit inside any
+// overflow-clipping ancestor (see the FilterBar Custom-popover fix).
+function NavMenu({
+  group,
+  pathname,
+  open,
+  onToggle,
+  onHover,
+  onClose,
+}: {
+  group: NavGroup
+  pathname: string
+  open: boolean
+  onToggle: () => void
+  onHover: () => void
+  onClose: () => void
+}) {
+  const active = group.items.some(i => isActive(pathname, i.to))
+  return (
+    <div className="relative" onMouseEnter={onHover}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-haspopup="true"
+        aria-expanded={open}
+        className={cn(
+          "inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded transition-colors",
+          active || open
+            ? "bg-primary/10 text-primary"
+            : "text-muted-foreground hover:text-foreground hover:bg-accent",
+        )}
+      >
+        {group.label}
+        <ChevronDown className={cn("size-3 transition-transform", open && "rotate-180")} aria-hidden />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute left-0 top-full mt-1 z-50 min-w-[180px] rounded border border-border bg-card p-1 shadow-lg animate-fade-in"
+        >
+          {group.items.map(item => (
+            <Link
+              key={item.to}
+              to={item.to}
+              role="menuitem"
+              onClick={onClose}
+              className={cn(
+                "block px-3 py-1.5 text-xs font-medium rounded transition-colors",
+                isActive(pathname, item.to)
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent",
+              )}
+              aria-current={isActive(pathname, item.to) ? "page" : undefined}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MobileLink({
+  to,
+  label,
+  pathname,
+  onNavigate,
+}: {
+  to: string
+  label: string
+  pathname: string
+  onNavigate: () => void
+}) {
+  return (
+    <Link
+      to={to}
+      onClick={onNavigate}
+      className={cn(
+        "px-3 py-2 text-xs font-medium rounded transition-colors",
+        isActive(pathname, to)
+          ? "bg-primary/10 text-primary"
+          : "text-muted-foreground hover:text-foreground hover:bg-accent",
+      )}
+      aria-current={isActive(pathname, to) ? "page" : undefined}
+    >
+      {label}
+    </Link>
   )
 }
 
