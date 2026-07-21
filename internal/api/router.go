@@ -12,6 +12,7 @@ import (
 	"github.com/nextmap-io/as-stats/internal/api/middleware"
 	"github.com/nextmap-io/as-stats/internal/bgp"
 	"github.com/nextmap-io/as-stats/internal/config"
+	"github.com/nextmap-io/as-stats/internal/reports"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
 
@@ -59,6 +60,19 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 	h.FeaturePortStats = cfg.FeaturePortStats
 	h.FeatureAlerts = cfg.FeatureAlerts
 	h.FeatureBGP = cfg.BGPEnabled
+	h.FeatureReports = cfg.FeatureReports
+	h.AuthEnabled = cfg.AuthEnabled
+
+	// Report delivery service for the "send test report now" endpoint. Requires
+	// SMTP config; loadSMTP already enforces SMTP_HOST/SMTP_FROM when the feature
+	// is on, so a non-nil generator implies a usable sender.
+	if cfg.FeatureReports {
+		if gen, err := reports.NewGenerator(s); err != nil {
+			log.Printf("WARNING: report generator init failed: %v — test-send disabled", err)
+		} else {
+			h.ReportService = reports.NewService(s, gen, reports.NewSender(cfg.SMTP))
+		}
+	}
 
 	// BGP blocker: real ScriptBlocker when BGP_ENABLED=true, noop otherwise.
 	// The ScriptBlocker is initialized here (not in main.go) because the
@@ -87,6 +101,10 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		h.BGPBlocker = bgp.NewNoop()
 	}
 	sessions := middleware.NewSessionStore()
+	// Read-only API token authenticator (Module G). The api_tokens table is
+	// always created, so this is wired unconditionally; it is only consulted
+	// from AuthMiddleware, which is applied only when AUTH_ENABLED=true.
+	tokenAuth := middleware.NewAPITokenAuthenticator(s)
 
 	// Prometheus metrics middleware (must be applied before routes so it
 	// captures every request including /healthz and /metrics itself)
@@ -119,7 +137,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 
 		// Apply auth middleware if enabled
 		if cfg.AuthEnabled {
-			r.Use(middleware.AuthMiddleware(cfg, sessions))
+			r.Use(middleware.AuthMiddleware(cfg, sessions, tokenAuth))
 		}
 
 		// Audit log middleware: records sensitive actions (only if alerts/audit
@@ -143,8 +161,18 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Get("/top/as/traffic", h.TopASTraffic)
 			r.Get("/top/ip", h.TopIP)
 			r.Get("/top/prefix", h.TopPrefix)
+			r.Get("/top/country", h.TopCountry)
 			r.Get("/links", h.Links)
 			r.Get("/links/traffic", h.LinksTraffic)
+			r.Get("/links/capacity", h.LinksCapacity)
+
+			// Traffic heatmap (U8) — 7×24 day-of-week × hour-of-day grid.
+			r.Get("/traffic/heatmap", h.TrafficHeatmap)
+
+			// Comparison — movers / talkers (Module D). Always available;
+			// port dimension is gated inside the handler on FEATURE_PORT_STATS.
+			r.Get("/changes/movers", h.Movers)
+			r.Get("/changes/talkers", h.Talkers)
 
 			// Port stats (gated by FEATURE_PORT_STATS)
 			if cfg.FeaturePortStats {
@@ -157,6 +185,8 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		if cfg.FeatureFlowSearch {
 			r.Get("/flows/search", h.FlowSearch)
 			r.Get("/flows/timeseries", h.FlowTimeSeries)
+			// Conversations explorer (F3) — bidirectional top talkers.
+			r.Get("/conversations", h.Conversations)
 		}
 
 		// Alerts (gated by FEATURE_ALERTS)
@@ -165,6 +195,9 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Get("/alerts/summary", h.AlertsSummary)
 			// Live threats — pre-trigger view of top destinations vs. rules
 			r.Get("/threats/live", h.LiveThreats)
+			// Anomaly explainability — decompose a link's window into top
+			// contributing ASes / source IPs / dst ports (Module E).
+			r.Get("/anomaly/explain", h.AnomalyExplain)
 			// Alert actions require CSRF + optional admin role
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.CSRF())
@@ -205,6 +238,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 
 		// Link detail (not cached — specific to one link)
 		r.Get("/link/{tag}", h.LinkDetail)
+		r.Get("/link/{tag}/load-curve", h.LinkLoadCurve)
 
 		// Status
 		r.Get("/status", h.Status)
@@ -237,6 +271,13 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			// Note: GET /admin/links is registered OUTSIDE this group
 			// (line above) because v1.1.1 opened it to all authenticated
 			// users, not just admins.
+
+			// Storage & retention observability (core — always available).
+			r.Get("/storage", h.StorageStatus)
+
+			// Read-only API tokens (core — always available).
+			r.Get("/tokens", h.ListTokens)
+
 			if cfg.FeatureAlerts {
 				r.Get("/rules", h.ListRules)
 				r.Get("/webhooks", h.ListWebhooks)
@@ -244,9 +285,21 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 				r.Get("/audit", h.ListAuditLog)
 			}
 
+			// Scheduled reports (gated by FEATURE_REPORTS).
+			if cfg.FeatureReports {
+				r.Get("/reports", h.ListReports)
+			}
+
 			// Writes
 			r.Post("/links", h.LinkCreate)
 			r.Delete("/links/{tag}", h.LinkDelete)
+
+			// Retention policy edit (core — always available).
+			r.Put("/retention/{table}", h.SetRetention)
+
+			// API token mint / revoke (core — always available).
+			r.Post("/tokens", h.CreateToken)
+			r.Delete("/tokens/{id}", h.RevokeToken)
 
 			if cfg.FeatureAlerts {
 				r.Post("/rules", h.CreateRule)
@@ -258,6 +311,13 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 				r.Post("/hostgroups", h.CreateHostgroup)
 				r.Put("/hostgroups/{id}", h.UpdateHostgroup)
 				r.Delete("/hostgroups/{id}", h.DeleteHostgroup)
+			}
+
+			if cfg.FeatureReports {
+				r.Post("/reports", h.CreateReport)
+				r.Put("/reports/{id}", h.UpdateReport)
+				r.Delete("/reports/{id}", h.DeleteReport)
+				r.Post("/reports/{id}/test", h.TestReport)
 			}
 		})
 	})

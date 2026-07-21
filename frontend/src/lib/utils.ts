@@ -22,6 +22,17 @@ export function formatBps(bytesPerInterval: number, intervalSeconds: number): st
   return `${val.toFixed(val < 10 ? 2 : 1)} ${units[i]}`
 }
 
+// formatBitsPerSec formats an already-computed bits-per-second value (unlike
+// formatBps, which converts bytes-per-interval). Used by capacity/load-curve
+// data where the backend already returns bps.
+export function formatBitsPerSec(bps: number): string {
+  if (!bps || bps < 1) return "0 bps"
+  const units = ["bps", "Kbps", "Mbps", "Gbps", "Tbps"]
+  const i = Math.min(Math.max(0, Math.floor(Math.log(bps) / Math.log(1000))), units.length - 1)
+  const val = bps / Math.pow(1000, i)
+  return `${val < 10 ? val.toFixed(2) : val < 100 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
+}
+
 const NUMBER_FORMAT = new Intl.NumberFormat()
 
 export function formatNumber(n: number): string {

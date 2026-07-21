@@ -17,6 +17,40 @@ type ClickHouseConfig struct {
 	Password string
 }
 
+// SMTPConfig holds outbound email settings for scheduled reports (Module D).
+// Shared by the collector (which sends on schedule) and the API server (which
+// exposes the "send test report now" endpoint).
+type SMTPConfig struct {
+	Host     string // SMTP server host (required when FEATURE_REPORTS=true)
+	Port     int    // SMTP server port (default 587)
+	From     string // envelope + header From address (required when FEATURE_REPORTS=true)
+	User     string // SMTP AUTH username (empty = no auth)
+	Password string // SMTP AUTH password
+	STARTTLS bool   // upgrade the connection with STARTTLS (default true)
+}
+
+// loadSMTP loads SMTP settings from the environment. When featureReports is
+// true, SMTP_HOST and SMTP_FROM are mandatory.
+func loadSMTP(featureReports bool) (SMTPConfig, error) {
+	port, err := strconv.Atoi(envOr("SMTP_PORT", "587"))
+	if err != nil || port < 1 || port > 65535 {
+		return SMTPConfig{}, fmt.Errorf("invalid SMTP_PORT: %q", envOr("SMTP_PORT", "587"))
+	}
+	starttls, _ := strconv.ParseBool(envOr("SMTP_STARTTLS", "true"))
+	cfg := SMTPConfig{
+		Host:     envOr("SMTP_HOST", ""),
+		Port:     port,
+		From:     envOr("SMTP_FROM", ""),
+		User:     envOr("SMTP_USER", ""),
+		Password: envOr("SMTP_PASS", ""),
+		STARTTLS: starttls,
+	}
+	if featureReports && (cfg.Host == "" || cfg.From == "") {
+		return SMTPConfig{}, fmt.Errorf("FEATURE_REPORTS=true requires SMTP_HOST and SMTP_FROM")
+	}
+	return cfg, nil
+}
+
 // CollectorConfig holds flow collector settings.
 type CollectorConfig struct {
 	ClickHouse    ClickHouseConfig
@@ -30,10 +64,18 @@ type CollectorConfig struct {
 	// Flow log retention (only applied when the table exists; default 180 days)
 	FlowLogRetentionDays int
 
+	// Retention management
+	RetentionReconcileInterval time.Duration // how often to apply desired TTLs (default 15m)
+	ConfigPurgeDays            int           // age threshold for purging soft-deleted config rows (default 30)
+
 	// Alert engine
 	FeatureAlerts       bool          // enables the alert evaluator goroutine
 	AlertEvalInterval   time.Duration // default 30s
 	AlertStaleThreshold time.Duration // alerts are auto-resolved after this gap
+
+	// Scheduled reports (Module D)
+	FeatureReports bool       // enables the report scheduler goroutine
+	SMTP           SMTPConfig // outbound email settings
 
 	// BGP: the collector's alert engine can trigger blocks via the API server.
 	// Set BGP_API_URL to the API server's base URL (e.g. "http://localhost:8080")
@@ -65,6 +107,10 @@ type APIConfig struct {
 	FeatureFlowSearch bool // /flows/search, detailed forensic log
 	FeaturePortStats  bool // /top/protocol, /top/port aggregates
 	FeatureAlerts     bool // alert engine + /alerts dashboard
+	FeatureReports    bool // scheduled reports admin + /admin/reports CRUD
+
+	// SMTP settings for the "send test report now" endpoint.
+	SMTP SMTPConfig
 
 	// Prometheus: /metrics access control for the API server (served on
 	// the same port as the API itself).
@@ -136,6 +182,15 @@ func LoadCollector() (*CollectorConfig, error) {
 		return nil, fmt.Errorf("invalid FLOW_LOG_RETENTION_DAYS: %w", err)
 	}
 
+	reconcileInterval, err := time.ParseDuration(envOr("RETENTION_RECONCILE_INTERVAL", "15m"))
+	if err != nil || reconcileInterval <= 0 {
+		return nil, fmt.Errorf("invalid RETENTION_RECONCILE_INTERVAL: %w", err)
+	}
+	configPurgeDays, err := strconv.Atoi(envOr("CONFIG_PURGE_DAYS", "30"))
+	if err != nil || configPurgeDays < 1 {
+		return nil, fmt.Errorf("invalid CONFIG_PURGE_DAYS: %w", err)
+	}
+
 	featureAlerts, _ := strconv.ParseBool(envOr("FEATURE_ALERTS", "false"))
 	alertEval, err := time.ParseDuration(envOr("ALERT_EVAL_INTERVAL", "30s"))
 	if err != nil {
@@ -146,23 +201,33 @@ func LoadCollector() (*CollectorConfig, error) {
 		return nil, fmt.Errorf("invalid ALERT_STALE_THRESHOLD: %w", err)
 	}
 
+	featureReports, _ := strconv.ParseBool(envOr("FEATURE_REPORTS", "false"))
+	smtp, err := loadSMTP(featureReports)
+	if err != nil {
+		return nil, err
+	}
+
 	return &CollectorConfig{
-		ClickHouse:           loadClickHouse(),
-		ListenNetFlow:        envOr("COLLECTOR_LISTEN_NETFLOW", ":2055"),
-		ListenSFlow:          envOr("COLLECTOR_LISTEN_SFLOW", ":6343"),
-		BatchSize:            batchSize,
-		FlushInterval:        flushInterval,
-		Workers:              workers,
-		LocalAS:              uint32(localAS),
-		FlowLogRetentionDays: flowLogRetention,
-		FeatureAlerts:        featureAlerts,
-		AlertEvalInterval:    alertEval,
-		AlertStaleThreshold:  alertStale,
-		BGPAPIURL:            envOr("BGP_API_URL", ""),
-		PrometheusAddr:       envOr("COLLECTOR_PROMETHEUS_ADDR", ":9090"),
-		PrometheusAllowCIDR:  splitCSV(envOr("PROMETHEUS_ALLOW_CIDR", "")),
-		PrometheusUser:       envOr("PROMETHEUS_USER", ""),
-		PrometheusPass:       envOr("PROMETHEUS_PASS", ""),
+		ClickHouse:                 loadClickHouse(),
+		ListenNetFlow:              envOr("COLLECTOR_LISTEN_NETFLOW", ":2055"),
+		ListenSFlow:                envOr("COLLECTOR_LISTEN_SFLOW", ":6343"),
+		BatchSize:                  batchSize,
+		FlushInterval:              flushInterval,
+		Workers:                    workers,
+		LocalAS:                    uint32(localAS),
+		FlowLogRetentionDays:       flowLogRetention,
+		RetentionReconcileInterval: reconcileInterval,
+		ConfigPurgeDays:            configPurgeDays,
+		FeatureAlerts:              featureAlerts,
+		AlertEvalInterval:          alertEval,
+		AlertStaleThreshold:        alertStale,
+		FeatureReports:             featureReports,
+		SMTP:                       smtp,
+		BGPAPIURL:                  envOr("BGP_API_URL", ""),
+		PrometheusAddr:             envOr("COLLECTOR_PROMETHEUS_ADDR", ":9090"),
+		PrometheusAllowCIDR:        splitCSV(envOr("PROMETHEUS_ALLOW_CIDR", "")),
+		PrometheusUser:             envOr("PROMETHEUS_USER", ""),
+		PrometheusPass:             envOr("PROMETHEUS_PASS", ""),
 	}, nil
 }
 
@@ -176,25 +241,32 @@ func LoadAPI() (*APIConfig, error) {
 	featureFlowSearch, _ := strconv.ParseBool(envOr("FEATURE_FLOW_SEARCH", "false"))
 	featurePortStats, _ := strconv.ParseBool(envOr("FEATURE_PORT_STATS", "false"))
 	featureAlerts, _ := strconv.ParseBool(envOr("FEATURE_ALERTS", "false"))
+	featureReports, _ := strconv.ParseBool(envOr("FEATURE_REPORTS", "false"))
+	smtp, err := loadSMTP(featureReports)
+	if err != nil {
+		return nil, err
+	}
 
 	bgpEnabled, _ := strconv.ParseBool(envOr("BGP_ENABLED", "false"))
 	bgpLocalAS, _ := strconv.ParseUint(envOr("BGP_LOCAL_AS", "0"), 10, 32)
 	bgpPeerAS, _ := strconv.ParseUint(envOr("BGP_PEER_AS", "0"), 10, 32)
 
 	cfg := &APIConfig{
-		ClickHouse:        loadClickHouse(),
-		ListenAddr:        envOr("API_LISTEN_ADDR", ":8080"),
-		CORSOrigins:       origins,
-		LocalAS:           uint32(apiLocalAS),
-		AuthEnabled:       authEnabled,
-		OIDCIssuer:        envOr("OIDC_ISSUER_URL", ""),
-		OIDCClientID:      envOr("OIDC_CLIENT_ID", ""),
-		OIDCSecret:        envOr("OIDC_CLIENT_SECRET", ""),
-		OIDCRedirect:      envOr("OIDC_REDIRECT_URL", "http://localhost:8080/auth/callback"),
-		OIDCScopes:        scopes,
+		ClickHouse:          loadClickHouse(),
+		ListenAddr:          envOr("API_LISTEN_ADDR", ":8080"),
+		CORSOrigins:         origins,
+		LocalAS:             uint32(apiLocalAS),
+		AuthEnabled:         authEnabled,
+		OIDCIssuer:          envOr("OIDC_ISSUER_URL", ""),
+		OIDCClientID:        envOr("OIDC_CLIENT_ID", ""),
+		OIDCSecret:          envOr("OIDC_CLIENT_SECRET", ""),
+		OIDCRedirect:        envOr("OIDC_REDIRECT_URL", "http://localhost:8080/auth/callback"),
+		OIDCScopes:          scopes,
 		FeatureFlowSearch:   featureFlowSearch,
 		FeaturePortStats:    featurePortStats,
 		FeatureAlerts:       featureAlerts,
+		FeatureReports:      featureReports,
+		SMTP:                smtp,
 		PrometheusAllowCIDR: splitCSV(envOr("PROMETHEUS_ALLOW_CIDR", "")),
 		PrometheusUser:      envOr("PROMETHEUS_USER", ""),
 		PrometheusPass:      envOr("PROMETHEUS_PASS", ""),

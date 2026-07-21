@@ -6,17 +6,45 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { TableSkeleton } from "@/components/ui/skeleton"
 import { useFeatureFlags } from "@/hooks/useFeatures"
-import { Shield, Trash2, Plus, FileText, Pencil } from "lucide-react"
-import { cn } from "@/lib/utils"
-import type { AlertRule, Hostgroup, WebhookConfig, AuditLogEntry } from "@/lib/types"
+import {
+  useStorageStatus,
+  useSetRetention,
+  useReportSchedules,
+  useCreateReportSchedule,
+  useUpdateReportSchedule,
+  useDeleteReportSchedule,
+  useTestReport,
+  useAPITokens,
+  useCreateAPIToken,
+  useRevokeAPIToken,
+} from "@/hooks/useApi"
+import { Shield, Trash2, Plus, FileText, Pencil, HardDrive, Check, X, Mail, Send, KeyRound, Copy } from "lucide-react"
+import { cn, formatBytes, formatNumber, formatPercent } from "@/lib/utils"
+import type {
+  AlertRule,
+  Hostgroup,
+  WebhookConfig,
+  AuditLogEntry,
+  TableStorageStats,
+  DiskStats,
+  ReportSchedule,
+  ReportFrequency,
+  ReportFormat,
+  ReportSection,
+  APIToken,
+  APITokenCreated,
+} from "@/lib/types"
 
-type Tab = "links" | "rules" | "hostgroups" | "webhooks" | "audit"
+type Tab = "links" | "storage" | "tokens" | "rules" | "hostgroups" | "webhooks" | "reports" | "audit"
 
 const TABS: { value: Tab; label: string; requiresFeature?: keyof ReturnType<typeof useFeatureFlags> }[] = [
   { value: "links", label: "Links" },
+  { value: "storage", label: "Storage" },
+  { value: "tokens", label: "Tokens" },
   { value: "rules", label: "Alert Rules", requiresFeature: "alerts" },
   { value: "hostgroups", label: "Hostgroups", requiresFeature: "alerts" },
   { value: "webhooks", label: "Webhooks", requiresFeature: "alerts" },
+  { value: "reports", label: "Reports", requiresFeature: "reports" },
   { value: "audit", label: "Audit Log", requiresFeature: "alerts" },
 ]
 
@@ -61,9 +89,12 @@ export function Admin() {
       </div>
 
       {tab === "links" && <LinksTab />}
+      {tab === "storage" && <StorageTab />}
+      {tab === "tokens" && <TokensTab />}
       {tab === "rules" && features.alerts && <RulesTab />}
       {tab === "hostgroups" && features.alerts && <HostgroupsTab />}
       {tab === "webhooks" && features.alerts && <WebhooksTab />}
+      {tab === "reports" && features.reports && <ReportsTab />}
       {tab === "audit" && features.alerts && <AuditTab />}
     </div>
   )
@@ -123,6 +154,483 @@ function LinksTab() {
 }
 
 // =============================================================================
+// Storage tab — per-table size/rows/parts + editable retention + disk gauge
+// =============================================================================
+
+function StorageTab() {
+  const { data, isLoading, error, refetch } = useStorageStatus()
+
+  if (error) return <ErrorDisplay error={error as Error} onRetry={() => refetch()} />
+
+  const tables: TableStorageStats[] = data?.data?.tables || []
+  const disks: DiskStats[] = data?.data?.disks || []
+  const pendingTotal = tables.reduce((acc, t) => acc + t.pending_mutations, 0)
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2">
+            <HardDrive className="size-3.5" />
+            Disk usage
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <TableSkeleton rows={2} cols={1} />
+          ) : disks.length === 0 ? (
+            <EmptyState message="No disk information available" />
+          ) : (
+            <div className="space-y-3">
+              {disks.map((d) => (
+                <DiskGauge key={d.name} disk={d} />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-baseline justify-between">
+            <CardTitle>Tables ({tables.length})</CardTitle>
+            {pendingTotal > 0 && (
+              <span
+                className="px-1.5 py-0.5 text-[9px] font-medium rounded border border-warning/40 bg-warning/10 text-warning uppercase"
+                title={`${formatNumber(pendingTotal)} pending mutation(s) across all tables — TTL changes are still materializing`}
+              >
+                TTL lag · {formatNumber(pendingTotal)}
+              </span>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <TableSkeleton rows={8} cols={7} />
+          ) : tables.length === 0 ? (
+            <EmptyState message="No tables found" />
+          ) : (
+            <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="pb-1.5 text-left font-medium text-muted-foreground">Table</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Compressed</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Rows</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Parts</th>
+                    <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Oldest data</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground">TTL (days)</th>
+                    <th className="pb-1.5 text-center font-medium text-muted-foreground">Managed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tables.map((t) => (
+                    <StorageRow key={t.table} table={t} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function DiskGauge({ disk }: { disk: DiskStats }) {
+  const pct = Math.min(100, Math.max(0, disk.used_percent))
+  // Color by threshold — mirrors the disk_usage alert defaults (80% warn, 90% crit).
+  const barColor =
+    pct >= 90 ? "bg-destructive" : pct >= 80 ? "bg-warning" : "bg-success"
+  const textColor =
+    pct >= 90 ? "text-destructive" : pct >= 80 ? "text-warning" : "text-success"
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="font-mono text-[11px] text-muted-foreground">{disk.name}</span>
+        <span className={cn("font-mono tabular-nums text-[11px]", textColor)}>
+          {formatPercent(pct)}
+        </span>
+      </div>
+      <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+        <div
+          className={cn("h-full rounded-full transition-all", barColor)}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="mt-1 text-[10px] text-muted-foreground tabular-nums">
+        {formatBytes(disk.used_bytes)} used · {formatBytes(disk.free_bytes)} free · {formatBytes(disk.total_bytes)} total
+      </div>
+    </div>
+  )
+}
+
+function StorageRow({ table }: { table: TableStorageStats }) {
+  const setRetention = useSetRetention()
+  const [draftDays, setDraftDays] = useState<string>(String(table.ttl_days))
+
+  // Keep the local draft synced with server data when not actively editing
+  // (e.g. after a refetch) — but only if the user hasn't diverged.
+  const serverDays = String(table.ttl_days)
+  const dirty = draftDays !== serverDays
+
+  const saveDays = () => {
+    const days = Number(draftDays)
+    if (!Number.isFinite(days) || days < 1) {
+      setDraftDays(serverDays)
+      return
+    }
+    if (days === table.ttl_days) return
+    setRetention.mutate({ table: table.table, ttl_days: days, enabled: table.ttl_enabled })
+  }
+
+  const toggleEnabled = () => {
+    setRetention.mutate({
+      table: table.table,
+      ttl_days: table.ttl_days || 1,
+      enabled: !table.ttl_enabled,
+    })
+  }
+
+  return (
+    <tr className="border-b border-border/40 last:border-0 hover:bg-accent/50">
+      <td className="py-1.5 font-mono text-[11px]">
+        <div className="flex items-center gap-1.5">
+          {table.table}
+          {table.pending_mutations > 0 && (
+            <span
+              className="px-1 py-0.5 text-[8px] font-medium rounded border border-warning/40 bg-warning/10 text-warning uppercase"
+              title={`${formatNumber(table.pending_mutations)} pending mutation(s) — TTL change still materializing`}
+            >
+              TTL lag
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="py-1.5 text-right font-mono tabular-nums">{formatBytes(table.compressed_bytes)}</td>
+      <td className="py-1.5 text-right font-mono tabular-nums text-muted-foreground">{formatNumber(table.rows)}</td>
+      <td className="py-1.5 text-right font-mono tabular-nums text-muted-foreground">{formatNumber(table.parts)}</td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden md:table-cell whitespace-nowrap">
+        {table.oldest_data ? new Date(table.oldest_data).toLocaleString() : "—"}
+      </td>
+      <td className="py-1.5 text-right">
+        <div className="flex items-center justify-end gap-1">
+          <input
+            type="number"
+            min={1}
+            value={draftDays}
+            disabled={setRetention.isPending}
+            onChange={(e) => setDraftDays(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") saveDays() }}
+            className="w-16 h-6 px-1.5 rounded border border-input bg-background text-xs font-mono tabular-nums text-right outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+          />
+          {dirty && (
+            <div className="flex gap-0.5">
+              <button
+                onClick={saveDays}
+                disabled={setRetention.isPending}
+                className="p-1 rounded hover:bg-success/10 hover:text-success transition-colors disabled:opacity-50"
+                title="Save retention"
+              >
+                <Check className="size-3" />
+              </button>
+              <button
+                onClick={() => setDraftDays(serverDays)}
+                disabled={setRetention.isPending}
+                className="p-1 rounded hover:bg-accent transition-colors disabled:opacity-50"
+                title="Discard"
+              >
+                <X className="size-3" />
+              </button>
+            </div>
+          )}
+        </div>
+      </td>
+      <td className="py-1.5 text-center">
+        <button
+          onClick={toggleEnabled}
+          disabled={setRetention.isPending}
+          className={cn(
+            "px-1.5 py-0.5 text-[10px] rounded border font-medium disabled:opacity-50",
+            table.ttl_enabled
+              ? "border-success/40 bg-success/10 text-success"
+              : "border-input bg-muted/50 text-muted-foreground"
+          )}
+          title={table.ttl_enabled ? "Reconciler manages this table — click to disable" : "Unmanaged — click to enable reconciler"}
+        >
+          {table.ttl_enabled ? "ON" : "OFF"}
+        </button>
+      </td>
+    </tr>
+  )
+}
+
+// =============================================================================
+// Tokens tab — read-only API tokens (Module G)
+//
+// Tokens grant viewer-role, GET/HEAD-only programmatic access via a Bearer
+// header. The plaintext is returned exactly once on creation and never stored;
+// list rows expose only the display prefix, never the hash or plaintext.
+// =============================================================================
+
+// The backend stores "never expires" / "never used" as the Unix epoch
+// (1970-01-01T00:00:00Z), i.e. a non-positive timestamp. Treat those as unset.
+function isUnsetTime(ts: string): boolean {
+  const t = new Date(ts).getTime()
+  return !Number.isFinite(t) || t <= 0
+}
+
+type TokenStatus = "active" | "revoked" | "expired"
+
+function tokenStatus(t: APIToken): TokenStatus {
+  if (t.revoked) return "revoked"
+  if (!isUnsetTime(t.expires_at) && new Date(t.expires_at).getTime() < Date.now()) return "expired"
+  return "active"
+}
+
+// minExpiryDate is tomorrow (UTC) as YYYY-MM-DD — the earliest selectable expiry
+// for a new token. Kept in a helper so the impure Date.now stays out of render.
+function minExpiryDate(): string {
+  return new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
+}
+
+// daysUntil converts a YYYY-MM-DD date (interpreted as end-of-day UTC) into a
+// whole number of days from now, for the backend's expires_in_days contract.
+// Returns 0 (never) for an empty/past date.
+function daysUntil(dateStr: string): number {
+  if (!dateStr) return 0
+  const target = new Date(`${dateStr}T23:59:59Z`).getTime()
+  if (!Number.isFinite(target)) return 0
+  const days = Math.ceil((target - Date.now()) / 86_400_000)
+  return days > 0 ? days : 0
+}
+
+function TokensTab() {
+  const [showForm, setShowForm] = useState(false)
+  const [name, setName] = useState("")
+  const [expiryDate, setExpiryDate] = useState("")
+  // Plaintext of the just-minted token — shown once, then dismissed forever.
+  const [minted, setMinted] = useState<APITokenCreated | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const { data, isLoading, error, refetch } = useAPITokens()
+  const createMutation = useCreateAPIToken()
+  const revokeMutation = useRevokeAPIToken()
+
+  const resetForm = () => {
+    setShowForm(false)
+    setName("")
+    setExpiryDate("")
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed) return
+    createMutation.mutate(
+      { name: trimmed, expires_in_days: daysUntil(expiryDate) },
+      {
+        onSuccess: (res) => {
+          setMinted(res.data)
+          setCopied(false)
+          resetForm()
+        },
+      },
+    )
+  }
+
+  const copyToken = async () => {
+    if (!minted) return
+    try {
+      await navigator.clipboard.writeText(minted.token)
+      setCopied(true)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  if (error) return <ErrorDisplay error={error as Error} onRetry={() => refetch()} />
+
+  const tokens: APIToken[] = data?.data || []
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <KeyRound className="size-3.5" />
+            API tokens ({tokens.length})
+          </CardTitle>
+          <button
+            onClick={() => (showForm ? resetForm() : setShowForm(true))}
+            className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+          >
+            <Plus className="size-3" />
+            {showForm ? "Cancel" : "Mint token"}
+          </button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <p className="text-[10px] text-muted-foreground mb-3">
+          Read-only tokens grant <span className="font-mono">GET</span>-only programmatic access via an{" "}
+          <span className="font-mono">Authorization: Bearer</span> header. They carry viewer permissions and
+          bypass CSRF for token auth only.
+        </p>
+
+        {/* One-time plaintext reveal — shown once after minting, never again. */}
+        {minted && (
+          <div className="mb-4 p-3 rounded border border-warning/50 bg-warning/10 space-y-2">
+            <div className="flex items-center gap-1.5 text-warning">
+              <KeyRound className="size-3.5" />
+              <span className="text-xs font-semibold">Copy your new token now</span>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              This is the only time <span className="font-medium">{minted.name}</span> will be shown. It cannot be
+              retrieved again — store it somewhere safe.
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 px-2 py-1.5 rounded border border-input bg-background font-mono text-[11px] break-all select-all">
+                {minted.token}
+              </code>
+              <button
+                onClick={copyToken}
+                className={cn(
+                  "inline-flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium rounded border transition-colors shrink-0",
+                  copied
+                    ? "border-success/40 bg-success/10 text-success"
+                    : "border-input bg-muted/50 hover:bg-accent"
+                )}
+                title="Copy token to clipboard"
+              >
+                {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+            <button
+              onClick={() => setMinted(null)}
+              className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+            >
+              I&apos;ve saved it — dismiss
+            </button>
+          </div>
+        )}
+
+        {showForm && (
+          <form onSubmit={handleSubmit} className="space-y-2 mb-4 p-3 border border-border rounded bg-muted/20">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Field label="Name">
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Grafana datasource"
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </Field>
+              <Field label="Expires">
+                <input
+                  type="date"
+                  value={expiryDate}
+                  min={minExpiryDate()}
+                  onChange={(e) => setExpiryDate(e.target.value)}
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </Field>
+            </div>
+            <p className="text-[10px] text-muted-foreground italic px-1">
+              Leave the expiry empty for a token that never expires.
+            </p>
+            <button
+              type="submit"
+              disabled={createMutation.isPending || !name.trim()}
+              className="px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              Mint token
+            </button>
+          </form>
+        )}
+
+        {isLoading ? (
+          <TableSkeleton rows={4} cols={6} />
+        ) : tokens.length === 0 ? (
+          <EmptyState message="No API tokens — mint one for read-only programmatic access" />
+        ) : (
+          <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Prefix</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Owner</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Created</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Last used</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Expires</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Status</th>
+                  <th className="pb-1.5 text-right font-medium text-muted-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tokens.map((t) => (
+                  <TokenRow key={t.id} token={t} onRevoke={(id) => revokeMutation.mutate(id)} revoking={revokeMutation.isPending} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function TokenRow({ token, onRevoke, revoking }: { token: APIToken; onRevoke: (id: string) => void; revoking: boolean }) {
+  const status = tokenStatus(token)
+  return (
+    <tr className="border-b border-border/40 last:border-0 hover:bg-accent/50">
+      <td className="py-1.5 font-medium">{token.name}</td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground">{token.token_prefix}…</td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden md:table-cell truncate max-w-[14rem]">{token.owner || "—"}</td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden lg:table-cell whitespace-nowrap">
+        {new Date(token.created_at).toLocaleString()}
+      </td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden lg:table-cell whitespace-nowrap">
+        {isUnsetTime(token.last_used_at) ? "never" : new Date(token.last_used_at).toLocaleString()}
+      </td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground whitespace-nowrap">
+        {isUnsetTime(token.expires_at) ? "never" : new Date(token.expires_at).toLocaleString()}
+      </td>
+      <td className="py-1.5">
+        <span
+          className={cn(
+            "px-1.5 py-0.5 text-[9px] font-medium rounded border uppercase",
+            status === "active" && "border-success/40 bg-success/10 text-success",
+            status === "revoked" && "border-destructive/40 bg-destructive/10 text-destructive",
+            status === "expired" && "border-warning/40 bg-warning/10 text-warning"
+          )}
+        >
+          {status}
+        </span>
+      </td>
+      <td className="py-1.5 text-right">
+        {status === "active" ? (
+          <button
+            onClick={() => { if (confirm(`Revoke token "${token.name}"? This cannot be undone.`)) onRevoke(token.id) }}
+            disabled={revoking}
+            className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors disabled:opacity-50"
+            title="Revoke token"
+          >
+            <Trash2 className="size-3" />
+          </button>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </td>
+    </tr>
+  )
+}
+
+// =============================================================================
 // Rules tab
 // =============================================================================
 
@@ -144,6 +652,20 @@ const RULE_TYPE_META: Record<string, {
   connection_flood: { label: "Connection flood",     description: "Distinct flow count per destination — Slowloris/half-open scan signature", fields: ["count"], fieldLabels: { count: "Min flow count" } },
   subnet_flood:    { label: "Carpet bomb (subnet)", description: "Aggregate traffic to a /N subnet level before thresholding — detects distributed attacks that stay below per-host limits", fields: ["bps", "pps"] },
   smtp_abuse:      { label: "SMTP abuse (spam relay)", description: "Detects internal hosts sending traffic to SMTP ports (25/465/587) above normal levels — compromised spam relay indicator", fields: ["pps", "count"], fieldLabels: { pps: "Max pps to SMTP", count: "Max connections" } },
+  anomaly:         { label: "Traffic anomaly (baseline)", description: "Statistical baseline on per-link hourly throughput: fires when the current hour exceeds median + k·MAD of the same hour-of-week over the last 8 weeks. No fixed bps/pps threshold — tune with the sensitivity (k).", fields: [] },
+}
+
+// Anomaly rules carry sensitivity k as threshold_count = round(k*10) so the
+// feature needs no schema change (e.g. k=2.5 → threshold_count=25). These two
+// helpers convert between the two representations for the rule editor.
+const ANOMALY_DEFAULT_K = 2.5
+
+function kFromThresholdCount(count?: number): number {
+  return count && count > 0 ? count / 10 : ANOMALY_DEFAULT_K
+}
+
+function thresholdCountFromK(k: number): number {
+  return Math.round(k * 10)
 }
 
 function RulesTab() {
@@ -217,7 +739,17 @@ function RulesTab() {
               <Field label="Type">
                 <select
                   value={draft.rule_type || ""}
-                  onChange={(e) => setDraft((d) => ({ ...d, rule_type: e.target.value as AlertRule["rule_type"], threshold_bps: 0, threshold_pps: 0, threshold_count: 0 }))}
+                  onChange={(e) => {
+                    const rt = e.target.value as AlertRule["rule_type"]
+                    setDraft((d) => ({
+                      ...d,
+                      rule_type: rt,
+                      threshold_bps: 0,
+                      threshold_pps: 0,
+                      // Anomaly rules seed threshold_count with the default k.
+                      threshold_count: rt === "anomaly" ? thresholdCountFromK(ANOMALY_DEFAULT_K) : 0,
+                    }))
+                  }}
                   className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   required
                 >
@@ -240,7 +772,7 @@ function RulesTab() {
                 className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </Field>
-            {meta && (
+            {meta && meta.fields.length > 0 && (
               <div className="grid gap-2 sm:grid-cols-2">
                 {meta.fields.includes("bps") && (
                   <Field label={meta.fieldLabels?.bps || "Threshold bps"}>
@@ -292,6 +824,39 @@ function RulesTab() {
                 />
                 <span className="text-[10px] text-muted-foreground ml-1">/{draft.subnet_prefix_len || 24} IPv4 aggregation</span>
               </Field>
+            )}
+            {draft.rule_type === "anomaly" && (
+              <>
+                <Field label="Link filter">
+                  <input
+                    type="text"
+                    value={draft.target_filter || ""}
+                    onChange={(e) => setDraft((d) => ({ ...d, target_filter: e.target.value }))}
+                    placeholder="(all links)"
+                    className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                </Field>
+                <p className="text-[10px] text-muted-foreground italic px-1">
+                  Optional — restrict evaluation to a single link tag. Empty evaluates every link.
+                </p>
+                <Field label="Sensitivity (k)">
+                  <input
+                    type="number"
+                    min={0.5}
+                    step={0.1}
+                    value={kFromThresholdCount(draft.threshold_count)}
+                    onChange={(e) => setDraft((d) => ({ ...d, threshold_count: thresholdCountFromK(Number(e.target.value)) }))}
+                    className="w-24 h-7 px-2 rounded border border-input bg-background text-xs font-mono tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                  <span className="text-[10px] text-muted-foreground ml-1">higher = less sensitive</span>
+                </Field>
+                <p className="text-[10px] text-muted-foreground italic px-1">
+                  Fires when the current hour&apos;s throughput exceeds{" "}
+                  <span className="font-mono">median + k·MAD</span> of the same hour-of-week over the
+                  last 8 weeks (median absolute deviation — robust to outliers). k=2.5 flags a moderate
+                  spike; raise it to suppress noise, lower it to catch smaller deviations.
+                </p>
+              </>
             )}
             <HostgroupSelect value={draft.hostgroup_id} onChange={(id) => setDraft((d) => ({ ...d, hostgroup_id: id }))} />
             <div className="grid gap-2 sm:grid-cols-3">
@@ -429,6 +994,11 @@ function emptyRule(): Partial<AlertRule> {
 }
 
 function formatThreshold(r: AlertRule): React.ReactNode {
+  // Anomaly rules have no fixed threshold — threshold_count carries the
+  // sensitivity k as k*10. Surface it as "k=N.N" rather than a raw count.
+  if (r.rule_type === "anomaly") {
+    return <span className="tabular-nums">k={kFromThresholdCount(r.threshold_count).toFixed(1)}</span>
+  }
   // A rule may legitimately set multiple thresholds (e.g. amplification with
   // both a unique-source count AND a sustained-bps floor). Render each
   // populated value on its own line so they never blur together visually.
@@ -640,6 +1210,367 @@ function maskUrl(url: string): string {
   } catch {
     return url.length > 40 ? url.slice(0, 40) + "..." : url
   }
+}
+
+// =============================================================================
+// Reports tab — scheduled HTML+CSV email reports (Module D, FEATURE_REPORTS)
+// =============================================================================
+
+const REPORT_SECTIONS: { value: ReportSection; label: string }[] = [
+  { value: "overview", label: "Overview" },
+  { value: "top_as", label: "Top AS" },
+  { value: "top_country", label: "Top countries" },
+  { value: "capacity", label: "Capacity" },
+  { value: "alerts", label: "Alerts" },
+]
+
+const DOW_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+interface ReportDraft {
+  name: string
+  frequency: ReportFrequency
+  hour: number
+  day_of_week: number
+  day_of_month: number
+  recipients: string
+  sections: string[]
+  format: ReportFormat
+  enabled: boolean
+}
+
+function emptyReportDraft(): ReportDraft {
+  return {
+    name: "",
+    frequency: "daily",
+    hour: 6,
+    day_of_week: 1,
+    day_of_month: 1,
+    recipients: "",
+    sections: ["overview", "top_as"],
+    format: "both",
+    enabled: true,
+  }
+}
+
+function parseSections(s: string): string[] {
+  return s.split(",").map((x) => x.trim()).filter(Boolean)
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0")
+}
+
+function formatSchedule(s: ReportSchedule): string {
+  const at = `${pad2(s.hour)}:00 UTC`
+  switch (s.frequency) {
+    case "weekly":
+      return `Weekly · ${DOW_LABELS[s.day_of_week] ?? "?"} ${at}`
+    case "monthly":
+      return `Monthly · day ${s.day_of_month} ${at}`
+    default:
+      return `Daily · ${at}`
+  }
+}
+
+function ReportsTab() {
+  const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState<ReportDraft>(() => emptyReportDraft())
+
+  const { data, isLoading, error, refetch } = useReportSchedules()
+  const createMutation = useCreateReportSchedule()
+  const updateMutation = useUpdateReportSchedule()
+
+  const resetForm = () => {
+    setShowForm(false)
+    setEditingId(null)
+    setDraft(emptyReportDraft())
+  }
+
+  const startEdit = (s: ReportSchedule) => {
+    setEditingId(s.id)
+    setDraft({
+      name: s.name,
+      frequency: s.frequency,
+      hour: s.hour,
+      day_of_week: s.day_of_week,
+      day_of_month: s.day_of_month || 1,
+      recipients: s.recipients,
+      sections: parseSections(s.sections),
+      format: s.format,
+      enabled: s.enabled,
+    })
+    setShowForm(true)
+  }
+
+  if (error) return <ErrorDisplay error={error as Error} onRetry={() => refetch()} />
+
+  const schedules: ReportSchedule[] = data?.data || []
+  const isEditing = editingId !== null
+  const isSaving = createMutation.isPending || updateMutation.isPending
+
+  const toggleSection = (key: ReportSection) => {
+    setDraft((d) => ({
+      ...d,
+      sections: d.sections.includes(key)
+        ? d.sections.filter((s) => s !== key)
+        : [...d.sections, key],
+    }))
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const payload: Partial<ReportSchedule> = {
+      name: draft.name,
+      frequency: draft.frequency,
+      hour: draft.hour,
+      day_of_week: draft.frequency === "weekly" ? draft.day_of_week : 0,
+      day_of_month: draft.frequency === "monthly" ? draft.day_of_month : 0,
+      recipients: draft.recipients,
+      sections: draft.sections.join(","),
+      format: draft.format,
+      enabled: draft.enabled,
+    }
+    if (isEditing) {
+      updateMutation.mutate({ id: editingId, schedule: payload }, { onSuccess: resetForm })
+    } else {
+      createMutation.mutate(payload, { onSuccess: resetForm })
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="size-3.5" />
+            Scheduled reports ({schedules.length})
+          </CardTitle>
+          <button
+            onClick={() => (showForm ? resetForm() : setShowForm(true))}
+            className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+          >
+            <Plus className="size-3" />
+            {showForm ? "Cancel" : "Add"}
+          </button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {showForm && (
+          <form onSubmit={handleSubmit} className="space-y-2 mb-4 p-3 border border-border rounded bg-muted/20">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Field label="Name">
+                <input
+                  type="text"
+                  required
+                  value={draft.name}
+                  onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+                  placeholder="Weekly NOC summary"
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </Field>
+              <Field label="Format">
+                <select
+                  value={draft.format}
+                  onChange={(e) => setDraft((d) => ({ ...d, format: e.target.value as ReportFormat }))}
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <option value="html">HTML only</option>
+                  <option value="csv">CSV only</option>
+                  <option value="both">HTML + CSV</option>
+                </select>
+              </Field>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-3">
+              <Field label="Frequency">
+                <select
+                  value={draft.frequency}
+                  onChange={(e) => setDraft((d) => ({ ...d, frequency: e.target.value as ReportFrequency }))}
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </Field>
+              <Field label="Hour (UTC)">
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  required
+                  value={draft.hour}
+                  onChange={(e) => setDraft((d) => ({ ...d, hour: Number(e.target.value) }))}
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </Field>
+              {draft.frequency === "weekly" && (
+                <Field label="Day of week">
+                  <select
+                    value={draft.day_of_week}
+                    onChange={(e) => setDraft((d) => ({ ...d, day_of_week: Number(e.target.value) }))}
+                    className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    {DOW_LABELS.map((label, i) => (
+                      <option key={label} value={i}>{label}</option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+              {draft.frequency === "monthly" && (
+                <Field label="Day of month">
+                  <input
+                    type="number"
+                    min={1}
+                    max={28}
+                    value={draft.day_of_month}
+                    onChange={(e) => setDraft((d) => ({ ...d, day_of_month: Number(e.target.value) }))}
+                    className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                </Field>
+              )}
+            </div>
+
+            <Field label="Recipients">
+              <input
+                type="text"
+                required
+                value={draft.recipients}
+                onChange={(e) => setDraft((d) => ({ ...d, recipients: e.target.value }))}
+                placeholder="noc@example.net, ops@example.net"
+                className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+            </Field>
+
+            <div className="flex items-start gap-2">
+              <span className="text-[10px] text-muted-foreground w-20 shrink-0 pt-1">Sections</span>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {REPORT_SECTIONS.map((s) => (
+                  <label key={s.value} className="inline-flex items-center gap-1.5 text-xs cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={draft.sections.includes(s.value)}
+                      onChange={() => toggleSection(s.value)}
+                      className="size-3.5 rounded border-input accent-primary"
+                    />
+                    {s.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSaving || draft.sections.length === 0}
+              className="px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {isEditing ? "Save" : "Create"}
+            </button>
+          </form>
+        )}
+
+        {isLoading ? (
+          <TableSkeleton rows={3} cols={6} />
+        ) : schedules.length === 0 ? (
+          <EmptyState message="No report schedules configured" />
+        ) : (
+          <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Enabled</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Schedule</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Recipients</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Sections</th>
+                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Format</th>
+                  <th className="pb-1.5 text-right font-medium text-muted-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {schedules.map((s) => (
+                  <ReportRow key={s.id} schedule={s} editing={editingId === s.id} onEdit={() => startEdit(s)} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ReportRow({ schedule, editing, onEdit }: { schedule: ReportSchedule; editing: boolean; onEdit: () => void }) {
+  const updateMutation = useUpdateReportSchedule()
+  const deleteMutation = useDeleteReportSchedule()
+  const testMutation = useTestReport()
+
+  const toggleEnabled = () => {
+    updateMutation.mutate({
+      id: schedule.id,
+      schedule: { ...schedule, enabled: !schedule.enabled },
+    })
+  }
+
+  const sendTest = () => {
+    testMutation.mutate(schedule.id, {
+      onError: (err) => alert(`Test failed: ${(err as Error).message}`),
+    })
+  }
+
+  return (
+    <tr className={cn("border-b border-border/40 last:border-0 hover:bg-accent/50", editing && "bg-primary/5")}>
+      <td className="py-1.5">
+        <button
+          onClick={toggleEnabled}
+          disabled={updateMutation.isPending}
+          className={cn(
+            "px-1.5 py-0.5 text-[10px] rounded border font-medium disabled:opacity-50",
+            schedule.enabled ? "border-success/40 bg-success/10 text-success" : "border-input bg-muted/50 text-muted-foreground"
+          )}
+        >
+          {schedule.enabled ? "ON" : "OFF"}
+        </button>
+      </td>
+      <td className="py-1.5 font-medium">{schedule.name}</td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground whitespace-nowrap">{formatSchedule(schedule)}</td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden md:table-cell truncate max-w-[16rem]">
+        {schedule.recipients}
+      </td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden lg:table-cell">{schedule.sections}</td>
+      <td className="py-1.5 font-mono text-[10px] text-muted-foreground">{schedule.format}</td>
+      <td className="py-1.5 text-right">
+        <div className="flex justify-end gap-0.5">
+          <button
+            onClick={sendTest}
+            disabled={testMutation.isPending}
+            className={cn(
+              "p-1 rounded transition-colors disabled:opacity-50",
+              testMutation.isSuccess ? "text-success" : "hover:bg-accent"
+            )}
+            title="Send test report now"
+          >
+            {testMutation.isSuccess ? <Check className="size-3" /> : <Send className="size-3" />}
+          </button>
+          <button
+            onClick={onEdit}
+            className="p-1 rounded hover:bg-accent transition-colors"
+            title="Edit schedule"
+          >
+            <Pencil className="size-3" />
+          </button>
+          <button
+            onClick={() => { if (confirm(`Delete report "${schedule.name}"?`)) deleteMutation.mutate(schedule.id) }}
+            className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
+            title="Delete schedule"
+          >
+            <Trash2 className="size-3" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  )
 }
 
 // =============================================================================

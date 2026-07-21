@@ -91,7 +91,14 @@ func (s *SessionStore) cleanup() {
 
 // AuthMiddleware creates an OIDC authentication middleware.
 // When AUTH_ENABLED=false, this middleware is not applied at all.
-func AuthMiddleware(cfg *config.APIConfig, sessions *SessionStore) func(http.Handler) http.Handler {
+//
+// Authentication precedence:
+//  1. Browser OIDC session cookie (unchanged).
+//  2. Bearer read-only API token (prefix "ast_") — grants a viewer-role,
+//     GET/HEAD-only principal. Non-safe methods return 403. tokenAuth may be nil
+//     to disable token auth.
+//  3. Bearer session id (legacy programmatic clients using a session as bearer).
+func AuthMiddleware(cfg *config.APIConfig, sessions *SessionStore, tokenAuth *APITokenAuthenticator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Check session cookie
@@ -105,9 +112,33 @@ func AuthMiddleware(cfg *config.APIConfig, sessions *SessionStore) func(http.Han
 			}
 
 			// Check Authorization header (Bearer token - for API clients)
-			authHeader := r.Header.Get("Authorization")
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				token := strings.TrimPrefix(authHeader, "Bearer ")
+			if token, ok := bearerToken(r.Header.Get("Authorization")); ok {
+				// Read-only API token (identified by the ast_ prefix).
+				if tokenAuth != nil && strings.HasPrefix(token, APITokenPrefix) {
+					if user, ok := tokenAuth.Authenticate(r.Context(), token); ok {
+						// Tokens are strictly read-only: reject any state change
+						// before it can reach a handler or the CSRF layer.
+						if !isReadOnlyMethod(r.Method) {
+							w.Header().Set("Content-Type", "application/json")
+							w.WriteHeader(http.StatusForbidden)
+							_ = json.NewEncoder(w).Encode(map[string]string{"error": "API tokens are read-only; only GET and HEAD are permitted"})
+							return
+						}
+						ctx := context.WithValue(r.Context(), userContextKey, user)
+						ctx = context.WithValue(ctx, tokenAuthContextKey, true)
+						next.ServeHTTP(w, r.WithContext(ctx))
+						return
+					}
+					// A well-formed API token that failed lookup (invalid,
+					// expired, or revoked) is rejected outright — do not fall
+					// through to the session lookup.
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusUnauthorized)
+					_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid or expired API token"})
+					return
+				}
+
+				// Legacy: session id supplied as a bearer token.
 				if user, ok := sessions.Get(token); ok {
 					ctx := context.WithValue(r.Context(), userContextKey, user)
 					next.ServeHTTP(w, r.WithContext(ctx))

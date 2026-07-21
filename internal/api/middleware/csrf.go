@@ -12,9 +12,9 @@ const csrfCookieName = "as_stats_csrf"
 
 // CSRF returns middleware that protects state-changing requests (POST, PUT, DELETE)
 // using the double-submit cookie pattern.
-// - On GET requests, a CSRF token is set as a cookie.
-// - On POST/PUT/DELETE, the middleware checks that the X-CSRF-Token header
-//   matches the cookie value.
+//   - On GET requests, a CSRF token is set as a cookie.
+//   - On POST/PUT/DELETE, the middleware checks that the X-CSRF-Token header
+//     matches the cookie value.
 func CSRF() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27,6 +27,15 @@ func CSRF() func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 
 			default:
+				// Read-only API tokens bypass CSRF: they carry no ambient
+				// cookie credential, so the double-submit defense is moot, and
+				// they are already restricted to GET/HEAD by the auth layer.
+				// Session-authenticated requests always keep CSRF.
+				if IsTokenAuth(r.Context()) {
+					next.ServeHTTP(w, r)
+					return
+				}
+
 				// State-changing methods: validate CSRF token
 				cookie, err := r.Cookie(csrfCookieName)
 				if err != nil {

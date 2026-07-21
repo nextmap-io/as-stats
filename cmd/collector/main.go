@@ -15,6 +15,7 @@ import (
 	"github.com/nextmap-io/as-stats/internal/collector"
 	"github.com/nextmap-io/as-stats/internal/config"
 	_ "github.com/nextmap-io/as-stats/internal/metrics" // register metrics
+	"github.com/nextmap-io/as-stats/internal/reports"
 	"github.com/nextmap-io/as-stats/internal/ripestat"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
@@ -47,14 +48,49 @@ func main() {
 	}()
 	log.Println("Connected to ClickHouse")
 
-	// Apply configurable TTL to flows_log if the table exists.
-	// Idempotent — safe to call on every startup.
-	if err := chStore.SetFlowLogRetention(ctx, cfg.FlowLogRetentionDays); err != nil {
-		log.Printf("warning: could not set flows_log retention to %d days: %v",
-			cfg.FlowLogRetentionDays, err)
-	} else if cfg.FlowLogRetentionDays != 180 {
-		log.Printf("flows_log retention set to %d days", cfg.FlowLogRetentionDays)
+	// Seed DB-backed retention policies (idempotent — only on first startup).
+	// flows_log is seeded with FLOW_LOG_RETENTION_DAYS; everything else with the
+	// migration defaults. The reconciler below applies any divergence.
+	if err := chStore.EnsureRetentionPolicies(ctx, cfg.FlowLogRetentionDays); err != nil {
+		log.Printf("warning: could not seed retention policies: %v", err)
 	}
+
+	// Retention reconciler: applies desired TTLs from retention_policies to the
+	// live tables on a fixed interval, running once immediately at startup.
+	go func() {
+		if err := chStore.ReconcileRetention(ctx); err != nil {
+			log.Printf("warning: retention reconcile failed: %v", err)
+		}
+		ticker := time.NewTicker(cfg.RetentionReconcileInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := chStore.ReconcileRetention(ctx); err != nil {
+					log.Printf("warning: retention reconcile failed: %v", err)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Config-table soft-delete purge: physically removes tombstoned rows from
+	// the ReplacingMergeTree config tables once a day.
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := chStore.PurgeSoftDeleted(ctx, cfg.ConfigPurgeDays); err != nil {
+					log.Printf("warning: config purge failed: %v", err)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	c := collector.New(cfg, chStore)
 
@@ -138,6 +174,19 @@ func main() {
 			engine.SetBlocker(bgp.NewRemote(cfg.BGPAPIURL), chStore)
 		}
 		go engine.Run(ctx)
+	}
+
+	// Start scheduled-report goroutine if enabled. Renders HTML+CSV summaries and
+	// delivers them via SMTP on the schedule stored in report_schedules.
+	if cfg.FeatureReports {
+		log.Printf("FEATURE_REPORTS=true — starting report scheduler (SMTP %s:%d)", cfg.SMTP.Host, cfg.SMTP.Port)
+		gen, err := reports.NewGenerator(chStore)
+		if err != nil {
+			log.Printf("warning: could not init report generator: %v", err)
+		} else {
+			svc := reports.NewService(chStore, gen, reports.NewSender(cfg.SMTP))
+			go svc.Run(ctx)
+		}
 	}
 
 	if err := c.Run(ctx); err != nil {

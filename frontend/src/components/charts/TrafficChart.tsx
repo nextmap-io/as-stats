@@ -1,6 +1,7 @@
 import {
   AreaChart,
   Area,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -20,6 +21,12 @@ interface TrafficChartProps {
   p95In?: number
   p95Out?: number
   timeBounds?: { from: number; to: number }
+  /**
+   * Optional previous-period series (Module D comparison overlay), already
+   * time-aligned onto the current axis via `shiftSeries`. When present it is
+   * drawn as dashed, muted in/out lines on top of the current areas.
+   */
+  previous?: TrafficPoint[]
 }
 
 function getIntervalSeconds(data: TrafficPoint[]): number {
@@ -39,12 +46,27 @@ function formatTimeShort(ts: number, multiDay: boolean): string {
   return new Date(ts).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" })
 }
 
-export function TrafficChart({ data, height = 280, showLegend = true, title, p95In, p95Out, timeBounds }: TrafficChartProps) {
+export function TrafficChart({ data, height = 280, showLegend = true, title, p95In, p95Out, timeBounds, previous }: TrafficChartProps) {
   const { formatTraffic, formatAxis, unit } = useUnit()
   const chartColors = useChartColors()
   const interval = getIntervalSeconds(data)
   const stepMs = interval * 1000
   const usePps = unit === "pps"
+  const hasPrev = !!previous && previous.length > 0
+
+  // Previous-period lookup, keyed by timestamp snapped to the bucket step so a
+  // shifted prior series lines up with the current buckets. Outbound is mirrored
+  // to the negative axis, matching the current series.
+  const snap = (ts: number) => (stepMs > 0 ? Math.round(ts / stepMs) * stepMs : ts)
+  const prevByTs = new Map<number, { inbound: number; outbound: number }>()
+  if (previous) {
+    for (const d of previous) {
+      const ts = snap(new Date(d.t).getTime())
+      const inVal = usePps ? d.packets_in || 0 : d.bytes_in
+      const outVal = usePps ? d.packets_out || 0 : d.bytes_out || 0
+      prevByTs.set(ts, { inbound: inVal, outbound: -outVal })
+    }
+  }
 
   // Detect multi-day range
   let minTs = Infinity, maxTs = -Infinity
@@ -68,7 +90,13 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, p95
   // and the area stays up; 4+ is a real outage and we drop to zero.
   const GAP_THRESHOLD = 4
   const sortedTs = Array.from(dataByTs.keys()).sort((a, b) => a - b)
-  const formatted: { time: string; inbound: number; outbound: number }[] = []
+  const formatted: {
+    time: string
+    inbound: number
+    outbound: number
+    prevInbound?: number
+    prevOutbound?: number
+  }[] = []
 
   if (timeBounds && sortedTs.length > 0 && stepMs > 0) {
     const firstTs = sortedTs[0]
@@ -84,7 +112,13 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, p95
     }
     const t = sortedTs[i]
     const v = dataByTs.get(t)!
-    formatted.push({ time: formatTimeShort(t, multiDay), ...v })
+    const prev = hasPrev ? prevByTs.get(snap(t)) : undefined
+    formatted.push({
+      time: formatTimeShort(t, multiDay),
+      ...v,
+      prevInbound: prev?.inbound,
+      prevOutbound: prev?.outbound,
+    })
   }
 
   if (timeBounds && sortedTs.length > 0 && stepMs > 0) {
@@ -135,9 +169,16 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, p95
             }}
             itemStyle={{ padding: 0, color: chartColors.tooltipText }}
             formatter={(value, name) => {
+              if (value == null) return [null, null]
               const abs = Math.abs(Number(value))
               if (abs === 0) return [null, null]
-              return [formatTraffic(abs, interval), name === "inbound" ? "\u2193 In" : "\u2191 Out"]
+              const labels: Record<string, string> = {
+                inbound: "\u2193 In",
+                outbound: "\u2191 Out",
+                prevInbound: "\u2193 In (prev)",
+                prevOutbound: "\u2191 Out (prev)",
+              }
+              return [formatTraffic(abs, interval), labels[String(name)] ?? String(name)]
             }}
             labelStyle={{ color: chartColors.text, marginBottom: 2, fontSize: 9 }}
           />
@@ -161,6 +202,30 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, p95
             dot={false}
             isAnimationActive={false}
           />
+          {hasPrev && (
+            <Line
+              type="stepAfter"
+              dataKey="prevInbound"
+              stroke={chartColors.text}
+              strokeDasharray="4 3"
+              strokeWidth={1}
+              dot={false}
+              connectNulls
+              isAnimationActive={false}
+            />
+          )}
+          {hasPrev && (
+            <Line
+              type="stepAfter"
+              dataKey="prevOutbound"
+              stroke={chartColors.text}
+              strokeDasharray="4 3"
+              strokeWidth={1}
+              dot={false}
+              connectNulls
+              isAnimationActive={false}
+            />
+          )}
         </AreaChart>
       </ResponsiveContainer>
       {showLegend && (
@@ -173,6 +238,15 @@ export function TrafficChart({ data, height = 280, showLegend = true, title, p95
             <span className="inline-block size-2 rounded-sm" style={{ backgroundColor: "hsl(174 72% 46%)", opacity: 0.4 }} />
             <span>{"\u2191"} Out</span>
           </div>
+          {hasPrev && (
+            <div className="flex items-center gap-1">
+              <span
+                className="inline-block h-0 w-3 border-t border-dashed"
+                style={{ borderColor: chartColors.text }}
+              />
+              <span>Previous period</span>
+            </div>
+          )}
         </div>
       )}
     </div>

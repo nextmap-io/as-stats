@@ -28,6 +28,29 @@ func (h *Handler) TopAS(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// TopCountry handles GET /api/v1/top/country — AS traffic aggregated to the
+// country level via as_names.country (AS-level geo). ASes with no country are
+// grouped under "Unknown".
+func (h *Handler) TopCountry(w http.ResponseWriter, r *http.Request) {
+	p := parseQueryParams(r)
+
+	results, totalBytes, err := h.Store.TopCountry(r.Context(), p)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, Response{
+		Data: results,
+		Meta: &ResponseMeta{
+			From:       p.From,
+			To:         p.To,
+			TotalBytes: totalBytes,
+			Limit:      p.Limit,
+			Offset:     p.Offset,
+		},
+	})
+}
+
 // TopASTraffic handles GET /api/v1/top/as/traffic
 func (h *Handler) TopASTraffic(w http.ResponseWriter, r *http.Request) {
 	p := parseQueryParams(r)

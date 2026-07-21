@@ -23,6 +23,7 @@ type FlowReader interface {
 	ASLinkSeries(ctx context.Context, asn uint32, p QueryParams) ([]model.LinkTimeSeries, error)
 	ASTotals(ctx context.Context, asn uint32, p QueryParams) (v4In, v4Out, v6In, v6Out uint64, err error)
 	ASPeers(ctx context.Context, asn uint32, p QueryParams) ([]model.ASTraffic, error)
+	ASAsymmetry(ctx context.Context, asn uint32, p QueryParams) (bytesIn, bytesOut uint64, ratio float64, class string, err error)
 	ASTopIPs(ctx context.Context, asn uint32, p QueryParams) ([]model.IPTraffic, error)
 	ASRemoteIPs(ctx context.Context, asn uint32, p QueryParams) ([]model.IPTraffic, error)
 
@@ -62,17 +63,18 @@ type ASNameStore interface {
 
 // QueryParams holds common query parameters for all read operations.
 type QueryParams struct {
-	From           time.Time
-	To             time.Time
-	LinkTags       []string
-	Direction      string // "in", "out", or "" for both
-	IPVersion      uint8  // 0=all, 4=IPv4, 6=IPv6
-	LocalIPFilter  string // SQL filter for local IPs (from ripestat.PrefixesToSQL)
-	ExcludeAS      uint32   // AS to exclude from top results (local AS)
-	LocalPrefixes  []string // Local CIDR prefixes for prefix scope filtering
-	PrefixScope    string   // "internal" or "external"
-	Limit          int
-	Offset         int
+	From          time.Time
+	To            time.Time
+	LinkTags      []string
+	Direction     string   // "in", "out", or "" for both
+	IPVersion     uint8    // 0=all, 4=IPv4, 6=IPv6
+	LocalIPFilter string   // SQL filter for local IPs (from ripestat.PrefixesToSQL)
+	ExcludeAS     uint32   // AS to exclude from top results (local AS)
+	LocalPrefixes []string // Local CIDR prefixes for prefix scope filtering
+	PrefixScope   string   // "internal" or "external"
+	Metric        string   // Top-N sort metric: "bytes" (default), "packets", "flows" — whitelisted
+	Limit         int
+	Offset        int
 }
 
 // DefaultQueryParams returns sensible defaults (last 24h, limit 20).

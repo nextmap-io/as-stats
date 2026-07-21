@@ -1,23 +1,94 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Link } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useLinks, useLinksTraffic, useLinkColors } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { api } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { QueryBoundary } from "@/components/QueryBoundary"
+import { DataTable, type Column } from "@/components/DataTable"
+import { ExportButton, type ExportColumn } from "@/components/ExportButton"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
 import { ExpandableChart } from "@/components/ExpandableChart"
 import { useUnit } from "@/hooks/useUnit"
 import { Plus, Trash2, BarChart3 } from "lucide-react"
 import { EmptyState } from "@/components/ui/error"
+import type { LinkTraffic } from "@/lib/types"
 
 export function Links() {
   const { filters, filterSearch, periodSeconds, timeBounds } = useFilters()
-  const { data, isLoading, error } = useLinks(filters)
+  const linksQuery = useLinks(filters)
   const { formatTraffic } = useUnit()
   const { data: ipv4Traffic } = useLinksTraffic(4, filters)
   const { data: ipv6Traffic } = useLinksTraffic(6, filters)
   const linkColors = useLinkColors()
+
+  const linkRows = linksQuery.data?.data ?? []
+
+  const columns = useMemo<Column<LinkTraffic>[]>(() => [
+    {
+      key: "tag",
+      header: "Link",
+      sortable: true,
+      render: (l) => (
+        <Link to={`/link/${l.tag}${filterSearch}`} className="text-primary hover:underline font-medium">
+          {l.tag}
+        </Link>
+      ),
+    },
+    {
+      key: "description",
+      header: "Description",
+      sortable: true,
+      className: "text-muted-foreground truncate max-w-48",
+      render: (l) => l.description || "-",
+    },
+    {
+      key: "capacity_mbps",
+      header: "Capacity",
+      align: "right",
+      numeric: true,
+      sortable: true,
+      className: "text-muted-foreground",
+      sortValue: (l) => l.capacity_mbps || 0,
+      render: (l) => (l.capacity_mbps ? `${l.capacity_mbps} Mbps` : "-"),
+    },
+    {
+      key: "bytes_in",
+      header: "Inbound",
+      align: "right",
+      numeric: true,
+      sortable: true,
+      render: (l) => formatTraffic(l.bytes_in, periodSeconds),
+    },
+    {
+      key: "bytes_out",
+      header: "Outbound",
+      align: "right",
+      numeric: true,
+      sortable: true,
+      render: (l) => formatTraffic(l.bytes_out, periodSeconds),
+    },
+    {
+      key: "total",
+      header: "Total",
+      align: "right",
+      numeric: true,
+      sortable: true,
+      className: "font-medium",
+      sortValue: (l) => l.bytes_in + l.bytes_out,
+      render: (l) => formatTraffic(l.bytes_in + l.bytes_out, periodSeconds),
+    },
+  ], [filterSearch, formatTraffic, periodSeconds])
+
+  const exportColumns: ExportColumn<LinkTraffic>[] = [
+    { key: "tag", header: "Link", value: (l) => l.tag },
+    { key: "description", header: "Description", value: (l) => l.description },
+    { key: "capacity_mbps", header: "Capacity (Mbps)", value: (l) => l.capacity_mbps ?? "" },
+    { key: "bytes_in", header: "Bytes In", value: (l) => l.bytes_in },
+    { key: "bytes_out", header: "Bytes Out", value: (l) => l.bytes_out },
+    { key: "total", header: "Total Bytes", value: (l) => l.bytes_in + l.bytes_out },
+  ]
 
   return (
     <div className="space-y-6">
@@ -54,45 +125,22 @@ export function Links() {
       {/* Links table */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Known links with traffic</CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-base">Known links with traffic</CardTitle>
+            <ExportButton rows={linkRows} columns={exportColumns} filename="links" />
+          </div>
         </CardHeader>
         <CardContent>
-          {isLoading && <p className="text-muted-foreground">Loading…</p>}
-          {error && <p className="text-destructive">{error.message}</p>}
-          {data?.data && (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="pb-2 text-left font-medium text-muted-foreground">Link</th>
-                  <th className="pb-2 text-left font-medium text-muted-foreground">Description</th>
-                  <th className="pb-2 text-right font-medium text-muted-foreground">Capacity</th>
-                  <th className="pb-2 text-right font-medium text-muted-foreground">Inbound</th>
-                  <th className="pb-2 text-right font-medium text-muted-foreground">Outbound</th>
-                  <th className="pb-2 text-right font-medium text-muted-foreground">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.data.map(l => (
-                  <tr key={l.tag} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
-                    <td className="py-2">
-                      <Link to={`/link/${l.tag}${filterSearch}`} className="text-primary hover:underline font-medium">
-                        {l.tag}
-                      </Link>
-                    </td>
-                    <td className="py-2 text-muted-foreground truncate max-w-48">{l.description || "-"}</td>
-                    <td className="py-2 text-right font-mono text-muted-foreground">
-                      {l.capacity_mbps ? `${l.capacity_mbps} Mbps` : "-"}
-                    </td>
-                    <td className="py-2 text-right font-mono">{formatTraffic(l.bytes_in, periodSeconds)}</td>
-                    <td className="py-2 text-right font-mono">{formatTraffic(l.bytes_out, periodSeconds)}</td>
-                    <td className="py-2 text-right font-mono font-medium">
-                      {formatTraffic(l.bytes_in + l.bytes_out, periodSeconds)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <QueryBoundary query={linksQuery} isEmpty={(d) => d.data.length === 0} loadingCols={6}>
+            {(data) => (
+              <DataTable
+                rows={data.data}
+                columns={columns}
+                rowKey={(l) => l.tag}
+                tableClassName="text-sm"
+              />
+            )}
+          </QueryBoundary>
         </CardContent>
       </Card>
 

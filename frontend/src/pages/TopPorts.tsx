@@ -6,6 +6,10 @@ import { useUnit } from "@/hooks/useUnit"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { TableSkeleton } from "@/components/ui/skeleton"
+import { ExportButton, type ExportColumn } from "@/components/ExportButton"
+import { ViewToggle } from "@/components/ViewToggle"
+import { asView } from "@/lib/view"
+import { TopNViz, type VizDatum } from "@/components/charts/TopNViz"
 import { BarChart3 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { PortTraffic } from "@/lib/types"
@@ -24,6 +28,7 @@ export function TopPorts() {
 
   const protocol = Number(searchParams.get("protocol") || "0")
   const direction = (searchParams.get("direction") as "in" | "out") || "in"
+  const view = asView(searchParams.get("view"))
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["top-port", filters, protocol, direction],
@@ -55,6 +60,16 @@ export function TopPorts() {
       return next
     })
   }
+
+  const exportColumns: ExportColumn<PortTraffic>[] = [
+    { key: "port", header: "Port", value: (p) => p.port },
+    { key: "service", header: "Service", value: (p) => p.service ?? "" },
+    { key: "protocol", header: "Protocol", value: (p) => p.protocol_name || String(p.protocol) },
+    { key: "direction", header: "Direction", value: (p) => p.direction },
+    { key: "bytes", header: "Bytes", value: (p) => p.bytes },
+    { key: "flows", header: "Flows", value: (p) => p.flows },
+    { key: "pct", header: "Percent", value: (p) => p.pct },
+  ]
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -114,15 +129,32 @@ export function TopPorts() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle>
-            {direction === "in" ? "Destination ports (services accessed)" : "Source ports (services exposed)"}
-          </CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle>
+              {direction === "in" ? "Destination ports (services accessed)" : "Source ports (services exposed)"}
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <ViewToggle />
+              <ExportButton rows={rows} columns={exportColumns} filename={`top-ports-${direction}`} />
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <TableSkeleton rows={10} cols={5} />
           ) : rows.length === 0 ? (
             <EmptyState message="No port data" icon={<BarChart3 className="size-8" />} />
+          ) : view !== "table" ? (
+            <TopNViz
+              view={view}
+              data={rows.map<VizDatum>((p) => ({
+                name: `${p.port}${p.service ? ` ${p.service}` : ""}`,
+                value: p.bytes,
+                path: `/flows${filterSearch}${filterSearch ? "&" : "?"}protocol=${p.protocol}&${direction === "in" ? "dst_port" : "src_port"}=${p.port}`,
+              }))}
+              formatValue={(v) => formatTraffic(v, periodSeconds)}
+              label={`Top ${direction === "in" ? "destination" : "source"} ports by traffic`}
+            />
           ) : (
             <table className="w-full text-xs">
               <thead>

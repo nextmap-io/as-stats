@@ -127,6 +127,19 @@
 
 /* ─── Utility classes ─── */
 @layer utilities {
+  /* Visually-hidden but available to screen readers (chart data fallbacks). */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
   .text-traffic-in {
     color: var(--color-traffic-in);
   }
@@ -174,5 +187,22 @@
     background: linear-gradient(90deg, transparent 25%, var(--color-muted) 50%, transparent 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s ease-in-out infinite;
+  }
+}
+
+/* ─── Reduced motion (U10 a11y) ─── */
+/* Honor the OS "reduce motion" preference: neutralize shimmer/pulse/fade and
+   theme transitions so users prone to motion sickness get a static UI. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-shimmer {
+    background: var(--color-muted);
   }
 }

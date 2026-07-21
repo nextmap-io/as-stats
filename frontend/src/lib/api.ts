@@ -2,30 +2,43 @@ import type {
   Alert,
   AlertRule,
   AlertsSummary,
+  AnomalyExplanation,
   ApiResponse,
+  APIToken,
+  APITokenCreated,
   ASDetailData,
   ASInfo,
   ASTraffic,
   ASTrafficDetail,
   AuditLogEntry,
+  Conversation,
+  CountryTraffic,
   BGPBlock,
   BGPSessionStatus,
   Features,
   FlowLogEntry,
+  HeatmapData,
   FlowSearchFilters,
   IPDetailData,
   IPTraffic,
+  LinkCapacity,
   LinkConfig,
   LinkDetailData,
+  LoadCurve,
   Hostgroup,
   LinkTimeSeries,
   LinkTraffic,
   LiveThreat,
+  MoversResponse,
   Overview,
   PortTraffic,
   PrefixTraffic,
   ProtocolTraffic,
   QueryFilters,
+  ReportSchedule,
+  RetentionPolicy,
+  StorageStats,
+  TalkersResponse,
   TrafficPoint,
   UserInfo,
   WebhookConfig,
@@ -99,6 +112,20 @@ export const api = {
   topASTraffic: (filters?: QueryFilters) => fetchAPI<ASTrafficDetail[]>("/top/as/traffic", filters),
   topIP: (filters?: QueryFilters) => fetchAPI<IPTraffic[]>("/top/ip", filters),
   topPrefix: (filters?: QueryFilters) => fetchAPI<PrefixTraffic[]>("/top/prefix", filters),
+  topCountry: (filters?: QueryFilters) => fetchAPI<CountryTraffic[]>("/top/country", filters),
+
+  // ─── Conversations (F3) — bidirectional top talkers ──────
+  // Requires FEATURE_FLOW_SEARCH server-side. `dim` selects the grouping
+  // (src_dst_ip | src_dst_as | dst_port_proto).
+  conversations: (filters?: QueryFilters) => fetchAPI<Conversation[]>("/conversations", filters),
+
+  // ─── Changes (Module D) — movers / talkers ───────────────
+  // `dim` selects the dimension: movers accept as|prefix|port|country, talkers
+  // accept as|ip|prefix. Current vs. immediately-prior equal-length window.
+  movers: (dim: string, filters?: QueryFilters) =>
+    fetchAPI<MoversResponse>("/changes/movers", { ...filters, dimension: dim }),
+  talkers: (dim: string, filters?: QueryFilters) =>
+    fetchAPI<TalkersResponse>("/changes/talkers", { ...filters, dimension: dim }),
 
   asDetail: (asn: number, filters?: QueryFilters) => fetchAPI<ASDetailData>(`/as/${asn}`, filters),
   asPeers: (asn: number, filters?: QueryFilters) => fetchAPI<ASTraffic[]>(`/as/${asn}/peers`, filters),
@@ -110,8 +137,14 @@ export const api = {
   links: (filters?: QueryFilters) => fetchAPI<LinkTraffic[]>("/links", filters),
   linksTraffic: (filters?: QueryFilters) => fetchAPI<LinkTimeSeries[]>("/links/traffic", filters),
   linkDetail: (tag: string, filters?: QueryFilters) => fetchAPI<LinkDetailData>(`/link/${tag}`, filters),
+  linksCapacity: (filters?: QueryFilters) => fetchAPI<LinkCapacity[]>("/links/capacity", filters),
+  linkLoadCurve: (tag: string, filters?: QueryFilters) =>
+    fetchAPI<LoadCurve>(`/link/${tag}/load-curve`, filters),
 
-  status: () => fetchAPI<{ routers: { router_ip: string; last_seen: string; flow_count: number }[]; total_rows: number; db_size: number }>("/status"),
+  // ─── Traffic heatmap (U8) — 7×24 day-of-week × hour-of-day grid ──────────
+  trafficHeatmap: (filters?: QueryFilters) => fetchAPI<HeatmapData>("/traffic/heatmap", filters),
+
+  status: (filters?: QueryFilters) => fetchAPI<{ routers: { router_ip: string; last_seen: string; flow_count: number }[]; total_rows: number; db_size: number }>("/status", filters),
   dnsPtr: (ip: string) => fetchAPI<{ ip: string; ptr: string }>("/dns/ptr", { ip } as QueryFilters),
   search: (q: string) => fetchAPI<ASInfo[]>("/search", { q }),
 
@@ -153,6 +186,13 @@ export const api = {
   alertsSummary: () => fetchAPI<AlertsSummary>("/alerts/summary"),
   liveThreats: (window?: number, limit?: number) =>
     fetchAPI<LiveThreat[]>("/threats/live", { ...(window && { window }), ...(limit && { limit }) } as QueryFilters),
+
+  // ─── Anomaly explainability (Module E) ───────────────────
+  // Decomposes a link's traffic over the window into its top contributing
+  // source ASes / IPs / destination ports. `target` is the link tag; the
+  // window comes from filters (from/to or period). Gated by FEATURE_ALERTS.
+  anomalyExplain: (target: string, filters?: QueryFilters) =>
+    fetchAPI<AnomalyExplanation>("/anomaly/explain", { ...filters, target }),
   ackAlert: (id: string) =>
     fetchAPI<unknown>(`/alerts/${id}/ack`, undefined, { method: "POST" }),
   resolveAlert: (id: string) =>
@@ -189,6 +229,34 @@ export const api = {
     fetchAPI<Hostgroup>(`/admin/hostgroups/${id}`, undefined, { method: "PUT", body: hg }),
   deleteHostgroup: (id: string) =>
     fetchAPI<unknown>(`/admin/hostgroups/${id}`, undefined, { method: "DELETE" }),
+
+  // ─── Storage & retention (admin) ─────────────────────────
+  storageStatus: () => fetchAPI<StorageStats>("/admin/storage"),
+  setRetention: (table: string, body: { ttl_days: number; enabled: boolean }) =>
+    fetchAPI<RetentionPolicy>(`/admin/retention/${encodeURIComponent(table)}`, undefined, {
+      method: "PUT",
+      body,
+    }),
+
+  // ─── Scheduled reports (admin, FEATURE_REPORTS) ──────────
+  listReportSchedules: () => fetchAPI<ReportSchedule[]>("/admin/reports"),
+  createReportSchedule: (schedule: Partial<ReportSchedule>) =>
+    fetchAPI<ReportSchedule>("/admin/reports", undefined, { method: "POST", body: schedule }),
+  updateReportSchedule: (id: string, schedule: Partial<ReportSchedule>) =>
+    fetchAPI<ReportSchedule>(`/admin/reports/${id}`, undefined, { method: "PUT", body: schedule }),
+  deleteReportSchedule: (id: string) =>
+    fetchAPI<unknown>(`/admin/reports/${id}`, undefined, { method: "DELETE" }),
+  testReport: (id: string) =>
+    fetchAPI<{ status: string }>(`/admin/reports/${id}/test`, undefined, { method: "POST" }),
+
+  // ─── Read-only API tokens (admin, Module G) ──────────────
+  // The plaintext token is returned exactly once by createAPIToken; list
+  // responses expose only the display prefix, never the hash or plaintext.
+  listAPITokens: () => fetchAPI<APIToken[]>("/admin/tokens"),
+  createAPIToken: (body: { name: string; expires_in_days?: number }) =>
+    fetchAPI<APITokenCreated>("/admin/tokens", undefined, { method: "POST", body }),
+  revokeAPIToken: (id: string) =>
+    fetchAPI<unknown>(`/admin/tokens/${encodeURIComponent(id)}`, undefined, { method: "DELETE" }),
 
   // ─── Audit log (admin) ───────────────────────────────────
   auditLog: (filters?: { from?: string; to?: string; user?: string; action?: string; limit?: number }) =>

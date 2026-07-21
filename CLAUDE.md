@@ -122,17 +122,27 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 | `internal/store/store.go` | Interfaces: `FlowWriter`, `FlowReader`, `LinkStore`, `ASNameStore`. |
 | `internal/store/clickhouse.go` | Write implementation (batch INSERT). |
 | `internal/store/reader.go` | Read implementations — every aggregation query lives here. |
-| `internal/store/flow_log.go` | `SearchFlowLog`, `FlowLogTimeSeries`, `TopProtocols`, `TopPorts`, `SetFlowLogRetention`. |
+| `internal/store/flow_log.go` | `SearchFlowLog`, `FlowLogTimeSeries`, `TopProtocols`, `TopPorts`. (`SetFlowLogRetention` removed — retention is now in `retention.go`.) |
 | `internal/store/threats.go` | `LiveThreats` aggregating query for the `/threats/live` endpoint. |
 | `internal/store/alerts.go` | Alert rules / alerts / webhooks / audit log CRUD. `AlertDetails` JSON marshaling for `details` column. |
-| `internal/store/alert_queries.go` | `Eval*` query helpers used by the alert engine. **`buildCIDRFilter` lives here** — read its docstring before touching any IP filtering code. |
+| `internal/store/alert_queries.go` | `Eval*` query helpers used by the alert engine (incl. `EvalDiskUsage`, `EvalLinkCapacity`, `EvalAnomaly`). **`buildCIDRFilter` lives here** — read its docstring before touching any IP filtering code. |
+| `internal/store/retention.go` | v2: table→TTL whitelist, `EnsureRetentionPolicies`, `ReconcileRetention`, `StorageStats`, `PurgeSoftDeleted`. Runtime retention management (replaces `SetFlowLogRetention`). |
+| `internal/store/capacity.go` | v2: `LinksCapacity` (util% + linear-regression forecast), `LinkLoadCurve`. |
+| `internal/store/geo.go` | v2: `TopCountry` (AS-level geo via `as_names.country`). |
+| `internal/store/changes.go` | v2: `Movers`, `Talkers`, `LinkPercentiles` (p50/p95/p99). |
+| `internal/store/conversations.go` | v2: bidirectional top-talkers (`Conversations`). |
+| `internal/store/anomaly.go` | v2: `EvalAnomaly` baseline (median+MAD) + `AnomalyExplain`. |
+| `internal/store/heatmap.go` | v2: `TrafficHeatmap` (7×24 dow×hour). |
+| `internal/store/tokens.go` | v2: read-only API token CRUD + `LookupAPIToken`. |
+| `internal/store/reports.go` | v2: `report_schedules` CRUD. |
+| `internal/reports/` | v2: scheduled-report engine — HTML/CSV generation, `net/smtp` sender, scheduler loop (`isDue`). |
 | `internal/alerts/engine.go` | Alert engine goroutine — rule loop, cooldown map, top-source enrichment, auto-resolution, default-rule seeding. |
 | `internal/alerts/webhook.go` | Slack / Teams / Discord / generic webhook notifier. |
 | `internal/bgp/` | `Blocker` interface — `NoopBlocker` ships, swap in ExaBGP / GoBGP for real RFC 7999 blackholes. |
 | `internal/services/wellknown.go` | IANA protocol + well-known port name resolution (used by Flow Search and Top Ports). |
 | `internal/model/` | Shared types: `FlowRecord`, `ASTraffic`, `IPTraffic`, `LiveThreat`, `AlertRule`, etc. |
 | `internal/config/` | Env-var config loading. `LoadCollector` and `LoadAPI`. |
-| `migrations/` | ClickHouse DDL, numbered 000001–000009. The last three are feature-gated (only applied to fresh installs via `docker-entrypoint-initdb.d`). |
+| `migrations/` | ClickHouse DDL, numbered 000001–000014 (000007–000013 include feature-gated tables; 000012 `retention_policies`, 000013 `report_schedules`, 000014 `api_tokens`). Applied to fresh installs via `docker-entrypoint-initdb.d`. |
 | `frontend/src/pages/` | One React page per route in `App.tsx`. |
 | `frontend/src/hooks/` | TanStack Query hooks (`useApi.ts`), URL-synced filters (`useFilters.ts`), unit toggle (`useUnit.ts`), chart theme (`useChartColors.ts`), DNS (`useDns.ts`), feature flags (`useFeatures.ts`). |
 | `frontend/src/components/charts/` | `TrafficChart` (single in/out), `LinkTrafficChart` (stacked by link), `ASTrafficChart` (stacked by AS) — all Recharts `AreaChart` with `stepAfter`. |
@@ -160,6 +170,12 @@ All tables in the `asstats` database.
 | `traffic_by_prefix` | `SummingMergeTree` | 5 min | 30 days |
 | `links` | `ReplacingMergeTree` | — | — |
 | `as_names` | `ReplacingMergeTree` | — | — |
+| `retention_policies` | `ReplacingMergeTree` | — | — |
+| `api_tokens` | `ReplacingMergeTree` | — | — |
+
+`retention_policies` (migration 000012) drives runtime TTL management — see
+the Retention subsystem note below. `api_tokens` (000014) backs read-only
+Bearer API tokens. Both are always created.
 
 Each aggregation table has **two MVs** (`_in_mv`, `_out_mv`) firing on
 INSERT to `flows_raw`. The query layer picks the best table based on the
@@ -167,12 +183,13 @@ time range: 5-min for ≤90d, hourly for ≤2y, daily beyond.
 
 ### Optional tables (feature-gated)
 
-Created by migrations 000007–000009. Used **only** when the corresponding
+Created by migrations 000007–000013. Used **only** when the corresponding
 feature flag is enabled.
 
 | Table | Feature | Purpose |
 |---|---|---|
 | `flows_log` | `FEATURE_FLOW_SEARCH` | Full per-tuple log, 1-min buckets, 180d default TTL, bloom-filter skip indexes on `src_ip` / `dst_ip`. |
+| `report_schedules` | `FEATURE_REPORTS` | Scheduled HTML+CSV email reports (`ReplacingMergeTree`, soft-delete). Cron goroutine in the collector sends via SMTP. |
 | `traffic_by_port` | `FEATURE_PORT_STATS` | Aggregates per `(link, direction, protocol, port)`, 5-min, 1y TTL. |
 | `traffic_by_dst_1min` | `FEATURE_ALERTS` | `AggregatingMergeTree` keyed by `(ts, dst_ip, protocol)`. Stores `bytes`, `packets`, `flow_count`, `syn_count`, plus HyperLogLog sketches `unique_src_ips` / `unique_src_ports`. 7d TTL. **Used exclusively by the alert engine and Live Threats** — no on-demand queries. |
 | `traffic_by_src_1min` | `FEATURE_ALERTS` | Symmetric for outbound traffic. Used by `volume_out` / `port_scan`. |
@@ -180,6 +197,21 @@ feature flag is enabled.
 | `alerts` | `FEATURE_ALERTS` | Triggered instances with full lifecycle (active → ack → resolved). 1y TTL. |
 | `webhook_configs` | `FEATURE_ALERTS` | Slack / Teams / Discord / generic destinations (`ReplacingMergeTree`). |
 | `audit_log` | `FEATURE_ALERTS` | Compliance trail for all sensitive actions. 1y TTL. |
+
+### Retention subsystem (v2, Module A)
+
+TTLs are no longer hardcoded-only in migrations. `retention_policies` holds one
+row per TTL-bearing table (`table_name`, `ttl_column`, `ttl_days`, `enabled`),
+seeded once from the migration defaults (idempotent — never clobbers operator
+edits). A **reconciler goroutine** in the collector (`RETENTION_RECONCILE_INTERVAL`,
+default 15m) applies `ALTER TABLE … MODIFY TTL` when a policy diverges, skipping
+absent feature-gated tables. A daily **purge goroutine** physically deletes
+`deleted=1` rows from the `ReplacingMergeTree` config tables (`alert_rules`,
+`webhook_configs`, `hostgroups`, `report_schedules`) older than
+`CONFIG_PURGE_DAYS` (default 30). Storage observability is served by
+`GET /admin/storage` (`system.parts`/`tables`/`mutations`/`disks`) and edited via
+`PUT /admin/retention/{table}` (admin + CSRF). All table/column names in dynamic
+retention SQL come from the hardcoded whitelist in `store/retention.go`.
 
 ## API endpoints
 
@@ -208,6 +240,15 @@ All under `/api/v1/`. Common params: `from`, `to`, `period`
 | `GET` | `/features` | `Handler.Features` (frontend gate discovery) |
 | `POST` | `/admin/links` | `Handler.LinkCreate` (CSRF) |
 | `DELETE` | `/admin/links/{tag}` | `Handler.LinkDelete` (CSRF) |
+| `GET` | `/top/country` | `Handler.TopCountry` (AS-level geo via `as_names.country`) |
+| `GET` | `/links/capacity` | `Handler.LinksCapacity` (util% + forecast) |
+| `GET` | `/link/{tag}/load-curve` | `Handler.LinkLoadCurve` (utilization CDF) |
+| `GET` | `/changes/movers` | `Handler.Movers` (`dimension=as/prefix/port/country`) |
+| `GET` | `/changes/talkers` | `Handler.Talkers` (`dimension=as/ip/prefix`, new/gone) |
+| `GET` | `/traffic/heatmap` | `Handler.TrafficHeatmap` (7×24 dow×hour) |
+| `GET` | `/admin/storage` | `Handler.StorageStatus` (admin — table sizes, disk, TTL lag) |
+| `PUT` | `/admin/retention/{table}` | `Handler.SetRetention` (admin, CSRF) |
+| `GET`/`POST`/`DELETE` | `/admin/tokens[/{id}]` | `Handler.*APIToken*` (admin, CSRF — read-only Bearer tokens) |
 
 ### Feature-gated
 
@@ -217,6 +258,7 @@ Registered only when the corresponding `FEATURE_*` env var is set.
 |---|---|---|---|
 | `GET` | `/flows/search` | `FLOW_SEARCH` | `?format=csv` for export, max 100k rows |
 | `GET` | `/flows/timeseries` | `FLOW_SEARCH` | drill-down |
+| `GET` | `/conversations` | `FLOW_SEARCH` | bidirectional top-talkers (`dim=src_dst_ip/src_dst_as/dst_port_proto`) |
 | `GET` | `/top/protocol` | `PORT_STATS` | |
 | `GET` | `/top/port` | `PORT_STATS` | |
 | `GET` | `/alerts` | `ALERTS` | |
@@ -228,6 +270,8 @@ Registered only when the corresponding `FEATURE_*` env var is set.
 | `GET` / `POST` / `PUT` / `DELETE` | `/admin/rules[/{id}]` | `ALERTS` | CSRF + admin for writes |
 | `GET` / `POST` / `PUT` / `DELETE` | `/admin/webhooks[/{id}]` | `ALERTS` | CSRF + admin for writes |
 | `GET` | `/admin/audit` | `ALERTS` | admin only |
+| `GET` | `/anomaly/explain` | `ALERTS` | anomaly contributor breakdown for a target+window |
+| `GET`/`POST`/`PUT`/`DELETE` | `/admin/reports[/{id}]` | `REPORTS` | CSRF + admin; `POST /admin/reports/{id}/test` sends now |
 
 ## Auth
 
@@ -244,17 +288,23 @@ Registered only when the corresponding `FEATURE_*` env var is set.
 
 ## Feature flags
 
-Three independent flags. All default to `false` to keep the base install
+Four independent flags. All default to `false` to keep the base install
 lightweight.
 
 | Flag | Enables | New tables | Storage impact (1 Gbps, 1:1000) |
 |---|---|---|---|
-| `FEATURE_FLOW_SEARCH` | Forensic flow log + Search UI + CSV export | `flows_log` | ~250 GB / 6 mo |
+| `FEATURE_FLOW_SEARCH` | Forensic flow log + Search UI + CSV export + Conversations explorer | `flows_log` | ~250 GB / 6 mo |
 | `FEATURE_PORT_STATS` | Top Protocols + Top Ports | `traffic_by_port` | ~5 MB/day |
 | `FEATURE_ALERTS` | Alert engine + Alerts dashboard + Live Threats + webhooks + audit log + admin tabs | `traffic_by_dst_1min`, `traffic_by_src_1min`, `alert_rules`, `alerts`, `webhook_configs`, `audit_log` | ~50 GB |
+| `FEATURE_REPORTS` | Scheduled HTML+CSV email reports + Admin → Reports tab | `report_schedules` | negligible |
 
-The collector reads `FEATURE_ALERTS` to start the alert engine goroutine.
-The API server reads all three to gate route registration. The frontend
+`FEATURE_REPORTS` requires SMTP settings (`SMTP_HOST`, `SMTP_FROM`, and
+optionally `SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`SMTP_STARTTLS`); the collector
+runs the report scheduler goroutine when it is on.
+
+The collector reads `FEATURE_ALERTS` / `FEATURE_REPORTS` to start the alert
+engine and report scheduler goroutines. The API server reads all four to gate
+route registration. The frontend
 calls `/api/v1/features` (cached forever) to conditionally render UI
 elements via the `useFeatureFlags()` hook.
 
@@ -288,7 +338,16 @@ when `FEATURE_ALERTS=true`.
 | `icmp_flood` | `EvalProtocolFlood(proto=1)` | `traffic_by_dst_1min` |
 | `udp_flood` | `EvalProtocolFlood(proto=17)` | `traffic_by_dst_1min` |
 | `connection_flood` | `EvalConnectionFlood` | `traffic_by_dst_1min` (`flow_count` per dst) |
+| `disk_usage` | `EvalDiskUsage` | `system.disks` (percent threshold via `ThresholdCount`) |
+| `link_capacity` | `EvalLinkCapacity` | `traffic_by_link_hourly` vs `links.capacity_mbps` (util% via `ThresholdCount`) |
+| `anomaly` | `EvalAnomaly` | `traffic_by_link_hourly` — median + k·MAD over same-hour-of-week history; k = `ThresholdCount`/10; target link via `TargetFilter` |
 | `custom` | not implemented in phase 1 | — |
+
+Rules that target a link (not an IP) carry the link tag via
+`AlertViolation.TargetLabel` — the alerts table dedups on the IPv6 `target_ip`
+column, so these report the single worst link per cycle. `disk_usage` /
+`link_capacity` / `anomaly` reuse `ThresholdCount` as their numeric threshold
+(percent, percent, k×10 respectively) to avoid an `alert_rules` migration.
 
 ### Cooldown & cleanup
 
@@ -424,6 +483,7 @@ frontend lint + typecheck + build).
 5. **Bitwise `&` in ClickHouse SQL**. ClickHouse has no infix bitwise
    operator — use `bitAnd(a, b)`. Fixed in migration 000008.
 
-6. **`SetFlowLogRetention` scans `count()` into `*uint8`**. Still open as
-   of writing — non-blocking warning at collector startup, fix is to use
-   `*uint64` in the destination scan.
+6. **`SetFlowLogRetention` scans `count()` into `*uint8`**. FIXED (migration
+   000012 / Module A) — `SetFlowLogRetention` was removed entirely; retention
+   is now DB-backed via `retention_policies` + the reconciler (all `count()`
+   scans use `uint64`). See the Retention subsystem note below.

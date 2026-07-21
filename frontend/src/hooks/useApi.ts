@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
-import type { QueryFilters } from "@/lib/types"
+import type { QueryFilters, ReportSchedule } from "@/lib/types"
 
 const REFETCH = 300_000 // 5 minutes
 
@@ -41,6 +41,38 @@ export function useTopPrefix(filters: QueryFilters) {
   return useQuery({
     queryKey: ["top-prefix", filters],
     queryFn: () => api.topPrefix(filters),
+    refetchInterval: REFETCH,
+  })
+}
+
+export function useTopCountry(filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["top-country", filters],
+    queryFn: () => api.topCountry(filters),
+    refetchInterval: REFETCH,
+  })
+}
+
+export function useConversations(filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["conversations", filters],
+    queryFn: () => api.conversations(filters),
+    refetchInterval: REFETCH,
+  })
+}
+
+export function useMovers(dim: string, filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["movers", dim, filters],
+    queryFn: () => api.movers(dim, filters),
+    refetchInterval: REFETCH,
+  })
+}
+
+export function useTalkers(dim: string, filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["talkers", dim, filters],
+    queryFn: () => api.talkers(dim, filters),
     refetchInterval: REFETCH,
   })
 }
@@ -105,6 +137,23 @@ export function useLinkDetail(tag: string, filters: QueryFilters) {
   })
 }
 
+export function useLinksCapacity(filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["links-capacity", filters],
+    queryFn: () => api.linksCapacity(filters),
+    refetchInterval: REFETCH,
+  })
+}
+
+export function useLinkLoadCurve(tag: string, filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["link-load-curve", tag, filters],
+    queryFn: () => api.linkLoadCurve(tag, filters),
+    enabled: !!tag,
+    refetchInterval: REFETCH,
+  })
+}
+
 export function useLinkColors() {
   const { data } = useQuery({
     queryKey: ["admin-links"],
@@ -120,10 +169,18 @@ export function useLinkColors() {
   return colors
 }
 
-export function useStatus() {
+export function useTrafficHeatmap(filters: QueryFilters) {
   return useQuery({
-    queryKey: ["status"],
-    queryFn: () => api.status(),
+    queryKey: ["traffic-heatmap", filters],
+    queryFn: () => api.trafficHeatmap(filters),
+    refetchInterval: REFETCH,
+  })
+}
+
+export function useStatus(filters?: QueryFilters) {
+  return useQuery({
+    queryKey: ["status", filters],
+    queryFn: () => api.status(filters),
     refetchInterval: 30_000,
   })
 }
@@ -133,5 +190,102 @@ export function useSearch(query: string) {
     queryKey: ["search", query],
     queryFn: () => api.search(query),
     enabled: query.length >= 2,
+  })
+}
+
+// ─── Anomaly explainability (Module E) ─────────────────────
+// On-demand decomposition of a link's anomalous window. Disabled until a
+// target link tag is provided (e.g. when the operator clicks "Explain").
+export function useAnomalyExplain(target: string, filters: QueryFilters) {
+  return useQuery({
+    queryKey: ["anomaly-explain", target, filters],
+    queryFn: () => api.anomalyExplain(target, filters),
+    enabled: !!target,
+  })
+}
+
+export function useStorageStatus() {
+  return useQuery({
+    queryKey: ["storage"],
+    queryFn: () => api.storageStatus(),
+    refetchInterval: 30_000,
+  })
+}
+
+export function useSetRetention() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ table, ttl_days, enabled }: { table: string; ttl_days: number; enabled: boolean }) =>
+      api.setRetention(table, { ttl_days, enabled }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["storage"] }),
+  })
+}
+
+// ─── Scheduled reports (admin, FEATURE_REPORTS) ────────────
+
+const REPORTS_KEY = ["report-schedules"]
+
+export function useReportSchedules() {
+  return useQuery({
+    queryKey: REPORTS_KEY,
+    queryFn: () => api.listReportSchedules(),
+  })
+}
+
+export function useCreateReportSchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (schedule: Partial<ReportSchedule>) => api.createReportSchedule(schedule),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: REPORTS_KEY }),
+  })
+}
+
+export function useUpdateReportSchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, schedule }: { id: string; schedule: Partial<ReportSchedule> }) =>
+      api.updateReportSchedule(id, schedule),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: REPORTS_KEY }),
+  })
+}
+
+export function useDeleteReportSchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.deleteReportSchedule(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: REPORTS_KEY }),
+  })
+}
+
+export function useTestReport() {
+  return useMutation({
+    mutationFn: (id: string) => api.testReport(id),
+  })
+}
+
+// ─── Read-only API tokens (admin, Module G) ────────────────
+
+const API_TOKENS_KEY = ["api-tokens"]
+
+export function useAPITokens() {
+  return useQuery({
+    queryKey: API_TOKENS_KEY,
+    queryFn: () => api.listAPITokens(),
+  })
+}
+
+export function useCreateAPIToken() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { name: string; expires_in_days?: number }) => api.createAPIToken(body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: API_TOKENS_KEY }),
+  })
+}
+
+export function useRevokeAPIToken() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.revokeAPIToken(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: API_TOKENS_KEY }),
   })
 }

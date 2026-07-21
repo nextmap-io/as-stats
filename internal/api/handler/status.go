@@ -3,24 +3,37 @@ package handler
 import (
 	"net/http"
 	"time"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
 )
 
-// Status handles GET /api/v1/status
+// Status handles GET /api/v1/status.
+//
+// The router breakdown and the flow-row count are windowed by the request's
+// time range (from/to, default last 24h) so the Status page's Ingestion card
+// tracks the selected period. They read raw flows (`flows_raw`, 7-day TTL), so
+// they only reflect recent windows. The DB size is point-in-time storage and
+// stays window-independent.
 func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
+	p := parseQueryParams(r)
+
 	type routerStatus struct {
 		RouterIP  string `json:"router_ip"`
 		LastSeen  string `json:"last_seen"`
 		FlowCount uint64 `json:"flow_count"`
 	}
 
-	// Query latest flow per router
+	// Per-router flow volume within the selected window.
 	rows, err := h.Store.Query(r.Context(), `
 		SELECT toString(router_ip), max(timestamp), count()
 		FROM flows_raw
-		WHERE timestamp >= now() - INTERVAL 30 MINUTE
+		WHERE timestamp >= @from AND timestamp < @to
 		GROUP BY router_ip
 		ORDER BY count() DESC
-	`)
+	`,
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -29,20 +42,26 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 
 	var routers []routerStatus
 	for rows.Next() {
-		var r routerStatus
+		var rs routerStatus
 		var ts time.Time
-		if err := rows.Scan(&r.RouterIP, &ts, &r.FlowCount); err != nil {
+		if err := rows.Scan(&rs.RouterIP, &ts, &rs.FlowCount); err != nil {
 			continue
 		}
-		r.LastSeen = ts.UTC().Format(time.RFC3339)
-		routers = append(routers, r)
+		rs.LastSeen = ts.UTC().Format(time.RFC3339)
+		routers = append(routers, rs)
 	}
 
-	// Total rows in DB
+	// Flow rows ingested within the selected window.
 	var totalRows uint64
-	_ = h.Store.QueryRow(r.Context(), `SELECT count() FROM flows_raw`).Scan(&totalRows)
+	_ = h.Store.QueryRow(r.Context(), `
+		SELECT count() FROM flows_raw
+		WHERE timestamp >= @from AND timestamp < @to
+	`,
+		clickhouse.Named("from", p.From),
+		clickhouse.Named("to", p.To),
+	).Scan(&totalRows)
 
-	// DB size
+	// DB size — point-in-time storage, window-independent.
 	var dbSize uint64
 	_ = h.Store.QueryRow(r.Context(), `
 		SELECT sum(bytes_on_disk) FROM system.parts
@@ -55,5 +74,6 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 			"total_rows": totalRows,
 			"db_size":    dbSize,
 		},
+		Meta: &ResponseMeta{From: p.From, To: p.To},
 	})
 }

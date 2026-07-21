@@ -4,11 +4,16 @@ import { useFilters } from "@/hooks/useFilters"
 import { useFeatureFlags } from "@/hooks/useFeatures"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
+import { TrafficChart } from "@/components/charts/TrafficChart"
 import { ExpandableChart } from "@/components/ExpandableChart"
+import { ComparisonToggle } from "@/components/ComparisonToggle"
+import { previousWindow, shiftSeries, useCompareEnabled } from "@/lib/comparison"
 import { formatNumber, formatBytes } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 import { ExternalLink, Search } from "lucide-react"
 import { IPWithPTR } from "@/components/PTR"
+import { RatioBar, AsymmetryBadge } from "@/components/Asymmetry"
+import { countryFlag, countryName, hasCountry } from "@/lib/countries"
 
 export function ASDetail() {
   const { asn } = useParams<{ asn: string }>()
@@ -21,6 +26,16 @@ export function ASDetail() {
   const { data, isLoading, error } = useASDetail(asnNum, filters)
   const { data: topIPsData } = useASTopIPs(asnNum, { ...filters, limit: 20 })
   const { data: remoteIPsData } = useASRemoteIPs(asnNum, { ...filters, limit: 20 })
+
+  // Comparison overlay (Module D). When off, the prev query reuses the active
+  // filters so it dedupes with the main query — no extra request.
+  const compare = useCompareEnabled()
+  const { prevFilters, windowMs } = previousWindow(filters, periodSeconds)
+  const prevDetail = useASDetail(asnNum, compare ? prevFilters : filters)
+  const prevSeries =
+    compare && prevDetail.data?.data?.time_series
+      ? shiftSeries(prevDetail.data.data.time_series, windowMs)
+      : undefined
 
   if (isLoading) return <p className="text-muted-foreground">Loading…</p>
   if (error) return <p className="text-destructive">{error.message}</p>
@@ -38,6 +53,15 @@ export function ASDetail() {
           AS{detail.as_number}
           {detail.as_name && (
             <span className="ml-2 text-sm font-normal text-muted-foreground">{detail.as_name}</span>
+          )}
+          {hasCountry(detail.country) && (
+            <span
+              className="ml-2 text-sm font-normal text-muted-foreground"
+              title={countryName(detail.country)}
+            >
+              <span aria-hidden>{countryFlag(detail.country)}</span>{" "}
+              <span className="font-mono text-xs">{detail.country}</span>
+            </span>
           )}
         </h1>
         <div className="flex items-center gap-3 text-[10px]">
@@ -79,6 +103,7 @@ export function ASDetail() {
               Flows
             </Link>
           )}
+          <ComparisonToggle />
         </div>
       </div>
 
@@ -108,7 +133,26 @@ export function ASDetail() {
             </span>
           ) : null}
         </div>
+        {(detail.bytes_in || detail.bytes_out) ? (
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">Asymmetry:</span>
+            <RatioBar bytesIn={detail.bytes_in || 0} bytesOut={detail.bytes_out || 0} />
+            <AsymmetryBadge cls={detail.class} />
+          </div>
+        ) : null}
       </div>
+
+      {/* Total traffic vs previous period (comparison overlay, opt-in) */}
+      {compare && detail.time_series?.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Total traffic vs previous period</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TrafficChart data={detail.time_series} previous={prevSeries} height={300} timeBounds={timeBounds} />
+          </CardContent>
+        </Card>
+      )}
 
       {/* IPv4 + IPv6 traffic charts side by side, split by link */}
       <div className="grid gap-4 lg:grid-cols-2">

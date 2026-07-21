@@ -1,14 +1,19 @@
 import { Link } from "react-router-dom"
-import { useOverview, useLinksTraffic, useTopASTraffic, useLinkColors } from "@/hooks/useApi"
+import { useOverview, useLinksTraffic, useTopASTraffic, useLinkColors, useTrafficHeatmap } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { PageSkeleton } from "@/components/ui/skeleton"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
+import { TrafficChart } from "@/components/charts/TrafficChart"
+import { TrafficHeatmap } from "@/components/charts/TrafficHeatmap"
+import { QueryBoundary } from "@/components/QueryBoundary"
 import { ExpandableChart } from "@/components/ExpandableChart"
-import { formatNumber } from "@/lib/utils"
+import { ComparisonToggle } from "@/components/ComparisonToggle"
+import { previousWindow, shiftSeries, sumLinkSeries, useCompareEnabled } from "@/lib/comparison"
+import { formatNumber, cn } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { BarChart3 } from "lucide-react"
 import type { LinkTraffic, ASTrafficDetail } from "@/lib/types"
 
@@ -24,6 +29,43 @@ export function Dashboard() {
   const { formatTraffic } = useUnit()
   const linkColors = useLinkColors()
   const [showAll, setShowAll] = useState(false)
+
+  // The day×hour heatmap is a *pattern* view: each of the 7×24 slots only
+  // becomes meaningful once several weeks of samples land in it. So it uses its
+  // own multi-week lookback instead of the (often 24h/7d) global time filter —
+  // while still honouring the link / direction / ip_version filters. `to` is
+  // snapped to the hour to keep the TanStack Query key stable between renders.
+  const [heatmapWeeks, setHeatmapWeeks] = useState(12)
+  const heatmapFilters = useMemo(() => {
+    const nowHour = Math.floor(new Date().getTime() / 3_600_000) * 3_600_000
+    return {
+      ...filters,
+      period: undefined,
+      from: new Date(nowHour - heatmapWeeks * 7 * 86_400_000).toISOString(),
+      to: new Date(nowHour).toISOString(),
+    }
+  }, [filters, heatmapWeeks])
+  const heatmap = useTrafficHeatmap(heatmapFilters)
+
+  // Comparison overlay (Module D). The dashboard has no single total series, so
+  // build one by summing the per-link series it already fetches (v4 + v6). When
+  // off, the prev queries reuse the active filters so they dedupe with the main
+  // link-traffic queries — no extra requests.
+  const compare = useCompareEnabled()
+  const { prevFilters, windowMs } = previousWindow(filters, periodSeconds)
+  const { data: prevV4 } = useLinksTraffic(4, compare ? prevFilters : filters)
+  const { data: prevV6 } = useLinksTraffic(6, compare ? prevFilters : filters)
+  const totalSeries = useMemo(
+    () => (compare ? sumLinkSeries([...(ipv4Traffic?.data || []), ...(ipv6Traffic?.data || [])]) : []),
+    [compare, ipv4Traffic, ipv6Traffic],
+  )
+  const prevTotalSeries = useMemo(
+    () =>
+      compare
+        ? shiftSeries(sumLinkSeries([...(prevV4?.data || []), ...(prevV6?.data || [])]), windowMs)
+        : undefined,
+    [compare, prevV4, prevV6, windowMs],
+  )
 
   if (isLoading) return <PageSkeleton />
   if (error) return <ErrorDisplay error={error} onRetry={() => refetch()} />
@@ -68,7 +110,20 @@ export function Dashboard() {
         <StatPill label="Out" value={formatTraffic(overview.total_bytes_out, periodSeconds)} accent="out" />
         <StatPill label="ASes" value={formatNumber(overview.active_as_count)} />
         <StatPill label="Flows" value={formatNumber(overview.total_flows)} />
+        <ComparisonToggle />
       </div>
+
+      {/* Total traffic vs previous period (comparison overlay, opt-in) */}
+      {compare && totalSeries.length > 0 && (
+        <Card className="overflow-visible">
+          <CardHeader className="pb-2">
+            <CardTitle>Total traffic vs previous period</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TrafficChart data={totalSeries} previous={prevTotalSeries} height={280} timeBounds={timeBounds} />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Global traffic charts: IPv4 / IPv6 by link */}
       {((ipv4Traffic?.data && ipv4Traffic.data.length > 0) || (ipv6Traffic?.data && ipv6Traffic.data.length > 0)) && (
@@ -103,6 +158,48 @@ export function Dashboard() {
           </Card>
         </div>
       )}
+
+      {/* Traffic heatmap — day-of-week × hour-of-day (U8) */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle>Traffic pattern — day × hour</CardTitle>
+            <div
+              className="flex gap-0.5 rounded border border-input bg-muted/30 p-0.5"
+              role="group"
+              aria-label="Heatmap lookback window"
+            >
+              {([4, 8, 12, 26] as const).map((w) => (
+                <button
+                  key={w}
+                  type="button"
+                  onClick={() => setHeatmapWeeks(w)}
+                  aria-pressed={heatmapWeeks === w}
+                  title={`Aggregate the last ${w} weeks`}
+                  className={cn(
+                    "px-2 py-0.5 text-[11px] font-medium rounded transition-colors tabular-nums",
+                    heatmapWeeks === w
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                  )}
+                >
+                  {w}w
+                </button>
+              ))}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <QueryBoundary
+            query={heatmap}
+            isEmpty={(d) => d.data.cells.every((c) => c.mean_bps === 0 && c.peak_bps === 0)}
+            loadingRows={7}
+            loadingCols={12}
+          >
+            {(data) => <TrafficHeatmap cells={data.data.cells} />}
+          </QueryBoundary>
+        </CardContent>
+      </Card>
 
       {/* Top AS with IPv4 + IPv6 graphs per AS */}
       {topASList.length > 0 && (

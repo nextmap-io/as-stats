@@ -29,6 +29,7 @@ export function useFeatureFlags(): Features {
     port_stats: false,
     alerts: false,
     bgp: false,
+    reports: false,
     auth: false,
   }
 }

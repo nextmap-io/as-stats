@@ -8,12 +8,17 @@ import { Dashboard } from "@/pages/Dashboard"
 import { TopAS } from "@/pages/TopAS"
 import { TopIP } from "@/pages/TopIP"
 import { TopPrefixes } from "@/pages/TopPrefixes"
+import { Countries } from "@/pages/Countries"
 import { ASDetail } from "@/pages/ASDetail"
 import { IPDetail } from "@/pages/IPDetail"
 import { Links } from "@/pages/Links"
 import { LinkDetail } from "@/pages/LinkDetail"
+import { Capacity } from "@/pages/Capacity"
+import { Status } from "@/pages/Status"
 import { SearchPage } from "@/pages/SearchPage"
 import { FlowSearch } from "@/pages/FlowSearch"
+import { Conversations } from "@/pages/Conversations"
+import { Changes } from "@/pages/Changes"
 import { TopProtocols } from "@/pages/TopProtocols"
 import { TopPorts } from "@/pages/TopPorts"
 import { Alerts } from "@/pages/Alerts"
@@ -42,12 +47,17 @@ function AppWithProviders() {
             <Route path="/top/as" element={<TopAS />} />
             <Route path="/top/ip" element={<TopIP />} />
             <Route path="/top/prefix" element={<TopPrefixes />} />
+            <Route path="/countries" element={<Countries />} />
             <Route path="/as/:asn" element={<ASDetail />} />
             <Route path="/ip/:ip" element={<IPDetail />} />
             <Route path="/links" element={<Links />} />
             <Route path="/link/:tag" element={<LinkDetail />} />
+            <Route path="/capacity" element={<Capacity />} />
+            <Route path="/status" element={<Status />} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/flows" element={<FlowSearch />} />
+            <Route path="/conversations" element={<Conversations />} />
+            <Route path="/changes" element={<Changes />} />
             <Route path="/top/protocol" element={<TopProtocols />} />
             <Route path="/top/port" element={<TopPorts />} />
             <Route path="/alerts" element={<Alerts />} />

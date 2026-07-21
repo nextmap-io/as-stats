@@ -9,6 +9,7 @@ type FeaturesResponse struct {
 	PortStats  bool   `json:"port_stats"`
 	Alerts     bool   `json:"alerts"`
 	BGP        bool   `json:"bgp"`
+	Reports    bool   `json:"reports"`
 	LocalAS    uint32 `json:"local_as,omitempty"`
 	Auth       bool   `json:"auth"`
 }
@@ -20,7 +21,9 @@ func (h *Handler) Features(w http.ResponseWriter, r *http.Request) {
 			PortStats:  h.FeaturePortStats,
 			Alerts:     h.FeatureAlerts,
 			BGP:        h.FeatureBGP,
+			Reports:    h.FeatureReports,
 			LocalAS:    h.LocalAS,
+			Auth:       h.AuthEnabled,
 		},
 	})
 }
