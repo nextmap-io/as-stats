@@ -11,7 +11,7 @@ import { QueryBoundary } from "@/components/QueryBoundary"
 import { ExpandableChart } from "@/components/ExpandableChart"
 import { ComparisonToggle } from "@/components/ComparisonToggle"
 import { previousWindow, shiftSeries, sumLinkSeries, useCompareEnabled } from "@/lib/comparison"
-import { formatNumber } from "@/lib/utils"
+import { formatNumber, cn } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 import { useMemo, useState } from "react"
 import { BarChart3 } from "lucide-react"
@@ -28,8 +28,24 @@ export function Dashboard() {
   const { data: topASv6 } = useTopASTraffic(6, filters)
   const { formatTraffic } = useUnit()
   const linkColors = useLinkColors()
-  const heatmap = useTrafficHeatmap(filters)
   const [showAll, setShowAll] = useState(false)
+
+  // The day×hour heatmap is a *pattern* view: each of the 7×24 slots only
+  // becomes meaningful once several weeks of samples land in it. So it uses its
+  // own multi-week lookback instead of the (often 24h/7d) global time filter —
+  // while still honouring the link / direction / ip_version filters. `to` is
+  // snapped to the hour to keep the TanStack Query key stable between renders.
+  const [heatmapWeeks, setHeatmapWeeks] = useState(12)
+  const heatmapFilters = useMemo(() => {
+    const nowHour = Math.floor(new Date().getTime() / 3_600_000) * 3_600_000
+    return {
+      ...filters,
+      period: undefined,
+      from: new Date(nowHour - heatmapWeeks * 7 * 86_400_000).toISOString(),
+      to: new Date(nowHour).toISOString(),
+    }
+  }, [filters, heatmapWeeks])
+  const heatmap = useTrafficHeatmap(heatmapFilters)
 
   // Comparison overlay (Module D). The dashboard has no single total series, so
   // build one by summing the per-link series it already fetches (v4 + v6). When
@@ -146,7 +162,32 @@ export function Dashboard() {
       {/* Traffic heatmap — day-of-week × hour-of-day (U8) */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle>Traffic pattern — day × hour</CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle>Traffic pattern — day × hour</CardTitle>
+            <div
+              className="flex gap-0.5 rounded border border-input bg-muted/30 p-0.5"
+              role="group"
+              aria-label="Heatmap lookback window"
+            >
+              {([4, 8, 12, 26] as const).map((w) => (
+                <button
+                  key={w}
+                  type="button"
+                  onClick={() => setHeatmapWeeks(w)}
+                  aria-pressed={heatmapWeeks === w}
+                  title={`Aggregate the last ${w} weeks`}
+                  className={cn(
+                    "px-2 py-0.5 text-[11px] font-medium rounded transition-colors tabular-nums",
+                    heatmapWeeks === w
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                  )}
+                >
+                  {w}w
+                </button>
+              ))}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <QueryBoundary
