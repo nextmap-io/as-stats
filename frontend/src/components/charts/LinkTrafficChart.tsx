@@ -80,7 +80,10 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
       if (t > maxTs) maxTs = t
     }
   }
-  const multiDay = (maxTs - minTs) > 86400000
+  // Prefer the selected window's span (when provided) so the axis granularity
+  // matches what's shown, not just where data happens to land.
+  const span = timeBounds ? timeBounds.to - timeBounds.from : maxTs - minTs
+  const multiDay = span > 86400000
 
   const linkTags: string[] = []
   const linkLabels: Record<string, string> = {}
@@ -139,35 +142,49 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
   // we drop to zero.
   const GAP_THRESHOLD = 4
   const sortedTs = Array.from(dataByTs.keys()).sort((a, b) => a - b)
+  // Rows carry a numeric `t` (epoch ms) so the X axis is a real time scale with
+  // a fixed domain (below), not a category axis derived from present points.
+  // That keeps every card on the same time base and stops sparse data from
+  // ballooning into giant blocks.
   const data: Record<string, unknown>[] = []
 
-  // Boundary padding: add a single zero point at the start if data begins late.
+  // Boundary padding: add a single zero point at the start if data begins late,
+  // so a stepAfter area doesn't back-fill the empty lead-in.
   if (timeBounds && sortedTs.length > 0 && stepMs > 0) {
     const firstTs = sortedTs[0]
     if (firstTs > timeBounds.from + stepMs * GAP_THRESHOLD) {
-      data.push({ time: formatTimeShort(firstTs - stepMs, multiDay), ...makeZeroRow() })
+      data.push({ t: firstTs - stepMs, ...makeZeroRow() })
     }
   }
 
   for (let i = 0; i < sortedTs.length; i++) {
     // Insert a single zero row before a real gap so the chart drops to 0
     if (i > 0 && stepMs > 0 && (sortedTs[i] - sortedTs[i - 1]) > stepMs * GAP_THRESHOLD) {
-      data.push({ time: formatTimeShort(sortedTs[i - 1] + stepMs, multiDay), ...makeZeroRow() })
-      data.push({ time: formatTimeShort(sortedTs[i] - stepMs, multiDay), ...makeZeroRow() })
+      data.push({ t: sortedTs[i - 1] + stepMs, ...makeZeroRow() })
+      data.push({ t: sortedTs[i] - stepMs, ...makeZeroRow() })
     }
     const t = sortedTs[i]
-    data.push({ time: formatTimeShort(t, multiDay), ...dataByTs.get(t) })
+    data.push({ t, ...dataByTs.get(t) })
   }
 
-  // Boundary padding at the end
+  // Boundary padding at the end so the last value doesn't plateau across an
+  // otherwise-empty tail of the window.
   if (timeBounds && sortedTs.length > 0 && stepMs > 0) {
     const lastTs = sortedTs[sortedTs.length - 1]
     if (lastTs < timeBounds.to - stepMs * GAP_THRESHOLD) {
-      data.push({ time: formatTimeShort(lastTs + stepMs, multiDay), ...makeZeroRow() })
+      data.push({ t: lastTs + stepMs, ...makeZeroRow() })
     }
   }
 
-  const tickInterval = data.length > 0 ? Math.max(1, Math.floor(data.length / 8)) : 1
+  // Fixed time domain + evenly spaced ticks. Falls back to the data extent when
+  // no window is supplied.
+  const domainFrom = timeBounds ? timeBounds.from : sortedTs[0] ?? 0
+  const domainTo = timeBounds ? timeBounds.to : sortedTs[sortedTs.length - 1] ?? domainFrom + stepMs
+  const TICK_COUNT = 6
+  const xTicks =
+    domainTo > domainFrom
+      ? Array.from({ length: TICK_COUNT + 1 }, (_, i) => Math.round(domainFrom + ((domainTo - domainFrom) * i) / TICK_COUNT))
+      : undefined
 
   return (
     <div className="animate-fade-in overflow-hidden">
@@ -179,11 +196,16 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
           {/* No gradients — solid fills like classic rrdtool */}
           <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} opacity={0.5} />
           <XAxis
-            dataKey="time"
+            type="number"
+            dataKey="t"
+            scale="time"
+            domain={[domainFrom, domainTo]}
+            ticks={xTicks}
+            allowDataOverflow
             tick={{ fontSize: 8, fill: chartColors.text }}
             tickLine={{ stroke: chartColors.grid }}
             axisLine={{ stroke: chartColors.grid }}
-            interval={tickInterval}
+            tickFormatter={(t) => formatTimeShort(Number(t), multiDay)}
           />
           <YAxis
             tick={{ fontSize: 8, fill: chartColors.text }}
@@ -213,7 +235,7 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
               }
               return (
                 <div style={{ backgroundColor: chartColors.tooltipBg, border: `1px solid ${chartColors.tooltipBorder}`, borderRadius: 4, fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.5)", padding: "6px 10px" }}>
-                  <div style={{ color: chartColors.text, marginBottom: 3, fontSize: 11 }}>{label}</div>
+                  <div style={{ color: chartColors.text, marginBottom: 3, fontSize: 11 }}>{formatTimeShort(Number(label), multiDay)}</div>
                   {Array.from(byLink.entries()).map(([tag, { inVal, outVal }]) => {
                     if (inVal === 0 && outVal === 0) return null
                     return (
