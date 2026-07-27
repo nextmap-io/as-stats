@@ -1,6 +1,6 @@
 import { useSearchParams } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { api } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
@@ -268,11 +268,19 @@ function DiskGauge({ disk }: { disk: DiskStats }) {
 
 function StorageRow({ table }: { table: TableStorageStats }) {
   const setRetention = useSetRetention()
-  const [draftDays, setDraftDays] = useState<string>(String(table.ttl_days))
-
-  // Keep the local draft synced with server data when not actively editing
-  // (e.g. after a refetch) — but only if the user hasn't diverged.
   const serverDays = String(table.ttl_days)
+  const [draftDays, setDraftDays] = useState<string>(serverDays)
+  const editingRef = useRef(false)
+
+  // Adopt the server value whenever it actually changes (own save, 30s refetch,
+  // another admin's edit) unless the field is focused. Without this the draft
+  // would keep the value read at mount and could push a stale TTL back over
+  // someone else's change. A focused field is left alone so we never yank a
+  // half-typed number out from under the operator.
+  useEffect(() => {
+    if (!editingRef.current) setDraftDays(serverDays)
+  }, [serverDays])
+
   const dirty = draftDays !== serverDays
 
   const saveDays = () => {
@@ -322,6 +330,8 @@ function StorageRow({ table }: { table: TableStorageStats }) {
             value={draftDays}
             disabled={setRetention.isPending}
             onChange={(e) => setDraftDays(e.target.value)}
+            onFocus={() => { editingRef.current = true }}
+            onBlur={() => { editingRef.current = false }}
             onKeyDown={(e) => { if (e.key === "Enter") saveDays() }}
             className="w-16 h-6 px-1.5 rounded border border-input bg-background text-xs font-mono tabular-nums text-right outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
           />

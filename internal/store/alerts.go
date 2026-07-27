@@ -278,22 +278,116 @@ func (s *ClickHouseStore) FindActiveAlert(ctx context.Context, ruleID string, ta
 	return id, triggeredAt, nil
 }
 
+// Heartbeat throttling constants. ClickHouse mutations (ALTER ... UPDATE) are
+// asynchronous, rewrite whole parts and queue globally per table; issuing them
+// at the alert engine's cycle rate, once per active alert, is a reliable way to
+// saturate a server. A heartbeat only has to be fresher than the auto-resolve
+// threshold, so it is safe to persist it far less often than it is computed.
+const (
+	// alertHeartbeatDivisor derives the throttle window from the auto-resolve
+	// threshold the engine passes to AutoResolveStaleAlerts. A third leaves ~2x
+	// headroom over the persisted staleness (window + one eval interval) before
+	// a still-firing alert could ever look stale, so the observable lifecycle is
+	// unchanged.
+	alertHeartbeatDivisor = 3
+	// alertHeartbeatMinWindow keeps very short stale thresholds writing through
+	// unthrottled rather than risking alert flapping to save a few mutations.
+	alertHeartbeatMinWindow = 15 * time.Second
+	// alertHeartbeatMaxIdle bounds the throttle map: entries for alerts that
+	// stopped firing are dropped, so it cannot grow with attacker-driven IDs.
+	alertHeartbeatMaxIdle = time.Hour
+)
+
 // UpdateAlertLastSeen bumps last_seen_at on an active alert (heartbeat).
+// Writes are throttled per alert (see the constants above); a skipped call is a
+// no-op success, since the previously persisted timestamp is still fresh enough
+// for AutoResolveStaleAlerts.
 func (s *ClickHouseStore) UpdateAlertLastSeen(ctx context.Context, id string, ts time.Time) error {
-	return s.conn.Exec(ctx,
+	if !s.heartbeatDue(id, ts) {
+		return nil
+	}
+	err := s.conn.Exec(ctx,
 		"ALTER TABLE alerts UPDATE last_seen_at = @ts WHERE id = @id",
 		clickhouse.Named("id", id),
 		clickhouse.Named("ts", ts),
 	)
+	if err != nil {
+		// The write did not land — forget the bookkeeping so the next cycle
+		// retries instead of throttling away a heartbeat that never happened.
+		s.forgetHeartbeat(id)
+	}
+	return err
+}
+
+// heartbeatDue records the intent to persist a heartbeat for id at ts and
+// reports whether the write should actually be issued.
+func (s *ClickHouseStore) heartbeatDue(id string, ts time.Time) bool {
+	s.hbMu.Lock()
+	defer s.hbMu.Unlock()
+
+	if s.hbWindow <= 0 {
+		return true // threshold unknown yet — never throttle blindly
+	}
+	if s.hbWritten == nil {
+		s.hbWritten = make(map[string]time.Time)
+	} else if last, ok := s.hbWritten[id]; ok && ts.Sub(last) < s.hbWindow {
+		return false
+	}
+	for k, v := range s.hbWritten {
+		if ts.Sub(v) > alertHeartbeatMaxIdle {
+			delete(s.hbWritten, k)
+		}
+	}
+	s.hbWritten[id] = ts
+	return true
+}
+
+func (s *ClickHouseStore) forgetHeartbeat(id string) {
+	s.hbMu.Lock()
+	delete(s.hbWritten, id)
+	s.hbMu.Unlock()
 }
 
 // AutoResolveStaleAlerts resolves active alerts whose last_seen_at is older than threshold.
+// The resolving mutation is only issued when there is actually something to
+// resolve: the engine calls this every cycle, and unconditionally queueing an
+// ALTER ... UPDATE meant a permanent mutation stream on a system with no alerts
+// at all. The count probe is a cheap read over a small, partitioned table.
+//
+// This is also where the heartbeat throttle window is derived: the engine passes
+// its own auto-resolve threshold here at the start of every cycle, before any
+// heartbeat, so the two can never disagree about what "stale" means.
 func (s *ClickHouseStore) AutoResolveStaleAlerts(ctx context.Context, olderThan time.Duration) error {
+	s.setHeartbeatWindow(olderThan)
 	cutoff := time.Now().UTC().Add(-olderThan)
+
+	var stale uint64
+	if err := s.conn.QueryRow(ctx, `
+		SELECT count() FROM alerts
+		WHERE status = 'active' AND last_seen_at < @cutoff
+	`, clickhouse.Named("cutoff", cutoff)).Scan(&stale); err != nil {
+		return fmt.Errorf("count stale alerts: %w", err)
+	}
+	if stale == 0 {
+		return nil
+	}
+
 	return s.conn.Exec(ctx, `
 		ALTER TABLE alerts UPDATE status = 'resolved', resolved_at = now()
 		WHERE status = 'active' AND last_seen_at < @cutoff
 	`, clickhouse.Named("cutoff", cutoff))
+}
+
+// setHeartbeatWindow updates the throttle window from the caller's auto-resolve
+// threshold. A threshold too short to throttle safely disables throttling.
+func (s *ClickHouseStore) setHeartbeatWindow(olderThan time.Duration) {
+	window := olderThan / alertHeartbeatDivisor
+	if window < alertHeartbeatMinWindow {
+		window = 0
+	}
+	s.hbMu.Lock()
+	s.hbWindow = window
+	s.hbMu.Unlock()
 }
 
 // =============================================================================

@@ -75,10 +75,14 @@ func buildModifyTTLStatement(table string, days uint32) (string, bool) {
 	), true
 }
 
-// EnsureRetentionPolicies seeds retention_policies with one row per TTL-bearing
-// table. It is idempotent: rows are only inserted when the table is currently
-// empty, so operator edits made via the API are never clobbered on restart.
-// flows_log is seeded with flowLogDays (from FLOW_LOG_RETENTION_DAYS).
+// EnsureRetentionPolicies makes sure retention_policies carries one row per
+// TTL-bearing table. It is idempotent *per table*: only tables that have no
+// policy yet are inserted, so operator edits made via the API are never
+// clobbered on restart, and a run that dies halfway (connection drop, restart)
+// simply finishes the job on the next start. Gating the whole loop on a single
+// "is the table empty?" probe used to leave every table after the failure point
+// permanently unseeded — and therefore permanently unmanaged — because the
+// table was no longer empty.
 //
 // Seeding prefers the TTL a table *actually* carries over the migration
 // default. Otherwise the first start after upgrading an existing deployment
@@ -87,24 +91,35 @@ func buildModifyTTLStatement(table string, days uint32) (string, bool) {
 // deliberately shortened (and, before materialize_ttl_after_modify was pinned,
 // rewriting the whole table to do it). The migration default is only used for
 // tables that do not exist yet.
+//
+// flowLogDays comes from FLOW_LOG_RETENTION_DAYS; see warnFlowLogRetentionEnvIgnored
+// for how it is honoured after the first run.
 func (s *ClickHouseStore) EnsureRetentionPolicies(ctx context.Context, flowLogDays int) error {
-	var count uint64
-	if err := s.conn.QueryRow(ctx, "SELECT count() FROM retention_policies FINAL").Scan(&count); err != nil {
-		return fmt.Errorf("count retention_policies: %w", err)
-	}
-	if count > 0 {
-		return nil // already seeded — never overwrite operator edits
+	existing, err := s.retentionPoliciesByTable(ctx)
+	if err != nil {
+		return err
 	}
 
-	live, err := s.liveTTLDays(ctx)
-	if err != nil {
-		// Non-fatal: fall back to migration defaults rather than refusing to seed.
-		log.Printf("retention: could not read live TTLs, seeding from defaults: %v", err)
-		live = map[string]uint32{}
+	missing := make([]string, 0, len(retentionTables))
+	for table := range retentionTables {
+		if _, ok := existing[table]; !ok {
+			missing = append(missing, table)
+		}
+	}
+
+	var live map[string]uint32
+	if len(missing) > 0 {
+		live, err = s.liveTTLDays(ctx)
+		if err != nil {
+			// Non-fatal: fall back to migration defaults rather than refusing to seed.
+			log.Printf("retention: could not read live TTLs, seeding from defaults: %v", err)
+			live = map[string]uint32{}
+		}
 	}
 
 	now := time.Now().UTC()
-	for table, rt := range retentionTables {
+	for _, table := range missing {
+		rt := retentionTables[table]
 		days := rt.DefaultDays
 		if l, ok := live[table]; ok && l > 0 {
 			days = l
@@ -125,8 +140,47 @@ func (s *ClickHouseStore) EnsureRetentionPolicies(ctx context.Context, flowLogDa
 			return fmt.Errorf("seed retention policy %q: %w", table, err)
 		}
 	}
-	log.Printf("retention: seeded %d default retention policies", len(retentionTables))
+	if len(missing) > 0 {
+		log.Printf("retention: seeded %d retention policy/policies", len(missing))
+	}
+
+	s.warnFlowLogRetentionEnvIgnored(existing, flowLogDays)
 	return nil
+}
+
+// warnFlowLogRetentionEnvIgnored surfaces a FLOW_LOG_RETENTION_DAYS that no
+// longer has any effect.
+//
+// retention_policies is the source of truth once seeded; the env var only
+// supplies the initial value for flows_log. Re-applying it on every startup was
+// considered and rejected: it would silently revert a retention an operator set
+// from the admin UI — on an unattended restart, with data loss on the next merge
+// — which is exactly the invariant the retention subsystem promises not to
+// break. So the value is not applied, but it is no longer silently swallowed
+// either: the operator is told which knob actually governs the table.
+func (s *ClickHouseStore) warnFlowLogRetentionEnvIgnored(existing map[string]model.RetentionPolicy, flowLogDays int) {
+	if flowLogDays <= 0 {
+		return
+	}
+	cur, ok := existing["flows_log"]
+	if !ok || cur.TTLDays == uint32(flowLogDays) {
+		return // freshly seeded from this value, or already in agreement
+	}
+	log.Printf("retention: FLOW_LOG_RETENTION_DAYS=%d is IGNORED — flows_log is already managed by retention_policies at %d day(s); change it via PUT /admin/retention/flows_log (the admin UI), not the environment",
+		flowLogDays, cur.TTLDays)
+}
+
+// retentionPoliciesByTable returns the stored policies keyed by table name.
+func (s *ClickHouseStore) retentionPoliciesByTable(ctx context.Context) (map[string]model.RetentionPolicy, error) {
+	policies, err := s.ListRetentionPolicies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byTable := make(map[string]model.RetentionPolicy, len(policies))
+	for _, p := range policies {
+		byTable[p.TableName] = p
+	}
+	return byTable, nil
 }
 
 // ListRetentionPolicies returns the current retention policy for every managed

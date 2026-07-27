@@ -185,6 +185,21 @@ export function useStatus(filters?: QueryFilters) {
   })
 }
 
+// useHealthStatus backs the header's health dot, which is mounted on every
+// route in every open tab. /status has no server-side cache, so it polls on the
+// slow app-wide interval instead of the Status page's 30s — router liveness is
+// derived from a multi-minute window anyway, so a faster poll buys nothing.
+// Its own cache key keeps it from invalidating the filtered Status page query.
+export function useHealthStatus() {
+  return useQuery({
+    queryKey: ["status", "health"],
+    queryFn: () => api.status(),
+    staleTime: REFETCH,
+    refetchInterval: REFETCH,
+    retry: false,
+  })
+}
+
 export function useSearch(query: string) {
   return useQuery({
     queryKey: ["search", query],
@@ -204,10 +219,13 @@ export function useAnomalyExplain(target: string, filters: QueryFilters) {
   })
 }
 
-export function useStorageStatus() {
+// /admin/storage is admin-only server-side; callers pass enabled=false for
+// non-admins so viewers don't poll an endpoint that can only answer 403.
+export function useStorageStatus(enabled = true) {
   return useQuery({
     queryKey: ["storage"],
     queryFn: () => api.storageStatus(),
+    enabled,
     refetchInterval: 30_000,
   })
 }

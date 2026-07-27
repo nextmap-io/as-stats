@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom"
 import { useTheme } from "@/hooks/useTheme"
 import { useUnit } from "@/hooks/useUnit"
 import { useDensity } from "@/hooks/useDensity"
-import { useStatus } from "@/hooks/useApi"
+import { useHealthStatus } from "@/hooks/useApi"
 import { useFeatureFlags } from "@/hooks/useFeatures"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
@@ -70,7 +70,7 @@ export function Header() {
   })
   const user = userData?.data
 
-  const { data: statusData } = useStatus()
+  const { data: statusData } = useHealthStatus()
   const routerCount = statusData?.data?.routers?.length || 0
   const isHealthy = routerCount > 0
   const statusTitle = statusData?.data?.routers
@@ -79,7 +79,9 @@ export function Header() {
 
   // Feature flags
   const features = useFeatureFlags()
-  const isAdmin = user?.role === "admin"
+  // With AUTH_ENABLED=false the server mounts no auth middleware and no role can
+  // ever resolve, yet every endpoint is open — so admin-only nav must still show.
+  const isAdmin = !features.auth || user?.role === "admin"
 
   // Build the grouped navigation. Each group's items are feature-gated; a group
   // with no visible items is dropped entirely so empty menus never render.

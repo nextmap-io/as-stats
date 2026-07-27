@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TrafficChart } from "@/components/charts/TrafficChart"
 import { ExpandableChart } from "@/components/ExpandableChart"
 import { formatNumber } from "@/lib/utils"
+import { ASRef } from "@/components/ASRef"
 import { useUnit } from "@/hooks/useUnit"
 import { IPWithPTR } from "@/components/PTR"
 import { Search } from "lucide-react"
@@ -141,9 +142,12 @@ export function IPDetail() {
                   {detail.top_as.map(as => (
                     <tr key={as.as_number} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
                       <td className="py-1">
-                        <Link to={`/as/${as.as_number}${filterSearch}`} className="text-primary hover:underline font-mono">
-                          {as.as_number}
-                        </Link>
+                        <ASRef
+                          asn={as.as_number}
+                          search={filterSearch}
+                          prefix={false}
+                          className="text-primary hover:underline font-mono"
+                        />
                       </td>
                       <td className="py-1 text-muted-foreground truncate max-w-40">{as.as_name || "-"}</td>
                       <td className="py-1 text-right font-mono">{formatTraffic(as.bytes, periodSeconds)}</td>

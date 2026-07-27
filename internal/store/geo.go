@@ -61,10 +61,13 @@ func (s *ClickHouseStore) TopCountry(ctx context.Context, p QueryParams) ([]mode
 		return nil, 0, err
 	}
 
-	// Total bytes over the same window for percentage calculation.
+	// Total bytes over the same window for percentage calculation. Keep the `t`
+	// alias: dirFilter/linkFilter reference t.direction / t.link_tag, and an
+	// unaliased FROM makes this query error out — silently zeroing every
+	// percentage as soon as a direction or link filter is applied.
 	totalQuery := fmt.Sprintf(`
-		SELECT sum(bytes) FROM traffic_by_as
-		WHERE ts >= @from AND ts < @to %s %s
+		SELECT sum(t.bytes) FROM traffic_by_as t
+		WHERE t.ts >= @from AND t.ts < @to %s %s
 	`, dirFilter, linkFilter)
 	totalArgs := append([]any{
 		clickhouse.Named("from", p.From),
