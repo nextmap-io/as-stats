@@ -15,10 +15,13 @@ CREATE TABLE IF NOT EXISTS asstats.traffic_by_dst_1min (
     ts              DateTime('UTC'),
     dst_ip          IPv6,
     protocol        UInt8,
-    bytes           UInt64,
-    packets         UInt64,
-    flow_count      UInt64,
-    syn_count       UInt64,    -- TCP SYN-only (flag & 2 != 0 && flag & 16 == 0)
+    -- SimpleAggregateFunction(sum, …) is REQUIRED here: AggregatingMergeTree
+    -- keeps one arbitrary value for a plain column when rows share the sorting
+    -- key, silently discarding the rest (see migration 000015).
+    bytes           SimpleAggregateFunction(sum, UInt64),
+    packets         SimpleAggregateFunction(sum, UInt64),
+    flow_count      SimpleAggregateFunction(sum, UInt64),
+    syn_count       SimpleAggregateFunction(sum, UInt64),    -- TCP SYN-only (flag & 2 != 0 && flag & 16 == 0)
     unique_src_ips  AggregateFunction(uniq, IPv6),
     unique_src_ports AggregateFunction(uniq, UInt16)
 ) ENGINE = AggregatingMergeTree()
@@ -46,9 +49,9 @@ CREATE TABLE IF NOT EXISTS asstats.traffic_by_src_1min (
     ts               DateTime('UTC'),
     src_ip           IPv6,
     protocol         UInt8,
-    bytes            UInt64,
-    packets          UInt64,
-    flow_count       UInt64,
+    bytes            SimpleAggregateFunction(sum, UInt64),
+    packets          SimpleAggregateFunction(sum, UInt64),
+    flow_count       SimpleAggregateFunction(sum, UInt64),
     unique_dst_ips   AggregateFunction(uniq, IPv6),
     unique_dst_ports AggregateFunction(uniq, UInt16)
 ) ENGINE = AggregatingMergeTree()
