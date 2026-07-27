@@ -47,10 +47,17 @@ func (s *ClickHouseStore) SearchFlowLog(ctx context.Context, p model.FlowSearchF
 	where = append(where, "f.ts >= @from AND f.ts < @to")
 	args = append(args, clickhouse.Named("from", p.From), clickhouse.Named("to", p.To))
 
+	// src_ip / dst_ip are IPv6 columns holding IPv4 as ::ffff:a.b.c.d, so a raw
+	// IPv4 CIDR never matches (CLAUDE.md bug family #1). Normalise it to the
+	// IPv6-mapped equivalent exactly like the alert queries do.
 	if p.SrcIP != "" {
 		if strings.Contains(p.SrcIP, "/") {
+			cidr, ok := normalizeCIDRForIPv6Column(p.SrcIP)
+			if !ok {
+				return nil, fmt.Errorf("invalid src_ip filter %q", p.SrcIP)
+			}
 			where = append(where, "isIPAddressInRange(toString(f.src_ip), @src_cidr)")
-			args = append(args, clickhouse.Named("src_cidr", p.SrcIP))
+			args = append(args, clickhouse.Named("src_cidr", cidr))
 		} else {
 			where = append(where, "f.src_ip = toIPv6(@src_ip)")
 			args = append(args, clickhouse.Named("src_ip", p.SrcIP))
@@ -58,8 +65,12 @@ func (s *ClickHouseStore) SearchFlowLog(ctx context.Context, p model.FlowSearchF
 	}
 	if p.DstIP != "" {
 		if strings.Contains(p.DstIP, "/") {
+			cidr, ok := normalizeCIDRForIPv6Column(p.DstIP)
+			if !ok {
+				return nil, fmt.Errorf("invalid dst_ip filter %q", p.DstIP)
+			}
 			where = append(where, "isIPAddressInRange(toString(f.dst_ip), @dst_cidr)")
-			args = append(args, clickhouse.Named("dst_cidr", p.DstIP))
+			args = append(args, clickhouse.Named("dst_cidr", cidr))
 		} else {
 			where = append(where, "f.dst_ip = toIPv6(@dst_ip)")
 			args = append(args, clickhouse.Named("dst_ip", p.DstIP))

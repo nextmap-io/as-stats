@@ -487,3 +487,58 @@ frontend lint + typecheck + build).
    000012 / Module A) — `SetFlowLogRetention` was removed entirely; retention
    is now DB-backed via `retention_policies` + the reconciler (all `count()`
    scans use `uint64`). See the Retention subsystem note below.
+
+7. **`ALTER TABLE … MODIFY TTL` without `SETTINGS materialize_ttl_after_modify = 0`**.
+   ClickHouse defaults the setting to `1`, so the statement enqueues a
+   `MATERIALIZE TTL` mutation that **rewrites every part of the table**. On
+   `flows_log` / `flows_raw` that is tens of GB of write amplification on the
+   very disk you are usually trying to free — it turned a full disk into a 20h
+   ingestion outage. `buildModifyTTLStatement` in `store/retention.go` pins the
+   setting; a test asserts it. Never build a `MODIFY TTL` by hand without it.
+
+8. **Plain `UInt64` counters in an `AggregatingMergeTree`**. That engine only
+   combines `AggregateFunction` / `SimpleAggregateFunction` columns; for an
+   ordinary column it keeps **one arbitrary row's value** and silently drops
+   the rest. `traffic_by_dst_1min` / `traffic_by_src_1min` shipped this way and
+   under-reported by ~4x, so every alert rule fired at ~4x its configured
+   threshold. Fixed in migration 000015 —
+   `SimpleAggregateFunction(sum, UInt64)`, which is metadata-only (no mutation).
+   Any new counter column on these tables must use it.
+
+9. **A decoder loop that advances by a router-supplied length**. A NetFlow v9 /
+   IPFIX template whose fields are all zero-length gives `TotalLen == 0`, and
+   `decodeDataSet` then loops forever allocating a `FlowRecord` per iteration —
+   reachable from a single malformed or spoofed UDP packet. Templates with
+   `TotalLen <= 0` are rejected at parse time and both decode loops are guarded.
+   Apply the same reasoning to any new length-driven parser.
+
+10. **Trusting exporter timestamps.** `flows_raw.timestamp` is *both* the
+    partition key and the TTL column, so a router with a broken clock creates
+    partitions that never expire. The enricher clamps anything outside
+    `[-24h, +5m]` to receive time and counts it
+    (`asstats_timestamps_clamped_total`).
+
+11. **Left-most `X-Forwarded-For` as a trust boundary.** The shipped nginx uses
+    `$proxy_add_x_forwarded_for`, which *appends* to whatever the client sent,
+    so the left-most entry is attacker-controlled. Honour forwarded headers only
+    from a trusted peer and take the **right-most** entry (see
+    `middleware/ratelimit.go`).
+
+12. **Mounting CSRF only on write-only route groups.** `setCSRFCookie` runs on
+    *safe* methods, so if no GET passes through a CSRF-wrapped route the client
+    never receives the cookie and every write 403s. CSRF is mounted once on the
+    whole `/api/v1` tree — keep it there.
+
+## Operational notes — ClickHouse
+
+- **Never `rm` ClickHouse's own log files** (`/var/log/clickhouse-server/*.log`).
+  Doing so during an incident left the Poco file logger throwing on every write,
+  and **TTL merges stopped running for six days** — every table silently blew
+  past its retention while regular merges kept working, so nothing looked wrong.
+  Only a server restart recovers it. Cap the logs with a TTL / logrotate instead.
+- **A full disk deadlocks retention**: with no free space ClickHouse cannot
+  merge, and TTL eviction happens *during* merges — so the disk can never drain
+  itself. Recover by `DROP PARTITION` (unlinks immediately, needs no scratch),
+  never by `OPTIMIZE` or a TTL change.
+- `system.*_log` tables live on the same volume as flow data and are unbounded
+  by default; they reached ~12 GiB here. They carry a 3-day TTL in production.

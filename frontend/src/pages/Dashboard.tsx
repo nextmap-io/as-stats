@@ -20,7 +20,7 @@ import type { LinkTraffic, ASTrafficDetail } from "@/lib/types"
 const DEFAULT_LINK_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6", "#1abc9c", "#e67e22", "#2980b9"]
 
 export function Dashboard() {
-  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds } = useFilters()
+  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds, bounds } = useFilters()
   const { data, isLoading, error, refetch } = useOverview(filters)
   const { data: ipv4Traffic } = useLinksTraffic(4, filters)
   const { data: ipv6Traffic } = useLinksTraffic(6, filters)
@@ -52,7 +52,11 @@ export function Dashboard() {
   // off, the prev queries reuse the active filters so they dedupe with the main
   // link-traffic queries — no extra requests.
   const compare = useCompareEnabled()
-  const { prevFilters, windowMs } = previousWindow(filters, periodSeconds)
+  // Memoized on the minute-snapped bounds: prevFilters feeds a query key.
+  const { prevFilters, windowMs } = useMemo(
+    () => previousWindow(filters, bounds),
+    [filters, bounds],
+  )
   const { data: prevV4 } = useLinksTraffic(4, compare ? prevFilters : filters)
   const { data: prevV6 } = useLinksTraffic(6, compare ? prevFilters : filters)
   const totalSeries = useMemo(

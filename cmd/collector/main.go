@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -94,11 +96,19 @@ func main() {
 
 	c := collector.New(cfg, chStore)
 
-	// Load local AS prefixes from RIPEstat
+	// Load local AS prefixes from RIPEstat.
+	//
+	// This is not best-effort for the alert engine: every IP-scoped rule skips
+	// its CIDR filter when the prefix list is empty (buildCIDRFilter returns
+	// "1=1"), so starting the engine without prefixes makes every rule evaluate
+	// all traffic the MVs see — including pure transit — and alert on other
+	// people's networks. A single transient RIPEstat failure at boot would do
+	// that silently, so retry here and, if that fails, keep retrying in the
+	// background and only start the engine once the scope is known.
 	var localPrefixStrs []string
 	if cfg.LocalAS > 0 {
 		log.Printf("LOCAL_AS=%d — fetching announced prefixes from RIPEstat", cfg.LocalAS)
-		if prefixes, err := ripestat.FetchASPrefixes(cfg.LocalAS); err != nil {
+		if prefixes, err := fetchPrefixesWithRetry(ctx, cfg.LocalAS, 3); err != nil {
 			log.Printf("warning: could not fetch prefixes for AS%d: %v", cfg.LocalAS, err)
 		} else {
 			c.Enricher().SetLocalAS(cfg.LocalAS, prefixes)
@@ -161,19 +171,55 @@ func main() {
 		if err := alerts.EnsureDefaultRules(ctx, chStore); err != nil {
 			log.Printf("warning: could not seed default alert rules: %v", err)
 		}
-		engine := alerts.New(
-			chStore,
-			alerts.NewWebhookNotifier(),
-			localPrefixStrs,
-			cfg.AlertEvalInterval,
-			cfg.AlertStaleThreshold,
-		)
-		// Connect the BGP blocker if BGP_API_URL is configured
-		if cfg.BGPAPIURL != "" {
-			log.Printf("BGP auto-block via RemoteBlocker → %s", cfg.BGPAPIURL)
-			engine.SetBlocker(bgp.NewRemote(cfg.BGPAPIURL), chStore)
+
+		startEngine := func(prefixes []string) {
+			engine := alerts.New(
+				chStore,
+				alerts.NewWebhookNotifier(),
+				prefixes,
+				cfg.AlertEvalInterval,
+				cfg.AlertStaleThreshold,
+			)
+			// Connect the BGP blocker if BGP_API_URL is configured
+			if cfg.BGPAPIURL != "" {
+				log.Printf("BGP auto-block via RemoteBlocker → %s", cfg.BGPAPIURL)
+				engine.SetBlocker(bgp.NewRemote(cfg.BGPAPIURL), chStore)
+			}
+			go engine.Run(ctx)
 		}
-		go engine.Run(ctx)
+
+		switch {
+		case cfg.LocalAS == 0:
+			// No local AS configured: the operator has opted out of scoping.
+			startEngine(nil)
+		case len(localPrefixStrs) > 0:
+			startEngine(localPrefixStrs)
+		default:
+			// Scope unknown. Do not evaluate unscoped — keep retrying instead.
+			log.Printf("alert engine held back: LOCAL_AS=%d but no prefixes known; retrying in background", cfg.LocalAS)
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(5 * time.Minute):
+					}
+					prefixes, err := fetchPrefixesWithRetry(ctx, cfg.LocalAS, 3)
+					if err != nil {
+						log.Printf("alert engine still held back: %v", err)
+						continue
+					}
+					c.Enricher().SetLocalAS(cfg.LocalAS, prefixes)
+					strs := make([]string, 0, len(prefixes))
+					for _, p := range prefixes {
+						strs = append(strs, p.String())
+					}
+					log.Printf("alert engine starting: resolved %d prefixes for AS%d", len(strs), cfg.LocalAS)
+					startEngine(strs)
+					return
+				}
+			}()
+		}
 	}
 
 	// Start scheduled-report goroutine if enabled. Renders HTML+CSV summaries and
@@ -194,4 +240,31 @@ func main() {
 	}
 
 	log.Println("Collector stopped")
+}
+
+// fetchPrefixesWithRetry fetches the announced prefixes for asn, retrying a few
+// times with linear backoff. RIPEstat is an external dependency and a single
+// failure at boot must not silently leave the alert engine unscoped.
+func fetchPrefixesWithRetry(ctx context.Context, asn uint32, attempts int) ([]net.IPNet, error) {
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Duration(i) * 5 * time.Second):
+			}
+		}
+		prefixes, err := ripestat.FetchASPrefixes(asn)
+		if err == nil && len(prefixes) > 0 {
+			return prefixes, nil
+		}
+		if err == nil {
+			lastErr = fmt.Errorf("RIPEstat returned no prefixes for AS%d", asn)
+		} else {
+			lastErr = err
+		}
+		log.Printf("ripestat: attempt %d/%d for AS%d failed: %v", i+1, attempts, asn, lastErr)
+	}
+	return nil, lastErr
 }

@@ -42,6 +42,30 @@ var DecodeErrors = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Total number of flow decode errors.",
 }, []string{"protocol"})
 
+// BatchWriteErrors and FlowsDropped make a persistent ingestion failure visible.
+// Without them a ClickHouse that refuses every INSERT (disk full, credentials,
+// schema drift) is silent: the success counters simply stop advancing, which is
+// indistinguishable from "no traffic". Alert on
+// rate(asstats_batch_write_errors_total[5m]) > 0.
+var BatchWriteErrors = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "asstats_batch_write_errors_total",
+	Help: "Total number of batch writes to ClickHouse that failed.",
+})
+
+var FlowsDropped = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "asstats_flows_dropped_total",
+	Help: "Total number of decoded flows discarded because their batch write failed.",
+})
+
+// TimestampsClamped counts flows whose exporter-supplied timestamp was outside
+// the accepted window and rewritten to receive time. A steadily rising value
+// means a router has a broken clock (or packets are being spoofed) — both
+// distort partitioning and retention on flows_raw.
+var TimestampsClamped = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "asstats_timestamps_clamped_total",
+	Help: "Flows whose out-of-range exporter timestamp was replaced with receive time.",
+})
+
 // ── Collector: alert engine ─────────────────────────────────────────────────
 
 var AlertEvaluations = promauto.NewCounterVec(prometheus.CounterOpts{
