@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { Link, useParams } from "react-router-dom"
+import { useParams } from "react-router-dom"
 import { useLinkDetail, useLinkLoadCurve } from "@/hooks/useApi"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
@@ -15,6 +15,7 @@ import { QueryBoundary } from "@/components/QueryBoundary"
 import { ComparisonToggle } from "@/components/ComparisonToggle"
 import { previousWindow, shiftSeries, useCompareEnabled } from "@/lib/comparison"
 import { formatNumber, formatPercent } from "@/lib/utils"
+import { ASRef } from "@/components/ASRef"
 import { useUnit } from "@/hooks/useUnit"
 
 /** One percentile row (p50/p95/p99) showing in + out throughput. Renders
@@ -217,9 +218,12 @@ export function LinkDetail() {
                       />
                     </td>
                     <td className="py-1">
-                      <Link to={`/as/${as.as_number}${filterSearch}`} className="text-primary hover:underline font-mono">
-                        {as.as_number}
-                      </Link>
+                      <ASRef
+                        asn={as.as_number}
+                        search={filterSearch}
+                        prefix={false}
+                        className="text-primary hover:underline font-mono"
+                      />
                     </td>
                     <td className="py-1 text-muted-foreground truncate max-w-48">{as.as_name || "-"}</td>
                     <td className="py-1 text-right font-mono">{formatTraffic(as.bytes, periodSeconds)}</td>

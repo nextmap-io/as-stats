@@ -17,6 +17,11 @@ services:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
       - ./migrations:/docker-entrypoint-initdb.d
+      # Caps system.*_log growth — they share the data volume and are
+      # unbounded by default. Mount the FILE, not the directory: a directory
+      # bind-mount masks the image's own docker_related_config.xml and
+      # ClickHouse silently falls back to listening on loopback only.
+      - ./clickhouse/config.d/system-logs-ttl.xml:/etc/clickhouse-server/config.d/system-logs-ttl.xml:ro
     # The collector runs with network_mode: host (to see real router IPs), so it
     # reaches ClickHouse over the host loopback rather than the compose bridge —
     # without this mapping nothing listens on 127.0.0.1:9000 and every batch

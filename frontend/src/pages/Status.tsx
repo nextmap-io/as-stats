@@ -3,9 +3,10 @@ import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { useStatus, useStorageStatus } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
-import { useFeatureFlags } from "@/hooks/useFeatures"
+import { useFeatureFlags, useFeatures } from "@/hooks/useFeatures"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState } from "@/components/ui/error"
+import { PageSkeleton } from "@/components/ui/skeleton"
 import { formatBytes, formatNumber } from "@/lib/utils"
 import { Activity, ShieldAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -30,20 +31,30 @@ function fmtTime(s?: string): string {
 // and the active-alert summary. It reuses the existing /status, /admin/storage,
 // /features and /alerts/summary endpoints — no new backend.
 export function Status() {
-  const { data: meRes } = useQuery({
+  const { data: meRes, isPending: rolePending } = useQuery({
     queryKey: ["auth-me"],
     queryFn: () => api.me(),
     staleTime: 300_000,
     retry: false,
   })
   const user = meRes?.data
+  const { data: featuresRes, isPending: featuresPending } = useFeatures()
   const features = useFeatureFlags()
+  // With AUTH_ENABLED=false (the shipped default) the server mounts no auth
+  // middleware, /auth/me answers 401 and no role can ever resolve — but every
+  // endpoint, including /admin/storage, is open. Gating on "role === admin"
+  // alone would therefore lock this page out of the default deployment, so
+  // treat auth-disabled as authorised.
+  const authEnabled = featuresRes?.data?.auth ?? true
+  const canView = !authEnabled || user?.role === "admin"
 
   // Ingestion (routers + flow volume) tracks the FilterBar window; storage,
   // features and active alerts are point-in-time and ignore it.
   const { filters } = useFilters()
   const { data: statusRes } = useStatus(filters)
-  const { data: storageRes } = useStorageStatus()
+  // /admin/storage is admin-only when auth is on: polling it as a viewer would
+  // just collect 403s every 30s, so it waits until access is established.
+  const { data: storageRes } = useStorageStatus(canView)
   const { data: alertsRes } = useQuery({
     queryKey: ["alerts-summary"],
     queryFn: () => api.alertsSummary(),
@@ -51,8 +62,11 @@ export function Status() {
     enabled: features.alerts,
   })
 
-  // Admin gate (server also enforces it on /admin/storage).
-  if (user && user.role !== "admin") {
+  // Admin gate (the server also enforces it on /admin/storage). Nothing renders
+  // until both the role and the auth mode are known, so a viewer never sees the
+  // admin chrome flash by.
+  if (rolePending || featuresPending) return <PageSkeleton />
+  if (!canView) {
     return (
       <EmptyState
         icon={<ShieldAlert className="h-8 w-8" />}

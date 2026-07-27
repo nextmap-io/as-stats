@@ -2,6 +2,7 @@ package reports
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
@@ -19,22 +20,34 @@ import (
 	"github.com/nextmap-io/as-stats/internal/config"
 )
 
+// defaultSMTPTimeout bounds the entire SMTP conversation (dial, banner, EHLO,
+// STARTTLS, AUTH, DATA). net.Conn only honours deadlines, so without one a
+// black-holing relay parks the scheduler goroutine forever and every later
+// scheduled report silently stops going out. 60s is generous for a report with
+// a CSV attachment on any sane relay, so this stays a constant instead of yet
+// another env var.
+const defaultSMTPTimeout = 60 * time.Second
+
 // Sender delivers rendered reports over SMTP using only the standard library.
 // STARTTLS is negotiated when configured and advertised by the server; PLAIN
 // auth is used when a username is set.
 type Sender struct {
-	cfg config.SMTPConfig
+	cfg     config.SMTPConfig
+	timeout time.Duration
 }
 
 // NewSender builds a Sender from SMTP config.
 func NewSender(cfg config.SMTPConfig) *Sender {
-	return &Sender{cfg: cfg}
+	return &Sender{cfg: cfg, timeout: defaultSMTPTimeout}
 }
 
 // Send delivers a rendered report to the given recipients. The `format` selects
 // which MIME parts are included: "html" → HTML body only; "csv" → text body +
 // CSV attachment; "both" → HTML body + CSV attachment.
-func (s *Sender) Send(recipients []string, r Rendered, format string) error {
+//
+// ctx bounds the conversation on top of the sender timeout: cancelling it (on
+// shutdown) tears the connection down instead of blocking the caller.
+func (s *Sender) Send(ctx context.Context, recipients []string, r Rendered, format string) error {
 	if s.cfg.Host == "" || s.cfg.From == "" {
 		return fmt.Errorf("smtp not configured (SMTP_HOST/SMTP_FROM required)")
 	}
@@ -52,10 +65,35 @@ func (s *Sender) Send(recipients []string, r Rendered, format string) error {
 		envelopeFrom = addr.Address
 	}
 
+	timeout := s.timeout
+	if timeout <= 0 {
+		timeout = defaultSMTPTimeout
+	}
+	convCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	addr := net.JoinHostPort(s.cfg.Host, strconv.Itoa(s.cfg.Port))
-	c, err := smtp.Dial(addr)
+	conn, err := (&net.Dialer{}).DialContext(convCtx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("smtp dial %s: %w", addr, err)
+	}
+	// One deadline for the whole conversation — each individual step could
+	// otherwise hang indefinitely even though the dial succeeded.
+	if dl, ok := convCtx.Deadline(); ok {
+		if err := conn.SetDeadline(dl); err != nil {
+			_ = conn.Close()
+			return fmt.Errorf("smtp set deadline: %w", err)
+		}
+	}
+	// Deadlines cannot observe cancellation, so close the socket out of band
+	// when the caller goes away; that unblocks whichever step is in flight.
+	stopOnCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopOnCancel()
+
+	c, err := smtp.NewClient(conn, s.cfg.Host)
+	if err != nil {
+		_ = conn.Close()
+		return fmt.Errorf("smtp connect %s: %w", addr, err)
 	}
 	defer func() { _ = c.Close() }()
 

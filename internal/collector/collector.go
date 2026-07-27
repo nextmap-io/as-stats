@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/nextmap-io/as-stats/internal/collector/enricher"
 	"github.com/nextmap-io/as-stats/internal/collector/netflow"
@@ -84,9 +85,45 @@ func (c *Collector) Run(ctx context.Context) error {
 	if err := c.sfListen.Close(); err != nil {
 		log.Printf("sflow listener close error: %v", err)
 	}
-	close(c.flows)
+
+	// The decoder goroutines are the only senders on c.flows, so the channel
+	// must not be closed until they have all stopped — otherwise a decoder
+	// mid-send panics with "send on closed channel" and kills the process on
+	// the way out. If they somehow do not settle, leave the channel open: the
+	// enricher and writer both exit on ctx anyway, and a leaked channel at
+	// shutdown is strictly better than a panic.
+	if waitForDecoders(c.nfListen, c.sfListen) {
+		close(c.flows)
+	} else {
+		log.Println("warning: decoders still running at shutdown, skipping flow channel close")
+	}
 
 	return nil
+}
+
+// shutdownDrainTimeout bounds how long we wait for in-flight decoders before
+// giving up on a clean channel close.
+const shutdownDrainTimeout = 5 * time.Second
+
+// waitForDecoders reports whether every listener's decoders finished within
+// shutdownDrainTimeout.
+func waitForDecoders(listeners ...interface{ Wait() }) bool {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for _, l := range listeners {
+			l.Wait()
+		}
+	}()
+
+	timer := time.NewTimer(shutdownDrainTimeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 // runEnricher reads from the raw flows channel, enriches each flow,

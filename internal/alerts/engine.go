@@ -15,8 +15,10 @@ package alerts
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net"
 	"strings"
@@ -318,45 +320,82 @@ func (e *Engine) evaluateRule(ctx context.Context, rule model.AlertRule, webhook
 	}
 
 	for i := range violations {
-		// Best-effort enrichment: pull the top src IPs from flows_raw so the
-		// alert payload (and the dashboard) can show *who* is hitting the
-		// target without making the operator run a separate flow search.
-		// Inbound rules look at attacker source IPs; outbound (volume_out,
-		// port_scan) get their context from outside this loop, since their
-		// "target" is already the local source — top destinations would be
-		// the meaningful enrichment, but flows_raw lookups stay symmetric
-		// enough for now and return src IPs for all rule types.
-		if violations[i].TargetIP != nil {
-			if srcs, terr := e.store.TopSourcesForTarget(ctx, violations[i].TargetIP, rule.WindowSeconds, 5); terr == nil && len(srcs) > 0 {
-				violations[i].TopSources = srcs
-			}
-		}
-		// Anomaly rules target a link (no IP): enrich with the top-contributor
-		// breakdown over the last complete hour so triage sees *why* the link
-		// spiked. Attached into details.Extra alongside the baseline stats.
-		if rule.RuleType == "anomaly" && violations[i].TargetLabel != "" {
-			to := time.Now().UTC().Truncate(time.Hour)
-			from := to.Add(-time.Hour)
-			if expl, eerr := e.store.AnomalyExplain(ctx, violations[i].TargetLabel, from, to); eerr == nil {
-				if violations[i].Extra == nil {
-					violations[i].Extra = map[string]any{}
-				}
-				violations[i].Extra["explanation"] = expl
-			} else {
-				log.Printf("alert engine: anomaly explain error for %s: %v", violations[i].TargetLabel, eerr)
-			}
-		}
 		e.handleViolation(ctx, rule, violations[i], metricType, webhooks)
 	}
 }
 
+// enrichViolation attaches best-effort triage context to a violation.
+//
+// Both lookups scan flows_raw — by far the largest table in the system — so
+// this runs only on the path that actually stores a new alert. A sustained
+// attack produces the same violation on every evaluation cycle; enriching
+// before the cooldown / dedup checks meant paying for those scans dozens of
+// times per incident and throwing the result away every time but the first.
+func (e *Engine) enrichViolation(ctx context.Context, rule model.AlertRule, v *store.AlertViolation) {
+	// Top src IPs so the alert payload (and the dashboard) can show *who* is
+	// hitting the target without making the operator run a separate flow
+	// search. Inbound rules look at attacker source IPs; outbound (volume_out,
+	// port_scan) would be better served by top destinations, but flows_raw
+	// lookups stay symmetric enough for now and return src IPs for all rule
+	// types.
+	if v.TargetIP != nil {
+		if srcs, terr := e.store.TopSourcesForTarget(ctx, v.TargetIP, rule.WindowSeconds, 5); terr == nil && len(srcs) > 0 {
+			v.TopSources = srcs
+		}
+	}
+
+	// Anomaly rules target a link (no IP): enrich with the top-contributor
+	// breakdown over the last complete hour so triage sees *why* the link
+	// spiked. Attached into details.Extra alongside the baseline stats.
+	if rule.RuleType == "anomaly" && v.TargetLabel != "" {
+		to := time.Now().UTC().Truncate(time.Hour)
+		from := to.Add(-time.Hour)
+		if expl, eerr := e.store.AnomalyExplain(ctx, v.TargetLabel, from, to); eerr == nil {
+			if v.Extra == nil {
+				v.Extra = map[string]any{}
+			}
+			v.Extra["explanation"] = expl
+		} else {
+			log.Printf("alert engine: anomaly explain error for %s: %v", v.TargetLabel, eerr)
+		}
+	}
+}
+
+// labelTargetIP maps a non-IP target identity (a link tag for link_capacity /
+// anomaly rules) onto a stable synthetic address.
+//
+// The alerts table stores target_ip as IPv6 and dedup keys on
+// (rule_id, target_ip), so every label-targeted violation used to resolve to
+// the zero IP: two saturated links collapsed into a single alert row and
+// heartbeats landed on whichever of them was inserted first. Hashing the label
+// gives each one its own row. The address is built inside 0100::/64 — the
+// RFC 6666 discard-only prefix — so it can never collide with an address seen
+// in real traffic nor be mistaken for a routable target. The human-readable
+// label remains authoritative in details.extra.target.
+func labelTargetIP(label string) net.IP {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(label))
+	ip := make(net.IP, net.IPv6len)
+	ip[0] = 0x01 // 0100::/64
+	binary.BigEndian.PutUint64(ip[8:], h.Sum64())
+	return ip
+}
+
 func (e *Engine) handleViolation(ctx context.Context, rule model.AlertRule, v store.AlertViolation, metricType string, webhooks map[string]model.WebhookConfig) {
 	now := time.Now().UTC()
-	target := v.TargetIP.String()
-	// Non-IP targets (e.g. link_capacity) carry their identity in TargetLabel;
-	// use it for the alert's target string and cooldown/dedup key.
-	if v.TargetIP == nil && v.TargetLabel != "" {
-		target = v.TargetLabel
+	// Identity of this violation. Non-IP targets (link_capacity, anomaly) carry
+	// theirs in TargetLabel and get a synthetic address (see labelTargetIP) so
+	// that the cooldown key, the DB dedup lookup, the heartbeat and the stored
+	// row all agree on one identity per label.
+	targetIP := v.TargetIP
+	if targetIP == nil && v.TargetLabel != "" {
+		targetIP = labelTargetIP(v.TargetLabel)
+	}
+	target := targetIP.String()
+	// Logs stay readable: show the link tag rather than its synthetic address.
+	display := target
+	if v.TargetLabel != "" {
+		display = v.TargetLabel
 	}
 	cooldownKey := rule.ID + "|" + target
 
@@ -366,13 +405,13 @@ func (e *Engine) handleViolation(ctx context.Context, rule model.AlertRule, v st
 	if inCooldown && now.Sub(lastTrig) < time.Duration(rule.CooldownSeconds)*time.Second {
 		// Still in cooldown — update last_seen of existing alert and exit
 		e.mu.Unlock()
-		e.heartbeat(ctx, rule, v.TargetIP, now)
+		e.heartbeat(ctx, rule, targetIP, now)
 		return
 	}
 	e.mu.Unlock()
 
 	// Check for existing active alert (DB-level dedup)
-	existingID, _, err := e.store.FindActiveAlert(ctx, rule.ID, v.TargetIP)
+	existingID, _, err := e.store.FindActiveAlert(ctx, rule.ID, targetIP)
 	if err != nil {
 		log.Printf("alert engine: find active alert error: %v", err)
 		return
@@ -385,6 +424,10 @@ func (e *Engine) handleViolation(ctx context.Context, rule model.AlertRule, v st
 		}
 		return
 	}
+
+	// A new alert is going to be stored — only now is the enrichment worth its
+	// flows_raw scans.
+	e.enrichViolation(ctx, rule, &v)
 
 	// Create new alert
 	threshold := float64(rule.ThresholdBps)
@@ -444,22 +487,29 @@ func (e *Engine) handleViolation(ctx context.Context, rule model.AlertRule, v st
 	e.mu.Unlock()
 
 	log.Printf("alert engine: 🚨 %s [%s] %s — %.2f %s (threshold %.2f)",
-		rule.Severity, rule.Name, target, v.MetricValue, metricType, threshold)
+		rule.Severity, rule.Name, display, v.MetricValue, metricType, threshold)
 
-	// Dispatch webhooks (async, don't block evaluation)
+	// Dispatch webhooks (async, don't block evaluation). Notifications are read
+	// by humans, so they carry the link tag rather than the synthetic address
+	// that identifies a label-targeted alert in the database.
 	if e.notifier != nil {
+		notified := alert
+		notified.TargetIP = display
 		for _, webhookID := range rule.WebhookIDs {
 			if wh, ok := webhooks[webhookID]; ok && wh.Enabled {
 				if !severityMeets(alert.Severity, wh.MinSeverity) {
 					continue
 				}
-				go e.safeNotify(wh, alert)
+				go e.safeNotify(wh, notified)
 			}
 		}
 	}
 
-	// Auto-block if rule action is "auto_block" and a blocker is configured
-	if rule.Action == "auto_block" && e.blocker != nil {
+	// Auto-block if rule action is "auto_block" and a blocker is configured.
+	// Label-targeted rules are excluded: their stored target is a synthetic
+	// address standing in for a link tag, and announcing a blackhole for it
+	// would be meaningless at best.
+	if rule.Action == "auto_block" && e.blocker != nil && v.TargetIP != nil {
 		go e.safeAutoBlock(rule, alert, v)
 	}
 }

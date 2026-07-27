@@ -2,6 +2,7 @@ package sflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -55,7 +56,9 @@ func (l *Listener) Start(ctx context.Context, flows chan<- *model.FlowRecord) er
 			n, remoteAddr, err := conn.ReadFromUDP(*bufPtr)
 			if err != nil {
 				bufPool.Put(bufPtr)
-				if ctx.Err() != nil {
+				// A closed socket never recovers: returning also releases the
+				// decoders, which Wait relies on to know all senders are done.
+				if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
 					return
 				}
 				log.Printf("sflow read error: %v", err)
@@ -79,11 +82,10 @@ func (l *Listener) Start(ctx context.Context, flows chan<- *model.FlowRecord) er
 	}()
 
 	// Decoder goroutines
-	var wg sync.WaitGroup
 	for i := 0; i < l.workers; i++ {
-		wg.Add(1)
+		l.decoders.Add(1)
 		go func() {
-			defer wg.Done()
+			defer l.decoders.Done()
 			for pkt := range packets {
 				decoded, err := DecodeDatagram(pkt.data, pkt.routerIP)
 				if err != nil {
@@ -104,9 +106,14 @@ func (l *Listener) Start(ctx context.Context, flows chan<- *model.FlowRecord) er
 		}()
 	}
 
-	go func() { wg.Wait() }()
-
 	return nil
+}
+
+// Wait blocks until every decoder goroutine has stopped sending on the flows
+// channel. Call it after Close and before closing that channel, otherwise a
+// decoder still draining a decoded packet panics with "send on closed channel".
+func (l *Listener) Wait() {
+	l.decoders.Wait()
 }
 
 // Close stops the listener.

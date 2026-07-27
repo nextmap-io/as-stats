@@ -57,7 +57,7 @@ func Audit(rec AuditRecorder, actionMap map[string]string) func(http.Handler) ht
 				Action:    action,
 				Resource:  r.URL.Path,
 				Params:    paramsBlob,
-				ClientIP:  realIP(r),
+				ClientIP:  ClientIP(r),
 				UserAgent: r.UserAgent(),
 			}
 			if user := GetUser(r.Context()); user != nil {

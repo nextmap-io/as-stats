@@ -12,6 +12,8 @@ import { ExpandableChart } from "@/components/ExpandableChart"
 import { ComparisonToggle } from "@/components/ComparisonToggle"
 import { previousWindow, shiftSeries, sumLinkSeries, useCompareEnabled } from "@/lib/comparison"
 import { formatNumber, cn } from "@/lib/utils"
+import { ASRef } from "@/components/ASRef"
+import { asLabel, isPrivateASGroup } from "@/lib/asn"
 import { useUnit } from "@/hooks/useUnit"
 import { useMemo, useState } from "react"
 import { BarChart3 } from "lucide-react"
@@ -230,9 +232,12 @@ export function Dashboard() {
             <Card key={asn}>
               <CardHeader className="pb-1 pt-3 px-4">
                 <div className="flex items-baseline justify-between gap-2">
-                  <Link to={`/as/${asn}${filterSearch}`} className="text-xs font-semibold text-primary hover:underline">
-                    AS{asn}
-                  </Link>
+                  <ASRef
+                    asn={asn}
+                    search={filterSearch}
+                    className="text-xs font-semibold text-primary hover:underline"
+                    groupClassName="text-xs font-semibold text-muted-foreground"
+                  />
                   <span className="text-[10px] text-muted-foreground truncate">{entry.name}</span>
                   <span className="text-[10px] text-muted-foreground ml-auto tabular-nums">
                     p95: {formatTraffic(
@@ -246,7 +251,14 @@ export function Dashboard() {
                 <div className="grid gap-4 lg:grid-cols-2">
                   <div>
                     {entry.v4 && entry.v4.series.length > 0 ? (
-                      <ExpandableChart title={`AS${asn} — IPv4`} fetchType="as-detail-v4" fetchParams={{ asn }} linkColors={linkColors} currentPeriod={filters.period}>
+                      <MaybeExpandable
+                        expandable={!isPrivateASGroup(asn)}
+                        title={`${asLabel(asn)} — IPv4`}
+                        fetchType="as-detail-v4"
+                        asn={asn}
+                        linkColors={linkColors}
+                        period={filters.period}
+                      >
                         <LinkTrafficChart
                           series={entry.v4.series}
                           title="IPv4"
@@ -257,14 +269,21 @@ export function Dashboard() {
                           p95In={entry.v4.p95_in}
                           p95Out={entry.v4.p95_out}
                         />
-                      </ExpandableChart>
+                      </MaybeExpandable>
                     ) : (
                       <div className="text-[10px] text-muted-foreground py-4 text-center">No IPv4 data</div>
                     )}
                   </div>
                   <div>
                     {entry.v6 && entry.v6.series.length > 0 ? (
-                      <ExpandableChart title={`AS${asn} — IPv6`} fetchType="as-detail-v6" fetchParams={{ asn }} linkColors={linkColors} currentPeriod={filters.period}>
+                      <MaybeExpandable
+                        expandable={!isPrivateASGroup(asn)}
+                        title={`${asLabel(asn)} — IPv6`}
+                        fetchType="as-detail-v6"
+                        asn={asn}
+                        linkColors={linkColors}
+                        period={filters.period}
+                      >
                         <LinkTrafficChart
                           series={entry.v6.series}
                           title="IPv6"
@@ -275,7 +294,7 @@ export function Dashboard() {
                           p95In={entry.v6?.p95_in}
                           p95Out={entry.v6?.p95_out}
                         />
-                      </ExpandableChart>
+                      </MaybeExpandable>
                     ) : (
                       <div className="text-[10px] text-muted-foreground py-4 text-center">No IPv6 data</div>
                     )}
@@ -362,5 +381,40 @@ function StatPill({ label, value, accent }: {
       <span className="text-muted-foreground uppercase tracking-widest text-[9px]">{label}</span>
       <span className={`font-bold tabular-nums ${color}`}>{value}</span>
     </div>
+  )
+}
+
+// MaybeExpandable wraps a chart in ExpandableChart only when a detail view
+// exists for it. The collapsed private-use group has no /as/{asn} page — the
+// sentinel is not a real ASN — so expanding it would fetch nothing and open an
+// empty modal; there it renders the inline chart alone.
+function MaybeExpandable({
+  expandable,
+  title,
+  fetchType,
+  asn,
+  linkColors,
+  period,
+  children,
+}: {
+  expandable: boolean
+  title: string
+  fetchType: "as-detail-v4" | "as-detail-v6"
+  asn: number
+  linkColors: Record<string, string>
+  period?: string
+  children: React.ReactElement<{ height?: number }>
+}) {
+  if (!expandable) return <>{children}</>
+  return (
+    <ExpandableChart
+      title={title}
+      fetchType={fetchType}
+      fetchParams={{ asn }}
+      linkColors={linkColors}
+      currentPeriod={period}
+    >
+      {children}
+    </ExpandableChart>
   )
 }

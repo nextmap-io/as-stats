@@ -21,6 +21,10 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
+      - ./migrations:/docker-entrypoint-initdb.d
+      # Repeated from the base file: this list is merged by container path, so
+      # spelling both mounts out keeps prod identical to a plain `up`.
+      - ./clickhouse/config.d/system-logs-ttl.xml:/etc/clickhouse-server/config.d/system-logs-ttl.xml:ro
     deploy:
       resources:
         limits:

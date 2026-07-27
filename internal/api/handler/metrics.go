@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/nextmap-io/as-stats/internal/api/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -14,9 +15,11 @@ import (
 //
 // Access is granted when ALL configured guards pass:
 //
-//   - allowedCIDRs: if non-empty, the client IP (from X-Forwarded-For or
-//     RemoteAddr) must match at least one CIDR. Useful for restricting to
-//     your Prometheus server's IP.
+//   - allowedCIDRs: if non-empty, the client IP must match at least one CIDR.
+//     Useful for restricting to your Prometheus server's IP. The address comes
+//     from middleware.ClientIP, which only believes forwarded headers when the
+//     transport peer is itself a trusted proxy — otherwise a single forged
+//     X-Forwarded-For would be enough to walk straight through this guard.
 //
 //   - basicUser / basicPass: if both non-empty, the request must carry a
 //     matching Authorization: Basic header. Useful when /metrics is exposed
@@ -51,7 +54,7 @@ func MetricsHandler(allowedCIDRs []string, basicUser, basicPass string) http.Han
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// ── IP allow-list check ──────────────────────────────
 		if needsIPCheck {
-			clientIP := clientAddr(r)
+			clientIP := middleware.ClientIP(r)
 			ip := net.ParseIP(clientIP)
 			if ip == nil {
 				http.Error(w, "forbidden", http.StatusForbidden)
@@ -84,20 +87,4 @@ func MetricsHandler(allowedCIDRs []string, basicUser, basicPass string) http.Han
 
 		promHandler.ServeHTTP(w, r)
 	})
-}
-
-// clientAddr extracts the client IP from X-Forwarded-For (first entry)
-// or falls back to RemoteAddr.
-func clientAddr(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.IndexByte(xff, ','); i > 0 {
-			return strings.TrimSpace(xff[:i])
-		}
-		return strings.TrimSpace(xff)
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }

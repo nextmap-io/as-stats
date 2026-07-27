@@ -11,6 +11,8 @@ import { ExportButton, type ExportColumn } from "@/components/ExportButton"
 import { IPWithPTR } from "@/components/PTR"
 import { formatPercent, cn } from "@/lib/utils"
 import { countryFlag, countryName, hasCountry } from "@/lib/countries"
+import { isPrivateASGroup } from "@/lib/asn"
+import { ASRef } from "@/components/ASRef"
 import { ArrowDown, ArrowUp } from "lucide-react"
 import type { Mover, TalkerChange } from "@/lib/types"
 
@@ -53,10 +55,15 @@ function EntityCell({
   if (dim === "as") {
     return (
       <span className="inline-flex items-baseline gap-2 min-w-0">
-        <Link to={`/as/${entityKey}${filterSearch}`} className="text-primary hover:underline font-mono shrink-0">
-          AS{entityKey}
-        </Link>
-        {label && <span className="text-muted-foreground truncate text-[11px]">{label}</span>}
+        <ASRef
+          asn={entityKey}
+          search={filterSearch}
+          className="text-primary hover:underline font-mono shrink-0"
+          groupClassName="font-mono text-muted-foreground shrink-0"
+        />
+        {label && !isPrivateASGroup(entityKey) && (
+          <span className="text-muted-foreground truncate text-[11px]">{label}</span>
+        )}
       </span>
     )
   }
