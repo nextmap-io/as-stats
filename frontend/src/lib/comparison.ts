@@ -11,26 +11,24 @@ export function useCompareEnabled(): boolean {
  * previousWindow derives the filters for the equal-length window immediately
  * preceding the active one (Module D comparison overlay).
  *
- * When the active filters carry explicit from/to, the window is `to - from`.
- * Otherwise it falls back to `periodSeconds` relative to now. The returned
- * `prevFilters` always use explicit from/to (RFC3339) and **drop `period`**,
- * because the backend's `period` preset overrides from/to when both are sent
- * (see parseQueryParams). `windowMs` is the window length, used to time-align
- * the previous series onto the current axis via `shiftSeries`.
+ * `bounds` is the *already resolved* active window from `useFilters()`, which is
+ * memoized and snapped to the minute. Taking it as an argument — rather than
+ * reading the clock here — is load-bearing: this function feeds a TanStack Query
+ * key, and a `Date.now()` fallback produced millisecond-precision ISO strings
+ * that differed on every render, so the key never stabilised and each render
+ * mounted a fresh query (an endless refetch loop against /links/traffic).
+ *
+ * The returned `prevFilters` always use explicit from/to (RFC3339) and **drop
+ * `period`**, because the backend's `period` preset overrides from/to when both
+ * are sent (see parseQueryParams). `windowMs` is the window length, used to
+ * time-align the previous series onto the current axis via `shiftSeries`.
  */
 export function previousWindow(
   filters: QueryFilters,
-  periodSeconds: number,
+  bounds: { from: number; to: number },
 ): { prevFilters: QueryFilters; windowMs: number } {
-  let fromMs: number
-  let toMs: number
-  if (filters.from && filters.to) {
-    fromMs = new Date(filters.from).getTime()
-    toMs = new Date(filters.to).getTime()
-  } else {
-    toMs = Date.now()
-    fromMs = toMs - periodSeconds * 1000
-  }
+  const fromMs = bounds.from
+  const toMs = bounds.to
   const windowMs = Math.max(toMs - fromMs, 0)
   // Strip period so the backend honours the explicit prior-window from/to.
   const { period: _period, compare: _compare, ...rest } = filters
