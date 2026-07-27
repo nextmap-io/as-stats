@@ -1,3 +1,4 @@
+import { useMemo } from "react"
 import { Link, useParams } from "react-router-dom"
 import { useASDetail, useASTopIPs, useASRemoteIPs, useLinkColors } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
@@ -18,7 +19,7 @@ import { countryFlag, countryName, hasCountry } from "@/lib/countries"
 export function ASDetail() {
   const { asn } = useParams<{ asn: string }>()
   const asnNum = Number(asn) || 0
-  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds, setFilter } = useFilters()
+  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds, bounds, setFilter } = useFilters()
   const { formatTraffic } = useUnit()
   const features = useFeatureFlags()
   const linkColors = useLinkColors()
@@ -30,7 +31,11 @@ export function ASDetail() {
   // Comparison overlay (Module D). When off, the prev query reuses the active
   // filters so it dedupes with the main query — no extra request.
   const compare = useCompareEnabled()
-  const { prevFilters, windowMs } = previousWindow(filters, periodSeconds)
+  // Memoized on the minute-snapped bounds: prevFilters feeds a query key.
+  const { prevFilters, windowMs } = useMemo(
+    () => previousWindow(filters, bounds),
+    [filters, bounds],
+  )
   const prevDetail = useASDetail(asnNum, compare ? prevFilters : filters)
   const prevSeries =
     compare && prevDetail.data?.data?.time_series

@@ -1,12 +1,15 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/nextmap-io/as-stats/internal/api/middleware"
 )
 
@@ -83,6 +86,11 @@ func (h *Handler) CreateToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, Response{Data: created})
 }
 
+// revokeMutationTimeout bounds the wait for the revocation mutation to land.
+// Generous, because reporting a credential dead before it is has to be the one
+// outcome we never produce.
+const revokeMutationTimeout = 30 * time.Second
+
 // RevokeToken handles DELETE /api/v1/admin/tokens/{id}. Permanently disables a
 // token; the operation is idempotent.
 func (h *Handler) RevokeToken(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +99,27 @@ func (h *Handler) RevokeToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "id is required")
 		return
 	}
-	if err := h.Store.RevokeAPIToken(r.Context(), id); err != nil {
+	// The id lands in an ALTER … WHERE id = @id against a UUID column; reject
+	// non-UUIDs here so garbage is a 400 rather than a ClickHouse-level 500.
+	if _, err := uuid.Parse(id); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid token id")
+		return
+	}
+
+	// RevokeAPIToken issues an ALTER … UPDATE, which ClickHouse applies
+	// asynchronously by default: the statement returns long before the part is
+	// rewritten, and until then LookupAPIToken still sees revoked = 0 and keeps
+	// authenticating the token. mutations_sync = 2 blocks until the mutation is
+	// applied on every replica, so a 204 here means the credential really is
+	// dead for the auth path; if it does not land we surface the failure instead
+	// of claiming success.
+	ctx, cancel := context.WithTimeout(r.Context(), revokeMutationTimeout)
+	defer cancel()
+	ctx = clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
+		"mutations_sync": 2,
+	}))
+
+	if err := h.Store.RevokeAPIToken(ctx, id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

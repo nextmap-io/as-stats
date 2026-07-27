@@ -39,6 +39,11 @@ func New(s store.FlowWriter, input <-chan *model.FlowRecord, batchSize int, flus
 	}
 }
 
+// shutdownFlushTimeout bounds the final batch write during shutdown. Generous
+// enough for a full batch on a loaded ClickHouse, short enough that a wedged
+// server cannot stall the process exit.
+const shutdownFlushTimeout = 10 * time.Second
+
 // Run starts the batch writer loop. It blocks until the context is cancelled.
 func (w *BatchWriter) Run(ctx context.Context) {
 	ticker := time.NewTicker(w.flushInt)
@@ -46,7 +51,7 @@ func (w *BatchWriter) Run(ctx context.Context) {
 
 	buf := make([]*model.FlowRecord, 0, w.batchSize)
 
-	flush := func() {
+	flush := func(ctx context.Context) {
 		if len(buf) == 0 {
 			return
 		}
@@ -57,7 +62,12 @@ func (w *BatchWriter) Run(ctx context.Context) {
 
 		if err != nil {
 			w.Metrics.WriteErrors.Add(1)
-			log.Printf("batch write error (%d flows): %v", len(buf), err)
+			// Surface the failure to Prometheus. The batch is dropped (there is
+			// no retry queue), so an operator must be able to see both facts —
+			// otherwise a total ingestion stall looks exactly like idle traffic.
+			metrics.BatchWriteErrors.Inc()
+			metrics.FlowsDropped.Add(float64(len(buf)))
+			log.Printf("batch write error (%d flows dropped): %v", len(buf), err)
 		} else {
 			count := uint64(len(buf))
 			w.Metrics.FlowsWritten.Add(count)
@@ -73,32 +83,45 @@ func (w *BatchWriter) Run(ctx context.Context) {
 		buf = buf[:0]
 	}
 
+	// finalFlush writes the tail of the buffer on the way out. Run's ctx comes
+	// from signal.NotifyContext and is already cancelled once we reach any of
+	// the shutdown paths, so reusing it would fail the write and drop the last
+	// batch on every clean restart.
+	finalFlush := func() {
+		fctx, cancel := context.WithTimeout(context.Background(), shutdownFlushTimeout)
+		defer cancel()
+		flush(fctx)
+	}
+
 	for {
 		select {
 		case flow, ok := <-w.input:
 			if !ok {
-				flush()
+				finalFlush()
 				return
 			}
 			w.Metrics.FlowsReceived.Add(1)
 			buf = append(buf, flow)
 			if len(buf) >= w.batchSize {
-				flush()
+				flush(ctx)
 			}
 		case <-ticker.C:
-			flush()
+			flush(ctx)
 		case <-ctx.Done():
 			// Drain remaining flows from channel
 			for {
 				select {
 				case flow, ok := <-w.input:
 					if !ok {
-						flush()
+						finalFlush()
 						return
 					}
+					// Counted here too, otherwise the drained tail shows up in
+					// FlowsWritten without ever appearing in FlowsReceived.
+					w.Metrics.FlowsReceived.Add(1)
 					buf = append(buf, flow)
 				default:
-					flush()
+					finalFlush()
 					return
 				}
 			}

@@ -2,11 +2,13 @@ package netflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"sync"
 
+	"github.com/nextmap-io/as-stats/internal/metrics"
 	"github.com/nextmap-io/as-stats/internal/model"
 )
 
@@ -21,6 +23,9 @@ type Listener struct {
 	conn    *net.UDPConn
 	bufPool sync.Pool
 	workers int
+	// decoders tracks the decoder goroutines, which are the only senders on the
+	// flows channel — see Wait.
+	decoders sync.WaitGroup
 }
 
 // NewListener creates a new NetFlow UDP listener.
@@ -73,7 +78,9 @@ func (l *Listener) Start(ctx context.Context, flows chan<- *model.FlowRecord) er
 			n, remoteAddr, err := conn.ReadFromUDP(*bufPtr)
 			if err != nil {
 				l.bufPool.Put(bufPtr)
-				if ctx.Err() != nil {
+				// A closed socket never recovers: returning also releases the
+				// decoders, which Wait relies on to know all senders are done.
+				if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
 					return
 				}
 				log.Printf("netflow read error: %v", err)
@@ -93,20 +100,21 @@ func (l *Listener) Start(ctx context.Context, flows chan<- *model.FlowRecord) er
 	}()
 
 	// Decoder goroutines
-	var wg sync.WaitGroup
 	for i := 0; i < l.workers; i++ {
-		wg.Add(1)
+		l.decoders.Add(1)
 		go func() {
-			defer wg.Done()
+			defer l.decoders.Done()
 			for pkt := range packets {
 				data := (*pkt.data)[:pkt.n]
 				decoded, err := l.decode(data, pkt.routerIP)
 				l.bufPool.Put(pkt.data)
 
 				if err != nil {
+					metrics.DecodeErrors.WithLabelValues("netflow").Inc()
 					log.Printf("netflow decode error from %s: %v", pkt.routerIP, err)
 					continue
 				}
+				metrics.FlowsReceived.WithLabelValues("netflow").Add(float64(len(decoded)))
 
 				for _, f := range decoded {
 					select {
@@ -119,11 +127,14 @@ func (l *Listener) Start(ctx context.Context, flows chan<- *model.FlowRecord) er
 		}()
 	}
 
-	go func() {
-		wg.Wait()
-	}()
-
 	return nil
+}
+
+// Wait blocks until every decoder goroutine has stopped sending on the flows
+// channel. Call it after Close and before closing that channel, otherwise a
+// decoder still draining a decoded packet panics with "send on closed channel".
+func (l *Listener) Wait() {
+	l.decoders.Wait()
 }
 
 // decode detects the NetFlow version and dispatches to the correct parser.

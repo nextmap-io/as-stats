@@ -7,6 +7,11 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - ./migrations:/docker-entrypoint-initdb.d
+      # Caps system.*_log growth — they share the data volume and are
+      # unbounded by default. Mount the FILE, not the directory: a directory
+      # bind-mount masks the image's own docker_related_config.xml and
+      # ClickHouse silently falls back to listening on loopback only.
+      - ./clickhouse/config.d/system-logs-ttl.xml:/etc/clickhouse-server/config.d/system-logs-ttl.xml:ro
     environment:
       CLICKHOUSE_DB: asstats
       CLICKHOUSE_USER: asstats

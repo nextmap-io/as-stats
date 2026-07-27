@@ -1,4 +1,5 @@
-import { Link, useParams } from "react-router-dom"
+import { useMemo } from "react"
+import { useParams } from "react-router-dom"
 import { useLinkDetail, useLinkLoadCurve } from "@/hooks/useApi"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
@@ -14,6 +15,7 @@ import { QueryBoundary } from "@/components/QueryBoundary"
 import { ComparisonToggle } from "@/components/ComparisonToggle"
 import { previousWindow, shiftSeries, useCompareEnabled } from "@/lib/comparison"
 import { formatNumber, formatPercent } from "@/lib/utils"
+import { ASRef } from "@/components/ASRef"
 import { useUnit } from "@/hooks/useUnit"
 
 /** One percentile row (p50/p95/p99) showing in + out throughput. Renders
@@ -43,7 +45,7 @@ function PercentileItem({
 
 export function LinkDetail() {
   const { tag } = useParams<{ tag: string }>()
-  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds } = useFilters()
+  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds, bounds } = useFilters()
   const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useLinkDetail(tag || "", filters)
   const loadCurveQuery = useLinkLoadCurve(tag || "", filters)
@@ -51,7 +53,11 @@ export function LinkDetail() {
   // Comparison overlay (Module D). When off, the prev query reuses the active
   // filters so it dedupes with the main query — no extra request.
   const compare = useCompareEnabled()
-  const { prevFilters, windowMs } = previousWindow(filters, periodSeconds)
+  // Memoized on the minute-snapped bounds: prevFilters feeds a query key.
+  const { prevFilters, windowMs } = useMemo(
+    () => previousWindow(filters, bounds),
+    [filters, bounds],
+  )
   const prevDetail = useLinkDetail(tag || "", compare ? prevFilters : filters)
   const prevSeries =
     compare && prevDetail.data?.data?.time_series
@@ -212,9 +218,12 @@ export function LinkDetail() {
                       />
                     </td>
                     <td className="py-1">
-                      <Link to={`/as/${as.as_number}${filterSearch}`} className="text-primary hover:underline font-mono">
-                        {as.as_number}
-                      </Link>
+                      <ASRef
+                        asn={as.as_number}
+                        search={filterSearch}
+                        prefix={false}
+                        className="text-primary hover:underline font-mono"
+                      />
                     </td>
                     <td className="py-1 text-muted-foreground truncate max-w-48">{as.as_name || "-"}</td>
                     <td className="py-1 text-right font-mono">{formatTraffic(as.bytes, periodSeconds)}</td>

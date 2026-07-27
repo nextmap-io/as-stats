@@ -1,17 +1,23 @@
 package middleware
 
 import (
-	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 )
 
 type visitor struct {
-	tokens    float64
-	lastSeen  time.Time
+	tokens   float64
+	lastSeen time.Time
 }
+
+const (
+	// maxVisitors bounds the per-IP bucket map. Entries are ~40 bytes, so this
+	// caps it in the low megabytes even under a deliberate key-churn attempt.
+	maxVisitors = 50_000
+	// overflowBucket is the shared key used once maxVisitors is reached.
+	overflowBucket = "\x00overflow"
+)
 
 // RateLimit returns a middleware that limits requests per IP.
 func RateLimit(requestsPerSecond float64) func(http.Handler) http.Handler {
@@ -34,13 +40,23 @@ func RateLimit(requestsPerSecond float64) func(http.Handler) http.Handler {
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := realIP(r)
+			ip := ClientIP(r)
 
 			mu.Lock()
 			v, exists := visitors[ip]
 			if !exists {
-				v = &visitor{tokens: requestsPerSecond}
-				visitors[ip] = v
+				// Hard cap so the map cannot be grown without bound (a spoofing
+				// client behind a trusted proxy, or simply a very large NAT
+				// fan-out). Past the cap, new keys share a single overflow
+				// bucket rather than allocating: degraded fairness beats OOM.
+				if len(visitors) >= maxVisitors {
+					ip = overflowBucket
+					v, exists = visitors[ip]
+				}
+				if !exists {
+					v = &visitor{tokens: requestsPerSecond}
+					visitors[ip] = v
+				}
 			}
 
 			elapsed := time.Since(v.lastSeen).Seconds()
@@ -63,21 +79,4 @@ func RateLimit(requestsPerSecond float64) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-func realIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.IndexByte(xff, ','); i != -1 {
-			return strings.TrimSpace(xff[:i])
-		}
-		return strings.TrimSpace(xff)
-	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }

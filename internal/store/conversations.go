@@ -30,6 +30,14 @@ type convDimension struct {
 
 // convDimensions is the whitelist of conversation grouping dimensions. It is the
 // ONLY place a dimension string becomes SQL.
+//
+// src_dst_as folds private-use ASNs into model.PrivateASGroup before the
+// least()/greatest() canonicalisation, so a customer aggregate shows up as one
+// "Private / Internal ↔ AS…" pair instead of a dozen near-identical rows. The
+// forward predicate has to compare the *grouped* endpoints as well: groupedAS is
+// not monotonic (a private 16-bit ASN maps above every public one), so the raw
+// src<=dst ordering would disagree with the A/B assignment and swap the
+// forward/reverse byte counts.
 var convDimensions = map[string]convDimension{
 	"src_dst_ip": {
 		aExpr:   "toString(least(t.src_ip, t.dst_ip))",
@@ -38,9 +46,9 @@ var convDimensions = map[string]convDimension{
 		cleanIP: true,
 	},
 	"src_dst_as": {
-		aExpr:   "toString(least(t.src_as, t.dst_as))",
-		bExpr:   "toString(greatest(t.src_as, t.dst_as))",
-		fwdExpr: "t.src_as <= t.dst_as",
+		aExpr:   "toString(least(" + groupedASSrc + ", " + groupedASDst + "))",
+		bExpr:   "toString(greatest(" + groupedASSrc + ", " + groupedASDst + "))",
+		fwdExpr: groupedASSrc + " <= " + groupedASDst,
 	},
 	"dst_port_proto": {
 		aExpr:   "toString(t.protocol)",
@@ -48,6 +56,14 @@ var convDimensions = map[string]convDimension{
 		fwdExpr: "1 = 1",
 	},
 }
+
+// Grouped src/dst ASN expressions for the src_dst_as dimension. Both flows_log
+// and flows_raw expose src_as / dst_as under the same names, so one pair of
+// fragments covers both source tables.
+var (
+	groupedASSrc = groupedAS("t.src_as")
+	groupedASDst = groupedAS("t.dst_as")
+)
 
 // convDimensionFor resolves a (possibly untrusted) dimension name to its fixed
 // column mapping. The second return is false for anything not whitelisted;
