@@ -7,6 +7,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/nextmap-io/as-stats/internal/metrics"
 	"github.com/nextmap-io/as-stats/internal/model"
 )
 
@@ -86,9 +87,11 @@ func (l *Listener) Start(ctx context.Context, flows chan<- *model.FlowRecord) er
 			for pkt := range packets {
 				decoded, err := DecodeDatagram(pkt.data, pkt.routerIP)
 				if err != nil {
+					metrics.DecodeErrors.WithLabelValues("sflow").Inc()
 					log.Printf("sflow decode error from %s: %v", pkt.routerIP, err)
 					continue
 				}
+				metrics.FlowsReceived.WithLabelValues("sflow").Add(float64(len(decoded)))
 
 				for _, f := range decoded {
 					select {

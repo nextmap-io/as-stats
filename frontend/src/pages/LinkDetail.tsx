@@ -1,3 +1,4 @@
+import { useMemo } from "react"
 import { Link, useParams } from "react-router-dom"
 import { useLinkDetail, useLinkLoadCurve } from "@/hooks/useApi"
 import { useQuery } from "@tanstack/react-query"
@@ -43,7 +44,7 @@ function PercentileItem({
 
 export function LinkDetail() {
   const { tag } = useParams<{ tag: string }>()
-  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds } = useFilters()
+  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds, bounds } = useFilters()
   const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useLinkDetail(tag || "", filters)
   const loadCurveQuery = useLinkLoadCurve(tag || "", filters)
@@ -51,7 +52,11 @@ export function LinkDetail() {
   // Comparison overlay (Module D). When off, the prev query reuses the active
   // filters so it dedupes with the main query — no extra request.
   const compare = useCompareEnabled()
-  const { prevFilters, windowMs } = previousWindow(filters, periodSeconds)
+  // Memoized on the minute-snapped bounds: prevFilters feeds a query key.
+  const { prevFilters, windowMs } = useMemo(
+    () => previousWindow(filters, bounds),
+    [filters, bounds],
+  )
   const prevDetail = useLinkDetail(tag || "", compare ? prevFilters : filters)
   const prevSeries =
     compare && prevDetail.data?.data?.time_series

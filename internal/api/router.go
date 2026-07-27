@@ -140,6 +140,15 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Use(middleware.AuthMiddleware(cfg, sessions, tokenAuth))
 		}
 
+		// CSRF must wrap the WHOLE API, not just the write-only groups.
+		// setCSRFCookie only runs on a safe method that passes through a
+		// CSRF-wrapped route; when it was mounted solely on groups containing
+		// nothing but POST/PUT/DELETE (plus /admin, itself behind
+		// RequireRole("admin")), a non-admin never received the as_stats_csrf
+		// cookie and every alert ack/resolve was rejected with 403. Mounted here,
+		// any GET issues the cookie and every write still validates it.
+		r.Use(middleware.CSRF())
+
 		// Audit log middleware: records sensitive actions (only if alerts/audit
 		// features are available, since audit_log table is part of that migration)
 		if cfg.FeatureAlerts || cfg.FeatureFlowSearch {
@@ -198,9 +207,8 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			// Anomaly explainability — decompose a link's window into top
 			// contributing ASes / source IPs / dst ports (Module E).
 			r.Get("/anomaly/explain", h.AnomalyExplain)
-			// Alert actions require CSRF + optional admin role
+			// Alert actions: CSRF is applied API-wide; admin role only for block.
 			r.Group(func(r chi.Router) {
-				r.Use(middleware.CSRF())
 				r.Post("/alerts/{id}/ack", h.AcknowledgeAlert)
 				r.Post("/alerts/{id}/resolve", h.ResolveAlert)
 				// Block action requires admin role
@@ -219,7 +227,6 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Get("/bgp/blocks", h.ListBGPBlocks)
 			r.Get("/bgp/blocks/history", h.ListBGPBlockHistory)
 			r.Group(func(r chi.Router) {
-				r.Use(middleware.CSRF())
 				if cfg.AuthEnabled {
 					r.Use(middleware.RequireRole("admin"))
 				}
@@ -261,11 +268,6 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			if cfg.AuthEnabled {
 				r.Use(middleware.RequireRole("admin"))
 			}
-			// CSRF applied at the admin level: GETs set the cookie,
-			// POST/PUT/DELETE validate it. Previously CSRF was only on the
-			// writes sub-group, so GETs never set the cookie and the first
-			// POST from a fresh page load failed with "missing CSRF cookie".
-			r.Use(middleware.CSRF())
 
 			// Reads
 			// Note: GET /admin/links is registered OUTSIDE this group

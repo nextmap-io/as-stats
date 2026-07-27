@@ -17,7 +17,7 @@ services:
     # Remove public port exposure — only accessible within Docker network
     ports: !override []
     environment:
-      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD}"
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in .env}"
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
@@ -30,7 +30,7 @@ services:
     image: ghcr.io/nextmap-io/as-stats-collector:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
-      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD}"
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in .env}"
     deploy:
       resources:
         limits:
@@ -42,7 +42,7 @@ services:
     # Remove public port exposure — frontend proxies to API
     ports: !override []
     environment:
-      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD}"
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in .env}"
       AUTH_ENABLED: "${AUTH_ENABLED:-false}"
       OIDC_ISSUER_URL: "${OIDC_ISSUER_URL:-}"
       OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-}"

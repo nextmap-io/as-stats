@@ -116,6 +116,12 @@ func parseIPFIXTemplates(data []byte, routerKey [16]byte, domainID uint32) {
 		}
 
 		tmpl.TotalLen = totalLen
+		// Zero-byte records would make decodeIPFIXDataSet loop forever (it
+		// advances by TotalLen). Refuse the template rather than the packets.
+		if totalLen <= 0 {
+			log.Printf("ipfix: ignoring template %d from domain %d: zero-length record", templateID, domainID)
+			continue
+		}
 		globalTemplateCache.Set(routerKey, domainID, tmpl)
 		log.Printf("ipfix: cached template %d from domain %d (%d fields, %d bytes/record)",
 			templateID, domainID, fieldCount, totalLen)
@@ -161,12 +167,21 @@ func parseIPFIXOptionsTemplate(data []byte, routerKey [16]byte, domainID uint32)
 	}
 
 	tmpl.TotalLen = totalLen
+	// Same infinite-loop guard as the regular template path.
+	if totalLen <= 0 {
+		log.Printf("ipfix: ignoring options template %d from domain %d: zero-length record", templateID, domainID)
+		return
+	}
 	globalTemplateCache.Set(routerKey, domainID, tmpl)
 }
 
 func decodeIPFIXDataSet(data []byte, routerKey [16]byte, domainID uint32, setID uint16, routerIP net.IP, ts time.Time) []*model.FlowRecord {
 	tmpl := globalTemplateCache.Get(routerKey, domainID, setID)
 	if tmpl == nil {
+		return nil
+	}
+	// Defence in depth against a zero-length record wedging the loop below.
+	if tmpl.TotalLen <= 0 {
 		return nil
 	}
 

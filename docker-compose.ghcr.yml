@@ -17,6 +17,12 @@ services:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
       - ./migrations:/docker-entrypoint-initdb.d
+    # The collector runs with network_mode: host (to see real router IPs), so it
+    # reaches ClickHouse over the host loopback rather than the compose bridge —
+    # without this mapping nothing listens on 127.0.0.1:9000 and every batch
+    # INSERT fails. Bound to loopback only: never expose 9000 publicly.
+    ports:
+      - "127.0.0.1:9000:9000"
     environment:
       CLICKHOUSE_DB: asstats
       CLICKHOUSE_USER: asstats
