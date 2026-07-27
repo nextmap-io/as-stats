@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,19 +55,38 @@ var retentionTables = map[string]retentionTable{
 // table in the whitelist. Both the table name and the TTL expression come from
 // the hardcoded retentionTables map (never user input); `days` is an integer so
 // it cannot carry injection. Returns ok=false for unknown tables.
+//
+// `materialize_ttl_after_modify = 0` is NOT optional. ClickHouse defaults it to
+// 1, which makes every MODIFY TTL enqueue a MATERIALIZE TTL mutation that
+// rewrites every active part of the table. On a large table that is a
+// multi-tens-of-GB write amplification on the very disk the operator is usually
+// trying to free — it is what turned a full disk into a 20h ingestion outage in
+// production. With the setting off the change is metadata-only: existing parts
+// keep their old TTL info and are evicted lazily by normal TTL merges, new and
+// merged parts pick up the new retention immediately.
 func buildModifyTTLStatement(table string, days uint32) (string, bool) {
 	rt, ok := retentionTables[table]
 	if !ok {
 		return "", false
 	}
-	return fmt.Sprintf("ALTER TABLE %s MODIFY TTL %s + INTERVAL %d DAY", table, rt.TTLExpr, days), true
+	return fmt.Sprintf(
+		"ALTER TABLE %s MODIFY TTL %s + INTERVAL %d DAY SETTINGS materialize_ttl_after_modify = 0",
+		table, rt.TTLExpr, days,
+	), true
 }
 
 // EnsureRetentionPolicies seeds retention_policies with one row per TTL-bearing
-// table, using the defaults encoded in the migrations. It is idempotent: rows
-// are only inserted when the table is currently empty, so operator edits made
-// via the API are never clobbered on restart. flows_log is seeded with
-// flowLogDays (from FLOW_LOG_RETENTION_DAYS).
+// table. It is idempotent: rows are only inserted when the table is currently
+// empty, so operator edits made via the API are never clobbered on restart.
+// flows_log is seeded with flowLogDays (from FLOW_LOG_RETENTION_DAYS).
+//
+// Seeding prefers the TTL a table *actually* carries over the migration
+// default. Otherwise the first start after upgrading an existing deployment
+// would seed the hardcoded default, the reconciler would see divergence, and it
+// would ALTER the live table — silently re-extending a retention an operator had
+// deliberately shortened (and, before materialize_ttl_after_modify was pinned,
+// rewriting the whole table to do it). The migration default is only used for
+// tables that do not exist yet.
 func (s *ClickHouseStore) EnsureRetentionPolicies(ctx context.Context, flowLogDays int) error {
 	var count uint64
 	if err := s.conn.QueryRow(ctx, "SELECT count() FROM retention_policies FINAL").Scan(&count); err != nil {
@@ -75,9 +96,20 @@ func (s *ClickHouseStore) EnsureRetentionPolicies(ctx context.Context, flowLogDa
 		return nil // already seeded — never overwrite operator edits
 	}
 
+	live, err := s.liveTTLDays(ctx)
+	if err != nil {
+		// Non-fatal: fall back to migration defaults rather than refusing to seed.
+		log.Printf("retention: could not read live TTLs, seeding from defaults: %v", err)
+		live = map[string]uint32{}
+	}
+
 	now := time.Now().UTC()
 	for table, rt := range retentionTables {
 		days := rt.DefaultDays
+		if l, ok := live[table]; ok && l > 0 {
+			days = l
+		}
+		// An explicit FLOW_LOG_RETENTION_DAYS is an operator decision and wins.
 		if table == "flows_log" && flowLogDays > 0 {
 			days = uint32(flowLogDays)
 		}
@@ -151,6 +183,52 @@ func (s *ClickHouseStore) SetRetentionPolicy(ctx context.Context, table string, 
 	)
 }
 
+// liveTTLDays returns, for each whitelisted table that exists, the retention in
+// days currently encoded in its definition. ClickHouse normalises a table TTL to
+// `<expr> + toIntervalDay(N)` in create_table_query, so N is read back out of
+// that. Tables with no TTL, an unparsable one, or a non-day interval are simply
+// absent from the map; callers fall back to the migration default.
+func (s *ClickHouseStore) liveTTLDays(ctx context.Context) (map[string]uint32, error) {
+	rows, err := s.conn.Query(ctx, `
+		SELECT name, create_table_query FROM system.tables
+		WHERE database = currentDatabase()
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("read live TTLs: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := make(map[string]uint32)
+	for rows.Next() {
+		var name, createQuery string
+		if err := rows.Scan(&name, &createQuery); err != nil {
+			return nil, err
+		}
+		if _, ok := retentionTables[name]; !ok {
+			continue
+		}
+		// Only a table-level TTL counts; a column TTL would appear elsewhere in
+		// the statement, so anchor on the "TTL " clause.
+		idx := strings.Index(createQuery, "TTL ")
+		if idx < 0 {
+			continue
+		}
+		m := ttlDayPattern.FindStringSubmatch(createQuery[idx:])
+		if len(m) != 2 {
+			continue
+		}
+		days, err := strconv.ParseUint(m[1], 10, 32)
+		if err != nil || days == 0 {
+			continue
+		}
+		out[name] = uint32(days)
+	}
+	return out, rows.Err()
+}
+
+// ttlDayPattern extracts N from the normalised `toIntervalDay(N)` TTL clause.
+var ttlDayPattern = regexp.MustCompile(`toIntervalDay\((\d+)\)`)
+
 // presentTables returns the set of tables that actually exist in the current
 // database, so the reconciler / stats can skip feature-gated tables that were
 // never created.
@@ -175,7 +253,9 @@ func (s *ClickHouseStore) presentTables(ctx context.Context) (map[string]bool, e
 }
 
 // ReconcileRetention applies each enabled policy's desired TTL to its table when
-// it diverges from the live TTL. The change is metadata-only and idempotent.
+// it diverges from the live TTL. The ALTER is metadata-only and idempotent
+// *because* buildModifyTTLStatement pins materialize_ttl_after_modify = 0 —
+// without that setting this loop rewrites whole tables (see its docstring).
 // Tables absent from system.tables (e.g. feature-gated ones that were never
 // created) are skipped. Applied changes are logged.
 func (s *ClickHouseStore) ReconcileRetention(ctx context.Context) error {
