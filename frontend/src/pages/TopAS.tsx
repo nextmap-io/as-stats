@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { Link, useSearchParams } from "react-router-dom"
+import { useSearchParams } from "react-router-dom"
 import { useTopAS } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,6 +15,8 @@ import { RatioBar, AsymmetryBadge } from "@/components/Asymmetry"
 import { formatNumber, formatBytes, cn } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 import { countryFlag, hasCountry } from "@/lib/countries"
+import { asPath, isPrivateASGroup, PRIVATE_AS_GROUP_NAME } from "@/lib/asn"
+import { ASRef } from "@/components/ASRef"
 import type { ASTraffic } from "@/lib/types"
 
 export function TopAS() {
@@ -48,9 +50,12 @@ export function TopAS() {
         header: "ASN",
         sortable: true,
         render: (as) => (
-          <Link to={`/as/${as.as_number}${filterSearch}`} className="text-primary hover:underline font-mono">
-            {as.as_number}
-          </Link>
+          <ASRef
+            asn={as.as_number}
+            search={filterSearch}
+            prefix={false}
+            className="text-primary hover:underline font-mono"
+          />
         ),
       },
       {
@@ -188,9 +193,11 @@ export function TopAS() {
                 <TopNViz
                   view={view}
                   data={data.data.map<VizDatum>((as) => ({
-                    name: `AS${as.as_number}${as.as_name ? ` ${as.as_name}` : ""}`,
+                    name: isPrivateASGroup(as.as_number)
+                      ? PRIVATE_AS_GROUP_NAME
+                      : `AS${as.as_number}${as.as_name ? ` ${as.as_name}` : ""}`,
                     value: metricValue(as, metric),
-                    path: `/as/${as.as_number}${filterSearch}`,
+                    path: asPath(as.as_number, filterSearch),
                   }))}
                   formatValue={(v) => (metric === "bytes" ? formatTraffic(v, periodSeconds) : formatNumber(v))}
                   label={`Top autonomous systems by ${metric}`}

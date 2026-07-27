@@ -21,6 +21,11 @@ type mockStore struct {
 	inserted      []model.Alert
 	heartbeats    []string
 	staleResolved int
+
+	topSources     []string // returned by TopSourcesForTarget
+	topSourceCalls int
+	findTargets    []string // target IPs passed to FindActiveAlert
+	activeAlertID  string   // returned by FindActiveAlert when non-empty
 }
 
 func (m *mockStore) ListAlertRules(ctx context.Context) ([]model.AlertRule, error) {
@@ -80,10 +85,16 @@ func (m *mockStore) ListHostgroups(ctx context.Context) ([]model.Hostgroup, erro
 	return nil, nil
 }
 func (m *mockStore) TopSourcesForTarget(ctx context.Context, _ net.IP, _ uint32, _ int) ([]string, error) {
-	return nil, nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.topSourceCalls++
+	return m.topSources, nil
 }
-func (m *mockStore) FindActiveAlert(ctx context.Context, ruleID string, _ net.IP) (string, time.Time, error) {
-	return "", time.Time{}, nil
+func (m *mockStore) FindActiveAlert(ctx context.Context, ruleID string, targetIP net.IP) (string, time.Time, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.findTargets = append(m.findTargets, targetIP.String())
+	return m.activeAlertID, time.Time{}, nil
 }
 func (m *mockStore) InsertAlert(ctx context.Context, a model.Alert) error {
 	m.mu.Lock()
@@ -202,7 +213,7 @@ func TestEngineCooldown(t *testing.T) {
 
 func TestEngineProtocolFlood(t *testing.T) {
 	cases := []struct {
-		ruleType   string
+		ruleType    string
 		expectProto uint8
 	}{
 		{"icmp_flood", 1},
@@ -272,6 +283,167 @@ func TestEngineConnectionFlood(t *testing.T) {
 	}
 }
 
+// Enrichment scans flows_raw, so it must happen only when its result is
+// actually stored — not on every cycle of a sustained attack.
+func TestEngineEnrichmentOnlyOnInsert(t *testing.T) {
+	ms := &mockStore{
+		rules: []model.AlertRule{
+			{
+				ID:              "r1",
+				RuleType:        "volume_in",
+				Enabled:         true,
+				ThresholdBps:    100,
+				WindowSeconds:   60,
+				CooldownSeconds: 300,
+				Severity:        "warning",
+			},
+		},
+		violations: map[string][]alertViolation{
+			"volume_in": {{TargetIP: net.ParseIP("10.0.0.1"), MetricValue: 1000}},
+		},
+		topSources: []string{"198.51.100.7"},
+	}
+
+	e := New(ms, nil, nil, time.Second, time.Minute)
+	e.evaluateOnce(context.Background())
+	e.evaluateOnce(context.Background()) // in cooldown: heartbeat only
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	if ms.topSourceCalls != 1 {
+		t.Errorf("expected 1 enrichment call, got %d", ms.topSourceCalls)
+	}
+	if len(ms.inserted) != 1 {
+		t.Fatalf("expected 1 alert, got %d", len(ms.inserted))
+	}
+	if !strings.Contains(ms.inserted[0].Details, "198.51.100.7") {
+		t.Errorf("enrichment missing from stored details: %s", ms.inserted[0].Details)
+	}
+}
+
+func TestEngineNoEnrichmentWhenAlertAlreadyActive(t *testing.T) {
+	ms := &mockStore{
+		rules: []model.AlertRule{
+			{ID: "r1", RuleType: "volume_in", Enabled: true, ThresholdBps: 100, WindowSeconds: 60, Severity: "warning"},
+		},
+		violations: map[string][]alertViolation{
+			"volume_in": {{TargetIP: net.ParseIP("10.0.0.1"), MetricValue: 1000}},
+		},
+		topSources:    []string{"198.51.100.7"},
+		activeAlertID: "existing-alert",
+	}
+
+	e := New(ms, nil, nil, time.Second, time.Minute)
+	e.evaluateOnce(context.Background())
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	if ms.topSourceCalls != 0 {
+		t.Errorf("expected no enrichment when the alert already exists, got %d calls", ms.topSourceCalls)
+	}
+	if len(ms.inserted) != 0 {
+		t.Errorf("expected no insert, got %d", len(ms.inserted))
+	}
+	if len(ms.heartbeats) != 1 {
+		t.Errorf("expected 1 heartbeat, got %d", len(ms.heartbeats))
+	}
+}
+
+// Label-targeted rules (link_capacity, anomaly) have no target IP: each label
+// must still get its own dedup identity, otherwise distinct links collapse
+// into a single alert row.
+func TestEngineLabelTargetsDedupPerLabel(t *testing.T) {
+	ms := &mockStore{
+		rules: []model.AlertRule{
+			{
+				ID:             "r-cap",
+				Name:           "Link capacity high",
+				RuleType:       "link_capacity",
+				Enabled:        true,
+				ThresholdCount: 80,
+				WindowSeconds:  86400,
+				Severity:       "warning",
+				WebhookIDs:     []string{"wh1"},
+			},
+		},
+		webhooks: []model.WebhookConfig{
+			{ID: "wh1", Name: "slack", Enabled: true, MinSeverity: "info"},
+		},
+		violations: map[string][]alertViolation{
+			"link_capacity": {
+				{TargetLabel: "transit-1", MetricValue: 91},
+				{TargetLabel: "transit-2", MetricValue: 85},
+			},
+		},
+	}
+
+	notifier := &mockNotifier{}
+	e := New(ms, notifier, nil, time.Second, time.Minute)
+	e.evaluateOnce(context.Background())
+
+	// Notifications are dispatched in goroutines.
+	time.Sleep(200 * time.Millisecond)
+
+	// Operators must still see the link tag, not the synthetic address.
+	notifier.mu.Lock()
+	notifiedTargets := make([]string, 0, len(notifier.notified))
+	for _, a := range notifier.notified {
+		notifiedTargets = append(notifiedTargets, a.TargetIP)
+	}
+	notifier.mu.Unlock()
+	if len(notifiedTargets) != 2 {
+		t.Errorf("expected 2 notifications, got %v", notifiedTargets)
+	}
+	for _, tgt := range notifiedTargets {
+		if !strings.HasPrefix(tgt, "transit-") {
+			t.Errorf("notification target %q should be the link tag", tgt)
+		}
+	}
+
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	if len(ms.inserted) != 2 {
+		t.Fatalf("expected 2 alerts (one per link), got %d", len(ms.inserted))
+	}
+	if ms.inserted[0].TargetIP == ms.inserted[1].TargetIP {
+		t.Errorf("both links stored under the same target %q", ms.inserted[0].TargetIP)
+	}
+	for _, a := range ms.inserted {
+		if net.ParseIP(a.TargetIP) == nil {
+			t.Errorf("stored target %q is not a valid address", a.TargetIP)
+		}
+		if a.TargetIP == "::" {
+			t.Error("label target collapsed onto the zero IP")
+		}
+	}
+	// The DB dedup lookup must see the same distinct identities.
+	if len(ms.findTargets) != 2 || ms.findTargets[0] == ms.findTargets[1] {
+		t.Errorf("expected 2 distinct dedup lookups, got %v", ms.findTargets)
+	}
+	// The link tag stays authoritative in the details payload.
+	if !strings.Contains(ms.inserted[0].Details, "transit-1") {
+		t.Errorf("link tag missing from details: %s", ms.inserted[0].Details)
+	}
+}
+
+func TestLabelTargetIP(t *testing.T) {
+	a := labelTargetIP("transit-1")
+	if !a.Equal(labelTargetIP("transit-1")) {
+		t.Error("labelTargetIP must be deterministic")
+	}
+	if a.Equal(labelTargetIP("transit-2")) {
+		t.Error("distinct labels must map to distinct addresses")
+	}
+	// Must land in the RFC 6666 discard prefix 0100::/64 so it can never be
+	// confused with an address observed in real traffic.
+	if !strings.HasPrefix(a.String(), "100:") {
+		t.Errorf("expected an address in 0100::/64, got %s", a)
+	}
+	if a.To4() != nil {
+		t.Errorf("expected an IPv6 address, got %s", a)
+	}
+}
+
 func TestCleanupCooldown(t *testing.T) {
 	e := New(&mockStore{}, nil, nil, time.Second, time.Minute)
 
@@ -322,6 +494,19 @@ func TestSeverityMeets(t *testing.T) {
 
 // Type alias to avoid importing store in the test's violation map literal
 type alertViolation = store.AlertViolation
+
+// mockNotifier records the alerts handed to webhook delivery.
+type mockNotifier struct {
+	mu       sync.Mutex
+	notified []model.Alert
+}
+
+func (n *mockNotifier) Notify(ctx context.Context, _ model.WebhookConfig, a model.Alert) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.notified = append(n.notified, a)
+	return nil
+}
 
 // ---------------------------------------------------------------------------
 // Mock types for auto-block tests

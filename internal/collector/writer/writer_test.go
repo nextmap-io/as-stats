@@ -9,13 +9,17 @@ import (
 	"github.com/nextmap-io/as-stats/internal/model"
 )
 
-// mockStore records batch writes for testing.
+// mockStore records batch writes for testing. It mimics a real driver by
+// refusing to write with an already-cancelled context.
 type mockStore struct {
 	mu      sync.Mutex
 	batches [][]*model.FlowRecord
 }
 
-func (m *mockStore) WriteBatch(_ context.Context, flows []*model.FlowRecord) error {
+func (m *mockStore) WriteBatch(ctx context.Context, flows []*model.FlowRecord) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	cp := make([]*model.FlowRecord, len(flows))
 	copy(cp, flows)
 	m.mu.Lock()
@@ -112,12 +116,41 @@ func TestBatchWriterFlushOnShutdown(t *testing.T) {
 	ch <- &model.FlowRecord{Bytes: 200}
 	time.Sleep(10 * time.Millisecond)
 
-	// Cancel -> should drain and flush
+	// Cancel -> should drain and flush. The final write must not reuse the
+	// cancelled context, or the tail of every clean restart is lost.
 	cancel()
 	<-done
 
 	if store.totalFlows() != 2 {
 		t.Errorf("expected 2 flows flushed on shutdown, got %d", store.totalFlows())
+	}
+}
+
+func TestBatchWriterFlushOnClosedInputAfterCancel(t *testing.T) {
+	store := &mockStore{}
+	ch := make(chan *model.FlowRecord, 100)
+
+	w := New(store, ch, 100, 10*time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		w.Run(ctx)
+		close(done)
+	}()
+
+	ch <- &model.FlowRecord{Bytes: 100}
+	time.Sleep(10 * time.Millisecond)
+
+	// The pipeline closes the channel during shutdown, i.e. after ctx is done.
+	cancel()
+	close(ch)
+	<-done
+
+	if store.totalFlows() != 1 {
+		t.Errorf("expected 1 flow flushed when the input closed, got %d", store.totalFlows())
 	}
 }
 

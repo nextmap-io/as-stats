@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net"
@@ -8,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/nextmap-io/as-stats/internal/api/middleware"
@@ -117,6 +119,12 @@ func (h *Handler) BlockAlertBGP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := chi.URLParam(r, "id")
+	// alerts.id is a UUID column; reject anything else before it reaches SQL so
+	// a malformed path segment is a 400 rather than a ClickHouse-level 500.
+	if _, err := uuid.Parse(id); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid alert id")
+		return
+	}
 
 	var body struct {
 		DurationMinutes int    `json:"duration_minutes"`
@@ -134,25 +142,18 @@ func (h *Handler) BlockAlertBGP(w http.ResponseWriter, r *http.Request) {
 		body.Reason = body.Reason[:500]
 	}
 
-	// Load alert to get target IP
-	alerts, err := h.Store.ListAlerts(r.Context(), "", 1000)
+	// Load the alert's target IP by id.
+	targetIP, found, err := h.alertTargetIP(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	var target model.Alert
-	for _, a := range alerts {
-		if a.ID == id {
-			target = a
-			break
-		}
-	}
-	if target.ID == "" {
+	if !found {
 		writeError(w, http.StatusNotFound, "alert not found")
 		return
 	}
 
-	ip := net.ParseIP(target.TargetIP)
+	ip := net.ParseIP(targetIP)
 	if ip == nil {
 		writeError(w, http.StatusBadRequest, "invalid target IP")
 		return
@@ -166,9 +167,32 @@ func (h *Handler) BlockAlertBGP(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, Response{Data: map[string]any{
 		"status":           "blackholed",
-		"target":           target.TargetIP,
+		"target":           ip.String(),
 		"duration_minutes": body.DurationMinutes,
 	}})
+}
+
+// alertTargetIP resolves a single alert's blackhole target by id.
+//
+// This used to page the 1000 most recent alerts and scan them in memory, so
+// blocking anything older than that page 404'd even though the row was right
+// there. Aggregating means the query always yields exactly one row, so "not
+// found" is a count of zero rather than a driver-specific no-rows error.
+func (h *Handler) alertTargetIP(ctx context.Context, id string) (string, bool, error) {
+	var count uint64
+	var targetIP string
+	err := h.Store.QueryRow(ctx, `
+		SELECT count(), toString(argMax(a.target_ip, a.triggered_at))
+		FROM alerts a
+		WHERE a.id = @id
+	`, clickhouse.Named("id", id)).Scan(&count, &targetIP)
+	if err != nil {
+		return "", false, err
+	}
+	if count == 0 {
+		return "", false, nil
+	}
+	return targetIP, true, nil
 }
 
 // =============================================================================

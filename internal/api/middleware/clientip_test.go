@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-// TestRealIPIgnoresSpoofedHeadersFromUntrustedPeer: the rate-limit bucket key
-// must not be attacker-controlled. nginx appends to X-Forwarded-For, so the
-// left-most entry is whatever the client sent.
-func TestRealIPIgnoresSpoofedHeadersFromUntrustedPeer(t *testing.T) {
+// TestClientIPIgnoresSpoofedHeadersFromUntrustedPeer: neither the rate-limit
+// bucket key nor the /metrics allow-list may be attacker-controlled. nginx
+// appends to X-Forwarded-For, so the left-most entry is whatever the client sent.
+func TestClientIPIgnoresSpoofedHeadersFromUntrustedPeer(t *testing.T) {
 	tests := []struct {
 		name       string
 		remoteAddr string
@@ -26,6 +26,12 @@ func TestRealIPIgnoresSpoofedHeadersFromUntrustedPeer(t *testing.T) {
 			name:       "direct client cannot use X-Real-IP either",
 			remoteAddr: "203.0.113.9:5555",
 			xri:        "1.2.3.4",
+			want:       "203.0.113.9",
+		},
+		{
+			name:       "direct client cannot forge an allow-listed source",
+			remoteAddr: "203.0.113.9:5555",
+			xff:        "10.0.0.7",
 			want:       "203.0.113.9",
 		},
 		{
@@ -51,8 +57,8 @@ func TestRealIPIgnoresSpoofedHeadersFromUntrustedPeer(t *testing.T) {
 			if tc.xri != "" {
 				r.Header.Set("X-Real-IP", tc.xri)
 			}
-			if got := realIP(r); got != tc.want {
-				t.Errorf("realIP() = %q, want %q", got, tc.want)
+			if got := ClientIP(r); got != tc.want {
+				t.Errorf("ClientIP() = %q, want %q", got, tc.want)
 			}
 		})
 	}

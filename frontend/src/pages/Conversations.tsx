@@ -11,6 +11,7 @@ import { ExportButton, type ExportColumn } from "@/components/ExportButton"
 import { IPWithPTR } from "@/components/PTR"
 import { formatNumber } from "@/lib/utils"
 import { cn } from "@/lib/utils"
+import { ASRef } from "@/components/ASRef"
 import { Search } from "lucide-react"
 import type { Conversation } from "@/lib/types"
 
@@ -110,9 +111,7 @@ export function Conversations() {
           header: "AS A",
           sortable: true,
           render: (c) => (
-            <Link to={`/as/${c.endpoint_a}${filterSearch}`} className="text-primary hover:underline font-mono">
-              AS{c.endpoint_a}
-            </Link>
+            <ASRef asn={c.endpoint_a} search={filterSearch} className="text-primary hover:underline font-mono" />
           ),
         },
         {
@@ -120,9 +119,7 @@ export function Conversations() {
           header: "AS B",
           sortable: true,
           render: (c) => (
-            <Link to={`/as/${c.endpoint_b}${filterSearch}`} className="text-primary hover:underline font-mono">
-              AS{c.endpoint_b}
-            </Link>
+            <ASRef asn={c.endpoint_b} search={filterSearch} className="text-primary hover:underline font-mono" />
           ),
         },
       )

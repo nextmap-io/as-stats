@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/nextmap-io/as-stats/internal/model"
@@ -32,6 +33,9 @@ type Listener struct {
 	addr    string
 	conn    *net.UDPConn
 	workers int
+	// decoders tracks the decoder goroutines, which are the only senders on the
+	// flows channel — see Wait.
+	decoders sync.WaitGroup
 }
 
 // NewListener creates a new sFlow UDP listener.

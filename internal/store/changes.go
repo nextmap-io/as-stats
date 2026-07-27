@@ -73,20 +73,24 @@ func (s *ClickHouseStore) Movers(ctx context.Context, dim string, from, to time.
 	switch dim {
 	case "as":
 		table := pickASTable(from2, to)
+		// Private-use ASNs collapse into the single PrivateASGroup entity, same
+		// as Top AS — a mover list is only useful if its entities match the
+		// entities the rest of the UI shows.
+		asExpr := groupedAS("t.as_number")
 		query = fmt.Sprintf(`
 			SELECT
-				toString(t.as_number) AS k,
-				any(an.as_name) AS lbl,
+				toString(%[1]s) AS k,
+				%[2]s AS lbl,
 				sumIf(t.bytes, t.ts >= @from) AS cur,
 				sumIf(t.bytes, t.ts < @from) AS prev
-			FROM %s t
+			FROM %[3]s t
 			LEFT JOIN as_names an ON t.as_number = an.as_number
 			WHERE t.ts >= @from2 AND t.ts < @to
-			GROUP BY t.as_number
+			GROUP BY %[1]s
 			HAVING cur > 0 OR prev > 0
 			ORDER BY abs(toInt64(cur) - toInt64(prev)) DESC
 			LIMIT @limit
-		`, table)
+		`, asExpr, groupedASName(asExpr, "any(an.as_name)"), table)
 	case "country":
 		table := pickASTable(from2, to)
 		query = fmt.Sprintf(`
@@ -194,20 +198,24 @@ func (s *ClickHouseStore) Talkers(ctx context.Context, dim string, from, to time
 	switch dim {
 	case "as":
 		table := pickASTable(from2, to)
+		// Grouped like Top AS / Movers: the private group only counts as "new"
+		// or "gone" when *all* of its member ASNs appear or disappear, which is
+		// the answer an operator actually wants for a downstream aggregate.
+		asExpr := groupedAS("t.as_number")
 		query = fmt.Sprintf(`
 			SELECT
-				toString(t.as_number) AS k,
-				any(an.as_name) AS lbl,
+				toString(%[1]s) AS k,
+				%[2]s AS lbl,
 				sumIf(t.bytes, t.ts >= @from) AS cur,
 				sumIf(t.bytes, t.ts < @from) AS prev
-			FROM %s t
+			FROM %[3]s t
 			LEFT JOIN as_names an ON t.as_number = an.as_number
 			WHERE t.ts >= @from2 AND t.ts < @to
-			GROUP BY t.as_number
+			GROUP BY %[1]s
 			HAVING (cur = 0 AND prev > 0) OR (prev = 0 AND cur > 0)
 			ORDER BY greatest(cur, prev) DESC
 			LIMIT @limit
-		`, table)
+		`, asExpr, groupedASName(asExpr, "any(an.as_name)"), table)
 	case "ip":
 		query = `
 			SELECT

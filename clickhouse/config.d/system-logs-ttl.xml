@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<!--
+  Caps ClickHouse's own system.*_log tables.
+
+  They live on the same volume as the flow data and are effectively unbounded
+  out of the box: metric_log and asynchronous_metric_log alone insert a very
+  wide row every second, and a production instance reached ~12 GiB of system
+  logs, filling the disk and stalling flow ingestion. A week of history is
+  plenty to debug a slow query or a bad merge, so cap every log table at 7 days.
+
+  Merged into the shipped config.xml by the image (config.d/*.xml); the <ttl>
+  element replaces the default one for each log. TTLs only apply to tables
+  ClickHouse creates from this config — on an existing instance ClickHouse
+  renames the old table (e.g. query_log_0) instead of altering it, so drop those
+  leftovers by hand after upgrading.
+-->
+<clickhouse>
+    <query_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </query_log>
+    <query_thread_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </query_thread_log>
+    <query_views_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </query_views_log>
+    <part_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </part_log>
+    <trace_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </trace_log>
+    <metric_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </metric_log>
+    <asynchronous_metric_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </asynchronous_metric_log>
+    <processors_profile_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </processors_profile_log>
+    <!--
+      Deliberately not listed: opentelemetry_span_log ships an explicit <engine>
+      in the stock config and ClickHouse refuses <ttl> alongside it (BAD_ARGUMENTS
+      at startup); text_log and session_log are disabled by default and declaring
+      them here would switch them on.
+    -->
+</clickhouse>

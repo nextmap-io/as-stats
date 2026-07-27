@@ -97,7 +97,7 @@ func (svc *Service) deliver(ctx context.Context, s model.ReportSchedule, at time
 	if err != nil {
 		return err
 	}
-	return svc.sender.Send(recipients, rendered, s.Format)
+	return svc.sender.Send(ctx, recipients, rendered, s.Format)
 }
 
 // SendNow renders and sends a schedule immediately (used by the test endpoint).

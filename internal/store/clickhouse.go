@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -15,6 +16,12 @@ import (
 // ClickHouseStore implements FlowWriter, FlowReader, LinkStore, and ASNameStore.
 type ClickHouseStore struct {
 	conn driver.Conn
+
+	// Alert heartbeat throttle state — see UpdateAlertLastSeen in alerts.go.
+	// Zero value is valid (no throttling) so tests can use &ClickHouseStore{}.
+	hbMu      sync.Mutex
+	hbWritten map[string]time.Time
+	hbWindow  time.Duration
 }
 
 // NewClickHouseStore creates a new ClickHouse connection.
