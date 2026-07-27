@@ -15,6 +15,13 @@ updates:
     groups:
       npm-deps:
         patterns: ["*"]
+    ignore:
+      # typescript-eslint pins its peer to `>=4.8.4 <6.1.0`, so TypeScript 7
+      # makes a plain `npm ci` fail ERESOLVE and turns every frontend job red.
+      # That already shipped to main once and had to be reverted. Drop this
+      # entry once typescript-eslint publishes a release accepting TS 7.
+      - dependency-name: typescript
+        versions: [">=6.1.0"]
 
   - package-ecosystem: github-actions
     directory: /
