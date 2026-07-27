@@ -62,7 +62,7 @@ func TestBuildModifyTTLStatement(t *testing.T) {
 	if !ok {
 		t.Fatal("expected ok for flows_raw")
 	}
-	if stmt != "ALTER TABLE flows_raw MODIFY TTL toDateTime(timestamp) + INTERVAL 7 DAY" {
+	if stmt != "ALTER TABLE flows_raw MODIFY TTL toDateTime(timestamp) + INTERVAL 7 DAY SETTINGS materialize_ttl_after_modify = 0" {
 		t.Errorf("unexpected flows_raw stmt: %q", stmt)
 	}
 
@@ -71,8 +71,20 @@ func TestBuildModifyTTLStatement(t *testing.T) {
 	if !ok {
 		t.Fatal("expected ok for traffic_by_ip")
 	}
-	if stmt != "ALTER TABLE traffic_by_ip MODIFY TTL ts + INTERVAL 21 DAY" {
+	if stmt != "ALTER TABLE traffic_by_ip MODIFY TTL ts + INTERVAL 21 DAY SETTINGS materialize_ttl_after_modify = 0" {
 		t.Errorf("unexpected traffic_by_ip stmt: %q", stmt)
+	}
+
+	// Regression guard: the setting is what keeps the reconciler from rewriting
+	// whole tables (see buildModifyTTLStatement). Never drop it.
+	for _, table := range []string{"flows_raw", "flows_log", "traffic_by_port"} {
+		s, ok := buildModifyTTLStatement(table, 30)
+		if !ok {
+			t.Fatalf("expected ok for %s", table)
+		}
+		if !strings.Contains(s, "materialize_ttl_after_modify = 0") {
+			t.Errorf("%s: MODIFY TTL must pin materialize_ttl_after_modify=0, got %q", table, s)
+		}
 	}
 
 	// Unknown table must be rejected.

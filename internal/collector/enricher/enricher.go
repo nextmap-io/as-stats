@@ -4,7 +4,10 @@ import (
 	"log"
 	"net"
 	"sync"
+	"sync/atomic"
+	"time"
 
+	"github.com/nextmap-io/as-stats/internal/metrics"
 	"github.com/nextmap-io/as-stats/internal/model"
 )
 
@@ -20,11 +23,16 @@ type linkInfo struct {
 
 // Enricher maps flows to known links and determines traffic direction.
 type Enricher struct {
-	mu           sync.RWMutex
-	links        map[linkKey]linkInfo
-	asNames      map[uint32]string
-	localAS      uint32
-	localNets    []net.IPNet
+	mu        sync.RWMutex
+	links     map[linkKey]linkInfo
+	asNames   map[uint32]string
+	localAS   uint32
+	localNets []net.IPNet
+
+	// clampedTS counts flows whose exporter timestamp was rejected as
+	// out-of-range and replaced with receive time. Atomic: Enrich runs without
+	// holding the write lock.
+	clampedTS atomic.Uint64
 }
 
 // New creates a new Enricher.
@@ -77,11 +85,38 @@ func (e *Enricher) SetLocalAS(asn uint32, prefixes []net.IPNet) {
 	log.Printf("enricher: local AS%d with %d prefixes", asn, len(prefixes))
 }
 
+// timestampSkew bounds how far a router-supplied flow timestamp may sit from
+// local time before we distrust it. flows_raw is PARTITION BY
+// toYYYYMMDD(timestamp) with a TTL keyed on the same column, so a bogus
+// timestamp creates a partition that either never expires (far future) or is
+// dropped immediately (far past). One exporter with a broken clock — or a
+// spoofed packet, since the UDP listeners accept any source — is enough to
+// accumulate permanent partitions. Clamping keeps retention enforceable.
+const (
+	timestampSkewFuture = 5 * time.Minute
+	timestampSkewPast   = 24 * time.Hour
+)
+
+// ClampedTimestamps counts flows whose exporter timestamp was out of range and
+// rewritten to receive time. Exposed for metrics/diagnostics.
+func (e *Enricher) ClampedTimestamps() uint64 { return e.clampedTS.Load() }
+
 // Enrich sets the LinkTag and Direction fields on a flow based on known links.
 // If the input interface matches a known link, the flow is inbound on that link.
-// If the output interface matches, the flow is outbound on that link.
+// If the output interface matches, the flow is outbound on that link. It also
+// clamps an out-of-range exporter timestamp to receive time.
 func (e *Enricher) Enrich(flow *model.FlowRecord) {
 	routerIP := normalizeIP(flow.RouterIP)
+
+	// Clamp before anything downstream keys on it.
+	now := time.Now()
+	if flow.Timestamp.IsZero() ||
+		flow.Timestamp.After(now.Add(timestampSkewFuture)) ||
+		flow.Timestamp.Before(now.Add(-timestampSkewPast)) {
+		flow.Timestamp = now
+		e.clampedTS.Add(1)
+		metrics.TimestampsClamped.Inc()
+	}
 
 	e.mu.RLock()
 	defer e.mu.RUnlock()

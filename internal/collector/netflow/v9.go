@@ -97,6 +97,15 @@ func parseV9Templates(data []byte, routerKey [16]byte, sourceID uint32) {
 		}
 		tmpl.TotalLen = totalLen
 
+		// A template whose fields are all zero-length yields a zero-byte record.
+		// decodeDataSet advances by TotalLen, so caching this would wedge the
+		// decoder goroutine in an infinite allocating loop on the next data set
+		// referencing it. Drop it instead of trusting the exporter.
+		if totalLen <= 0 {
+			log.Printf("v9: ignoring template %d from source %d: zero-length record", templateID, sourceID)
+			continue
+		}
+
 		globalTemplateCache.Set(routerKey, sourceID, tmpl)
 		log.Printf("v9: cached template %d from source %d (%d fields, %d bytes/record)",
 			templateID, sourceID, fieldCount, totalLen)
@@ -107,6 +116,11 @@ func decodeDataSet(data []byte, routerKey [16]byte, sourceID uint32, setID uint1
 	tmpl := globalTemplateCache.Get(routerKey, sourceID, setID)
 	if tmpl == nil {
 		return nil // template not yet received
+	}
+	// Defence in depth: parseV9Templates refuses to cache these, but a zero
+	// record length would make the loop below never advance.
+	if tmpl.TotalLen <= 0 {
+		return nil
 	}
 
 	var flows []*model.FlowRecord

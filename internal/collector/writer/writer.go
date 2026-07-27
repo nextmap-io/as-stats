@@ -57,7 +57,12 @@ func (w *BatchWriter) Run(ctx context.Context) {
 
 		if err != nil {
 			w.Metrics.WriteErrors.Add(1)
-			log.Printf("batch write error (%d flows): %v", len(buf), err)
+			// Surface the failure to Prometheus. The batch is dropped (there is
+			// no retry queue), so an operator must be able to see both facts —
+			// otherwise a total ingestion stall looks exactly like idle traffic.
+			metrics.BatchWriteErrors.Inc()
+			metrics.FlowsDropped.Add(float64(len(buf)))
+			log.Printf("batch write error (%d flows dropped): %v", len(buf), err)
 		} else {
 			count := uint64(len(buf))
 			w.Metrics.FlowsWritten.Add(count)
