@@ -235,7 +235,17 @@ func LoadCollector() (*CollectorConfig, error) {
 func LoadAPI() (*APIConfig, error) {
 	origins := strings.Split(envOr("API_CORS_ORIGINS", "http://localhost:5173"), ",")
 	scopes := strings.Split(envOr("OIDC_SCOPES", "openid profile email"), " ")
-	authEnabled, _ := strconv.ParseBool(envOr("AUTH_ENABLED", "false"))
+	authEnabled, err := envBool("AUTH_ENABLED", true)
+	if err != nil {
+		return nil, err
+	}
+	allowUnauthenticated, err := envBool("ALLOW_UNAUTHENTICATED", false)
+	if err != nil {
+		return nil, err
+	}
+	if !authEnabled && !allowUnauthenticated {
+		return nil, fmt.Errorf("AUTH_ENABLED=false requires ALLOW_UNAUTHENTICATED=true")
+	}
 	apiLocalAS, _ := strconv.ParseUint(envOr("LOCAL_AS", "0"), 10, 32)
 
 	featureFlowSearch, _ := strconv.ParseBool(envOr("FEATURE_FLOW_SEARCH", "false"))
@@ -329,4 +339,18 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// envBool parses an environment boolean without silently accepting typos.
+// Security-sensitive switches must fail closed when their value is invalid.
+func envBool(key string, fallback bool) (bool, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback, nil
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("invalid %s: %q", key, raw)
+	}
+	return v, nil
 }

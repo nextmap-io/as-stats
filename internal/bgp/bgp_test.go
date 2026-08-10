@@ -47,3 +47,27 @@ func TestNoopBlocker_Status(t *testing.T) {
 		t.Errorf("expected State=%q, got %q", "disabled", st.State)
 	}
 }
+
+func TestHostPrefixLen(t *testing.T) {
+	tests := []struct {
+		name string
+		ip   string
+		want uint8
+	}{
+		{name: "IPv4", ip: "192.0.2.1", want: 32},
+		{name: "IPv4 mapped", ip: "::ffff:192.0.2.1", want: 32},
+		{name: "IPv6", ip: "2001:db8::1", want: 128},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ip := net.ParseIP(tt.ip)
+			if ip == nil {
+				t.Fatalf("ParseIP(%q) returned nil", tt.ip)
+			}
+			if got := HostPrefixLen(ip); got != tt.want {
+				t.Fatalf("HostPrefixLen(%q) = %d, want %d", tt.ip, got, tt.want)
+			}
+		})
+	}
+}

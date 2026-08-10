@@ -2,6 +2,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { Link } from "react-router-dom"
 import { api } from "@/lib/api"
+import { useCurrentUser } from "@/hooks/useAuth"
+import { useFeatures } from "@/hooks/useFeatures"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { TableSkeleton } from "@/components/ui/skeleton"
@@ -22,14 +24,11 @@ export function BGP() {
   const queryClient = useQueryClient()
 
   // --- Auth: check if current user is admin ---
-  const { data: userData } = useQuery({
-    queryKey: ["auth-me"],
-    queryFn: () => api.me(),
-    staleTime: 300_000,
-    retry: false,
-  })
+  const { data: featuresRes } = useFeatures()
+  const authEnabled = featuresRes?.data?.auth
+  const { data: userData } = useCurrentUser(authEnabled)
   const user = userData?.data
-  const isAdmin = user?.role === "admin"
+  const isAdmin = authEnabled === false || user?.role === "admin"
 
   // --- BGP session status ---
   const {

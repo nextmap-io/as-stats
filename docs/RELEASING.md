@@ -37,8 +37,9 @@ git push origin v1.0.0
 ### 3. GitHub Release
 
 The `release.yml` workflow triggers automatically on tag push and:
-- Builds Go binaries for 4 platforms (linux/darwin × amd64/arm64)
-- Builds Docker images (multi-arch: amd64 + arm64)
+- Builds collector, API, and migration binaries for 4 platforms
+  (linux/darwin × amd64/arm64)
+- Builds Docker images, including the one-shot migrator (multi-arch: amd64 + arm64)
 - Pushes to GHCR with version tags
 - Creates a GitHub Release with changelog
 
@@ -60,6 +61,19 @@ git pull
 docker compose -f docker-compose.ghcr.yml pull
 docker compose -f docker-compose.ghcr.yml up -d
 ```
+
+The `migrate` container must exit successfully before Compose starts the API or
+collector. Check it explicitly during an upgrade:
+
+```bash
+docker compose -f docker-compose.ghcr.yml logs migrate
+docker compose -f docker-compose.ghcr.yml ps --all migrate
+```
+
+Never edit a released `*.up.sql` file: deployed checksums are immutable. Since
+ClickHouse has no transaction spanning a multi-statement DDL migration, a dirty
+or ambiguous schema intentionally blocks rollout and requires backup,
+inspection, and an explicit repair plan.
 
 Or with local build:
 
@@ -93,4 +107,7 @@ docker compose -f docker-compose.ghcr.yml pull  # pulls :latest
 IMAGE_TAG=v0.9.0 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
-For database schema changes, apply the corresponding `migrations/NNNNNN_*.down.sql`.
+Rolling back application images does not automatically roll back the database.
+The `*.down.sql` files document inverse operations but may be lossy and must not
+be run automatically. Restore a tested backup or execute a reviewed rollback
+plan appropriate to the failed version.

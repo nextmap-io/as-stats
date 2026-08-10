@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +16,35 @@ type emptyBlockStore struct{}
 
 func (s *emptyBlockStore) ListActiveBlocks(ctx context.Context) ([]model.BGPBlock, error) {
 	return nil, nil
+}
+
+func (s *emptyBlockStore) WithdrawBlock(ctx context.Context, ip, unblockedBy, reason string) error {
+	return nil
+}
+
+type recordingBlockStore struct {
+	mu          sync.Mutex
+	blocks      []model.BGPBlock
+	withdrawals []string
+}
+
+func (s *recordingBlockStore) ListActiveBlocks(ctx context.Context) ([]model.BGPBlock, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]model.BGPBlock(nil), s.blocks...), nil
+}
+
+func (s *recordingBlockStore) WithdrawBlock(ctx context.Context, ip, unblockedBy, reason string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.withdrawals = append(s.withdrawals, ip)
+	return nil
+}
+
+func (s *recordingBlockStore) withdrawalCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.withdrawals)
 }
 
 func TestScriptBlocker_AnnounceWithdraw(t *testing.T) {
@@ -198,5 +228,114 @@ func TestScriptBlocker_CommandFailure(t *testing.T) {
 	list, _ := sb.List(context.Background())
 	if len(list) != 0 {
 		t.Errorf("expected 0 routes after failed Announce, got %d", len(list))
+	}
+}
+
+func TestScriptBlocker_RestartBeforeExpiration(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell commands require unix")
+	}
+
+	expiresAt := time.Now().UTC().Add(300 * time.Millisecond)
+	store := &recordingBlockStore{blocks: []model.BGPBlock{{
+		IP:        "198.51.100.10",
+		PrefixLen: 32,
+		Status:    "active",
+		BlockedAt: time.Now().UTC().Add(-time.Minute),
+		ExpiresAt: &expiresAt,
+	}}}
+	sb, err := NewScript(Config{
+		AnnounceCmd: `test "{ip}" = "198.51.100.10" && test "{prefix_len}" = "32" && test "{family}" = "ipv4"`,
+		WithdrawCmd: `test "{ip}" = "198.51.100.10" && test "{prefix_len}" = "32" && test "{family}" = "ipv4"`,
+	}, store)
+	if err != nil {
+		t.Fatalf("NewScript: %v", err)
+	}
+	defer sb.Stop()
+
+	list, err := sb.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected route to be restored before expiration, got %d", len(list))
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		list, err = sb.List(context.Background())
+		if err == nil && len(list) == 0 && store.withdrawalCount() == 1 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("route did not expire cleanly: routes=%d persisted withdrawals=%d", len(list), store.withdrawalCount())
+}
+
+func TestScriptBlocker_RestartAfterExpirationDoesNotAnnounce(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell commands require unix")
+	}
+
+	expiresAt := time.Now().UTC().Add(-time.Minute)
+	store := &recordingBlockStore{blocks: []model.BGPBlock{{
+		IP:        "198.51.100.11",
+		PrefixLen: 32,
+		Status:    "active",
+		BlockedAt: time.Now().UTC().Add(-2 * time.Minute),
+		ExpiresAt: &expiresAt,
+	}}}
+	sb, err := NewScript(Config{
+		AnnounceCmd: "false",
+		WithdrawCmd: `test "{ip}" = "198.51.100.11" && test "{prefix_len}" = "32" && test "{family}" = "ipv4"`,
+	}, store)
+	if err != nil {
+		t.Fatalf("NewScript: %v", err)
+	}
+	defer sb.Stop()
+
+	list, err := sb.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expired route was re-announced: %+v", list)
+	}
+	if got := store.withdrawalCount(); got != 1 {
+		t.Fatalf("expected expired block to be persisted as withdrawn, got %d updates", got)
+	}
+}
+
+func TestScriptBlocker_IPv6HostRouteOnRestart(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell commands require unix")
+	}
+
+	expiresAt := time.Now().UTC().Add(time.Hour)
+	store := &recordingBlockStore{blocks: []model.BGPBlock{{
+		IP:        "2001:db8::1",
+		PrefixLen: 32, // Simulate a row written by the historical bug.
+		Status:    "active",
+		BlockedAt: time.Now().UTC(),
+		ExpiresAt: &expiresAt,
+	}}}
+	command := `test "{ip}" = "2001:db8::1" && test "{prefix_len}" = "128" && test "{family}" = "ipv6"`
+	sb, err := NewScript(Config{AnnounceCmd: command, WithdrawCmd: command}, store)
+	if err != nil {
+		t.Fatalf("NewScript: %v", err)
+	}
+	defer sb.Stop()
+
+	sb.mu.RLock()
+	route := sb.routes["2001:db8::1"]
+	sb.mu.RUnlock()
+	if route == nil {
+		t.Fatal("expected IPv6 route to be restored")
+	}
+	if route.block.PrefixLen != 128 {
+		t.Fatalf("expected restored IPv6 host route /128, got /%d", route.block.PrefixLen)
+	}
+	if err := sb.Withdraw(context.Background(), net.ParseIP("2001:db8::1")); err != nil {
+		t.Fatalf("Withdraw IPv6 route: %v", err)
 	}
 }

@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nextmap-io/as-stats/internal/bgp"
 	"github.com/nextmap-io/as-stats/internal/metrics"
 	"github.com/nextmap-io/as-stats/internal/model"
 	"github.com/nextmap-io/as-stats/internal/store"
@@ -556,10 +557,11 @@ func (e *Engine) safeAutoBlock(rule model.AlertRule, alert model.Alert, v store.
 	if e.blockStore != nil {
 		now := time.Now().UTC()
 		expiresAt := now.Add(duration)
+		prefixLen := bgp.HostPrefixLen(ip)
 		block := model.BGPBlock{
 			ID:              uuid.NewString(),
 			IP:              alert.TargetIP,
-			PrefixLen:       32,
+			PrefixLen:       prefixLen,
 			Reason:          "auto_block",
 			Description:     description,
 			Status:          "active",

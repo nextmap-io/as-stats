@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/nextmap-io/as-stats/internal/api/middleware"
+	"github.com/nextmap-io/as-stats/internal/bgp"
 	"github.com/nextmap-io/as-stats/internal/model"
 )
 
@@ -98,11 +99,12 @@ func (h *Handler) CreateBGPBlock(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC()
 	expiresAt := now.Add(dur)
+	prefixLen := bgp.HostPrefixLen(ip)
 
 	block := model.BGPBlock{
 		ID:              uuid.NewString(),
 		IP:              ip.String(),
-		PrefixLen:       32,
+		PrefixLen:       prefixLen,
 		Reason:          "manual",
 		Description:     req.Description,
 		Status:          "active",

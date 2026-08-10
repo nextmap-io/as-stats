@@ -50,9 +50,17 @@ type SessionStatus struct {
 	PeerAddress     string `json:"peer_address,omitempty"`
 	PeerAS          uint32 `json:"peer_as,omitempty"`
 	LocalAS         uint32 `json:"local_as,omitempty"`
-	State           string `json:"state"`            // "established", "idle", "disabled", etc.
-	Uptime          int64  `json:"uptime"`           // seconds
+	State           string `json:"state"`  // "established", "idle", "disabled", etc.
+	Uptime          int64  `json:"uptime"` // seconds
 	RoutesAnnounced int    `json:"routes_announced"`
+}
+
+// HostPrefixLen returns the single-host prefix length for an IP address.
+func HostPrefixLen(ip net.IP) uint8 {
+	if ip.To4() != nil {
+		return 32
+	}
+	return 128
 }
 
 // NoopBlocker logs but does nothing. Default when no real BGP backend

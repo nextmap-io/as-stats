@@ -5,6 +5,7 @@ import { useUnit } from "@/hooks/useUnit"
 import { useDensity } from "@/hooks/useDensity"
 import { useHealthStatus } from "@/hooks/useApi"
 import { useFeatureFlags } from "@/hooks/useFeatures"
+import { useCurrentUser } from "@/hooks/useAuth"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { Search, Sun, Moon, Monitor, Activity, Menu, X, LogOut, Bell, ChevronDown, Rows2, Rows3 } from "lucide-react"
@@ -62,12 +63,8 @@ export function Header() {
     setSearchQuery("")
   }
 
-  const { data: userData } = useQuery({
-    queryKey: ["auth-me"],
-    queryFn: () => api.me(),
-    staleTime: 300_000,
-    retry: false,
-  })
+  const features = useFeatureFlags()
+  const { data: userData } = useCurrentUser(features.auth)
   const user = userData?.data
 
   const { data: statusData } = useHealthStatus()
@@ -77,8 +74,6 @@ export function Header() {
     ?.map(r => `${r.router_ip}: ${r.flow_count} flows`)
     .join("\n") || "No data"
 
-  // Feature flags
-  const features = useFeatureFlags()
   // With AUTH_ENABLED=false the server mounts no auth middleware and no role can
   // ever resolve, yet every endpoint is open — so admin-only nav must still show.
   const isAdmin = !features.auth || user?.role === "admin"

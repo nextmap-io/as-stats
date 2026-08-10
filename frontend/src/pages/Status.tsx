@@ -4,6 +4,7 @@ import { api } from "@/lib/api"
 import { useStatus, useStorageStatus } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { useFeatureFlags, useFeatures } from "@/hooks/useFeatures"
+import { useCurrentUser } from "@/hooks/useAuth"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState } from "@/components/ui/error"
 import { PageSkeleton } from "@/components/ui/skeleton"
@@ -31,22 +32,15 @@ function fmtTime(s?: string): string {
 // and the active-alert summary. It reuses the existing /status, /admin/storage,
 // /features and /alerts/summary endpoints — no new backend.
 export function Status() {
-  const { data: meRes, isPending: rolePending } = useQuery({
-    queryKey: ["auth-me"],
-    queryFn: () => api.me(),
-    staleTime: 300_000,
-    retry: false,
-  })
-  const user = meRes?.data
   const { data: featuresRes, isPending: featuresPending } = useFeatures()
   const features = useFeatureFlags()
-  // With AUTH_ENABLED=false (the shipped default) the server mounts no auth
-  // middleware, /auth/me answers 401 and no role can ever resolve — but every
-  // endpoint, including /admin/storage, is open. Gating on "role === admin"
-  // alone would therefore lock this page out of the default deployment, so
-  // treat auth-disabled as authorised.
-  const authEnabled = featuresRes?.data?.auth ?? true
-  const canView = !authEnabled || user?.role === "admin"
+  const authEnabled = featuresRes?.data?.auth
+  const { data: meRes, isPending: rolePending } = useCurrentUser(authEnabled)
+  const user = meRes?.data
+
+  // Auth-disabled deployments deliberately have no user endpoint or roles;
+  // their explicit server-side opt-out leaves the administration API open.
+  const canView = authEnabled === false || user?.role === "admin"
 
   // Ingestion (routers + flow volume) tracks the FilterBar window; storage,
   // features and active alerts are point-in-time and ignore it.
@@ -65,7 +59,7 @@ export function Status() {
   // Admin gate (the server also enforces it on /admin/storage). Nothing renders
   // until both the role and the auth mode are known, so a viewer never sees the
   // admin chrome flash by.
-  if (rolePending || featuresPending) return <PageSkeleton />
+  if (featuresPending || (authEnabled === true && rolePending)) return <PageSkeleton />
   if (!canView) {
     return (
       <EmptyState
