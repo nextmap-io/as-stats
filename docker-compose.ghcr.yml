@@ -16,7 +16,6 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
-      - ./migrations:/docker-entrypoint-initdb.d
       # Caps system.*_log growth — they share the data volume and are
       # unbounded by default. Mount the FILE, not the directory: a directory
       # bind-mount masks the image's own docker_related_config.xml and
@@ -46,8 +45,22 @@ services:
         limits:
           memory: 8G
 
+  migrate:
+    image: ghcr.io/nextmap-io/as-stats-migrate:${IMAGE_TAG:-latest}
+    restart: "no"
+    environment:
+      CLICKHOUSE_ADDR: clickhouse:9000
+      CLICKHOUSE_DATABASE: asstats
+      CLICKHOUSE_USER: asstats
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in .env}"
+      MIGRATE_AUTO_BASELINE: "${MIGRATE_AUTO_BASELINE:-true}"
+      MIGRATE_TIMEOUT: "${MIGRATE_TIMEOUT:-30m}"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
   collector:
-    image: ghcr.io/nextmap-io/as-stats-collector:latest
+    image: ghcr.io/nextmap-io/as-stats-collector:${IMAGE_TAG:-latest}
     restart: unless-stopped
     # Use host networking so the collector sees real router IPs
     # (Docker NAT replaces source IPs, breaking link enrichment)
@@ -64,15 +77,15 @@ services:
       COLLECTOR_WORKERS: "4"
       LOCAL_AS: "${LOCAL_AS:-}"
     depends_on:
-      clickhouse:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
           memory: 2G
 
   api:
-    image: ghcr.io/nextmap-io/as-stats-api:latest
+    image: ghcr.io/nextmap-io/as-stats-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "127.0.0.1:8080:8080"
@@ -83,11 +96,17 @@ services:
       CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD}"
       API_LISTEN_ADDR: ":8080"
       API_CORS_ORIGINS: "${API_CORS_ORIGINS:-https://as-stats.example.com}"
-      AUTH_ENABLED: "${AUTH_ENABLED:-false}"
+      AUTH_ENABLED: "${AUTH_ENABLED:-true}"
+      ALLOW_UNAUTHENTICATED: "${ALLOW_UNAUTHENTICATED:-false}"
+      OIDC_ISSUER_URL: "${OIDC_ISSUER_URL:-}"
+      OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-}"
+      OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:-}"
+      OIDC_REDIRECT_URL: "${OIDC_REDIRECT_URL:-}"
+      OIDC_SCOPES: "${OIDC_SCOPES:-openid profile email}"
       LOCAL_AS: "${LOCAL_AS:-}"
     depends_on:
-      clickhouse:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
       interval: 10s
@@ -99,7 +118,7 @@ services:
           memory: 1G
 
   frontend:
-    image: ghcr.io/nextmap-io/as-stats-frontend:latest
+    image: ghcr.io/nextmap-io/as-stats-frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "127.0.0.1:8081:80"

@@ -105,14 +105,43 @@ git clone https://github.com/nextmap-io/as-stats.git
 cd as-stats
 
 cp .env.example .env
-$EDITOR .env   # set CLICKHOUSE_PASSWORD, LOCAL_AS, API_CORS_ORIGINS
+$EDITOR .env   # set CLICKHOUSE_PASSWORD, LOCAL_AS, API_CORS_ORIGINS and OIDC
+# For a trusted local evaluation without OIDC, explicitly set:
+# AUTH_ENABLED=false and ALLOW_UNAUTHENTICATED=true
 
 docker compose -f docker-compose.ghcr.yml up -d
 ```
 
-That's it. Three containers come up: ClickHouse, the collector, and the
-API+frontend pair. The frontend listens on `127.0.0.1:8081` by default —
-put your reverse proxy in front of it.
+The one-shot migration job must complete before the collector and API are
+allowed to start. Four long-running services then remain: ClickHouse, the
+collector, API, and frontend. The frontend listens on `127.0.0.1:8081` by
+default — put your reverse proxy in front of it.
+
+### Schema migrations and upgrades
+
+Every image contains the exact SQL migrations built with that release. The
+`migrate` service serializes schema changes with an exclusive ClickHouse DDL
+lock, records each version and SHA-256 checksum in `schema_migrations`, and
+blocks API/collector startup if a migration fails or a released migration was
+modified.
+
+On the first upgrade from an older AS-Stats installation, a volume without
+migration history is inspected. Only a complete, contiguous schema recognized
+by all version probes is baselined; old migrations are **not replayed**. An
+ambiguous or partially applied schema stops the deployment for operator review.
+Set `MIGRATE_AUTO_BASELINE=false` to require manual review for every legacy
+volume.
+
+ClickHouse cannot make a multi-statement DDL migration transactional. A failed
+migration is therefore marked dirty and never retried automatically. Inspect
+the partial DDL and take a backup before repairing it. A stale lock is also left
+in place after an unclean migrator crash; after verifying no migrator is
+running, inspect and remove it explicitly:
+
+```sql
+SELECT * FROM asstats.schema_migration_lock;
+DROP TABLE asstats.schema_migration_lock;
+```
 
 ### 3. Reverse proxy
 
@@ -199,11 +228,12 @@ Everything is environment-variable driven. The full list lives in
 | `LOCAL_AS` | *(none)* | Your AS number — auto-fetches your prefixes from RIPEstat at startup so the engine knows which IPs are "yours" |
 | `API_CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins |
 
-### Auth (optional)
+### Authentication
 
 | Variable | Default | Description |
 |---|---|---|
-| `AUTH_ENABLED` | `false` | Master switch for OIDC |
+| `AUTH_ENABLED` | `true` | Master switch for OIDC; invalid values stop startup |
+| `ALLOW_UNAUTHENTICATED` | `false` | Explicit opt-out required with `AUTH_ENABLED=false`; use only on trusted local/test networks |
 | `OIDC_ISSUER_URL` | | e.g. `https://login.microsoftonline.com/<tenant>/v2.0` |
 | `OIDC_CLIENT_ID` | | App ID from your IdP |
 | `OIDC_CLIENT_SECRET` | | Client secret |
@@ -211,6 +241,9 @@ Everything is environment-variable driven. The full list lives in
 
 The OIDC callback grants the **admin** role to any user whose `roles` (or
 `groups`) claim contains `Admin.All`. Anything else maps to **viewer**.
+
+The API fails closed by default. Running without OIDC requires both
+`AUTH_ENABLED=false` and `ALLOW_UNAUTHENTICATED=true`.
 
 ### Optional features
 
@@ -223,10 +256,9 @@ The OIDC callback grants the **admin** role to any user whose `roles` (or
 | `ALERT_EVAL_INTERVAL` | `30s` | How often the alert engine evaluates rules |
 | `ALERT_STALE_THRESHOLD` | `5m` | Active alerts auto-resolve after this gap of silence |
 
-> **Note**: enabling a feature flag for the first time on an existing
-> installation requires running the corresponding numbered migration in
-> `migrations/` once. Fresh deploys pick them up automatically via the
-> ClickHouse `docker-entrypoint-initdb.d` mechanism.
+> **Note**: schema migrations are always applied by the one-shot `migrate`
+> service before the API and collector start. Feature flags only control
+> runtime behaviour; never run individual SQL files by hand during deployment.
 
 ## Alert Engine
 

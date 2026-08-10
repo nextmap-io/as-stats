@@ -1,5 +1,5 @@
 import { useSearchParams } from "react-router-dom"
-import { useMemo, useCallback } from "react"
+import { useMemo, useCallback, useEffect, useState } from "react"
 import type { QueryFilters } from "@/lib/types"
 
 // ─── Time-range presets (U5) ──────────────────────────────────────────────
@@ -25,6 +25,12 @@ export const RELATIVE_SECONDS: Record<string, number> = {
 // converted to from/to. (Mirrors parseQueryParams in internal/api/handler.)
 const BACKEND_PRESETS = new Set(["1h", "3h", "6h", "24h", "7d", "30d"])
 
+// Keep client-resolved relative windows moving at the same cadence as the
+// dashboard queries. Changing this value changes TanStack Query keys for
+// presets such as 15m/4h/12h, so it intentionally matches useApi's refetch
+// interval instead of ticking every second or minute.
+export const FILTER_WINDOW_REFRESH_MS = 5 * 60 * 1000
+
 export interface TimeBounds {
   from: number
   to: number
@@ -45,9 +51,9 @@ function startOfWeek(ms: number): number {
 }
 
 // resolveBounds turns a (period, from, to) triple into absolute ms bounds.
-// `now` is snapped to the minute by the caller so relative windows produce a
-// stable value within a minute (keeps TanStack Query keys from churning).
-function resolveBounds(
+// `now` is snapped to the refresh cadence by the caller so relative windows
+// move without making TanStack Query keys churn continuously.
+export function resolveBounds(
   period: string,
   from: string | undefined,
   to: string | undefined,
@@ -69,6 +75,40 @@ function resolveBounds(
   return { from: now - secs * 1000, to: now }
 }
 
+export function snapTime(ms: number, intervalMs = FILTER_WINDOW_REFRESH_MS): number {
+  return Math.floor(ms / intervalMs) * intervalMs
+}
+
+// Return a low-frequency clock used to resolve presets. Explicit from/to
+// values ignore it in resolveBounds and therefore remain immutable.
+function useRelativeClock(): number {
+  const [now, setNow] = useState(() => snapTime(Date.now()))
+
+  useEffect(() => {
+    let timer: number | undefined
+    let cancelled = false
+
+    const schedule = () => {
+      const current = Date.now()
+      const delay = Math.max(1, snapTime(current) + FILTER_WINDOW_REFRESH_MS - current)
+      timer = window.setTimeout(() => {
+        if (!cancelled) {
+          setNow(snapTime(Date.now()))
+          schedule()
+        }
+      }, delay)
+    }
+
+    schedule()
+    return () => {
+      cancelled = true
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [])
+
+  return now
+}
+
 function bucketFor(periodSeconds: number): number {
   if (periodSeconds <= 10800) return 60 // <= 3h: 1 min
   if (periodSeconds <= 21600) return 120 // <= 6h: 2 min
@@ -84,18 +124,17 @@ export function useFilters() {
   const rawFrom = searchParams.get("from") || undefined
   const rawTo = searchParams.get("to") || undefined
   const hasAbsolute = !!(rawFrom && rawTo)
+  const relativeNow = useRelativeClock()
 
   // UI-facing period string: "custom" when an explicit from/to window is set,
   // otherwise the raw preset (defaulting to 24h). Always defined.
   const period = hasAbsolute ? "custom" : rawPeriod || "24h"
 
-  // Resolve the active window. "now" is captured (snapped to the minute) inside
-  // the memo so it stays stable across renders and only re-evaluates when the
-  // period/from/to inputs change — keeping TanStack Query keys from churning.
+  // Resolve the active window. Relative presets advance with the shared query
+  // refresh cadence; explicit from/to links remain frozen.
   const bounds = useMemo<TimeBounds>(() => {
-    const nowMinute = Math.floor(new Date().getTime() / 60000) * 60000
-    return resolveBounds(period, rawFrom, rawTo, nowMinute)
-  }, [period, rawFrom, rawTo])
+    return resolveBounds(period, rawFrom, rawTo, relativeNow)
+  }, [period, rawFrom, rawTo, relativeNow])
 
   // Backend can resolve the window itself only for its known presets with no
   // explicit override. Everything else travels as from/to.

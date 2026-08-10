@@ -18,18 +18,22 @@ import (
 // BGP_ANNOUNCE_CMD / BGP_WITHDRAW_CMD / BGP_STATUS_CMD env vars to support
 // BIRD, FRRouting, ExaBGP, or any other BGP daemon.
 const (
-	DefaultAnnounceCmd = "gobgp global rib add {ip}/{prefix_len} community {community} nexthop {next_hop} -a ipv4"
-	DefaultWithdrawCmd = "gobgp global rib del {ip}/{prefix_len} -a ipv4"
+	DefaultAnnounceCmd = "gobgp global rib add {ip}/{prefix_len} community {community} nexthop {next_hop} -a {family}"
+	DefaultWithdrawCmd = "gobgp global rib del {ip}/{prefix_len} -a {family}"
 	DefaultStatusCmd   = "gobgp neighbor {peer_address} --json"
 )
 
 // cmdTimeout is the maximum time we wait for a shell command to complete.
 const cmdTimeout = 10 * time.Second
 
+// autoWithdrawRetryDelay controls retries after a daemon or store failure.
+const autoWithdrawRetryDelay = 30 * time.Second
+
 // BlockStore is the minimal store interface needed by ScriptBlocker to
 // reload active blocks on startup.
 type BlockStore interface {
 	ListActiveBlocks(ctx context.Context) ([]model.BGPBlock, error)
+	WithdrawBlock(ctx context.Context, ip, unblockedBy, reason string) error
 }
 
 // Config holds the ScriptBlocker configuration. Command templates use
@@ -78,6 +82,13 @@ func NewScript(cfg Config, store BlockStore) (*ScriptBlocker, error) {
 		stopCh: make(chan struct{}),
 	}
 
+	if strings.TrimSpace(sb.cfg.AnnounceCmd) == "" {
+		sb.cfg.AnnounceCmd = DefaultAnnounceCmd
+	}
+	if strings.TrimSpace(sb.cfg.WithdrawCmd) == "" {
+		sb.cfg.WithdrawCmd = DefaultWithdrawCmd
+	}
+
 	// Re-inject active blocks from the database.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -90,9 +101,31 @@ func NewScript(cfg Config, store BlockStore) (*ScriptBlocker, error) {
 		return sb, nil
 	}
 
+	now := time.Now().UTC()
 	for i := range blocks {
 		b := blocks[i]
-		ip := b.IP
+		parsedIP := net.ParseIP(b.IP)
+		if parsedIP == nil {
+			log.Printf("bgp[script]: WARNING: ignoring active block with invalid IP %q", b.IP)
+			continue
+		}
+		ip := parsedIP.String()
+		b.IP = ip
+		// Never trust a persisted prefix length: a historical bug stored IPv6
+		// host routes as /32. Blackholes are always single-host routes.
+		b.PrefixLen = HostPrefixLen(parsedIP)
+
+		if b.ExpiresAt != nil && !b.ExpiresAt.After(now) {
+			log.Printf("bgp[script]: active block %s/%d expired while stopped; withdrawing without re-announcing", ip, b.PrefixLen)
+			if execErr := sb.execCmd(ctx, sb.buildWithdrawCmd(ip, b.PrefixLen)); execErr != nil {
+				log.Printf("bgp[script]: WARNING: cleanup withdrawal for expired %s failed: %v", ip, execErr)
+			}
+			if storeErr := store.WithdrawBlock(ctx, ip, "system", "block expired while BGP service was stopped"); storeErr != nil {
+				log.Printf("bgp[script]: WARNING: could not persist expiration for %s: %v", ip, storeErr)
+			}
+			continue
+		}
+
 		log.Printf("bgp[script]: re-announcing route for %s/%d from store (reason=%q)", ip, b.PrefixLen, b.Reason)
 
 		cmd := sb.buildAnnounceCmd(ip, b.PrefixLen)
@@ -102,15 +135,19 @@ func NewScript(cfg Config, store BlockStore) (*ScriptBlocker, error) {
 		}
 
 		ar := &activeRoute{block: b}
-		// If the block has an expiry in the future, schedule auto-withdraw.
-		if b.ExpiresAt != nil && b.ExpiresAt.After(time.Now()) {
-			remaining := time.Until(*b.ExpiresAt)
-			ar.cancel = sb.scheduleWithdraw(ip, remaining)
+		var timerCtx context.Context
+		if b.ExpiresAt != nil {
+			timerCtx, ar.cancel = context.WithCancel(context.Background())
 		}
+		// Publish the route before starting its timer. Otherwise a nearly due
+		// timer can fire first and leave the route active forever.
 		sb.routes[ip] = ar
+		if timerCtx != nil {
+			sb.startWithdrawTimer(ip, time.Until(*b.ExpiresAt), timerCtx)
+		}
 	}
 
-	if len(blocks) > 0 {
+	if len(sb.routes) > 0 {
 		log.Printf("bgp[script]: re-announced %d active route(s) from store", len(sb.routes))
 	}
 
@@ -131,7 +168,7 @@ func (sb *ScriptBlocker) Announce(ctx context.Context, target net.IP, duration t
 		return nil
 	}
 
-	prefixLen := prefixLenForIP(target)
+	prefixLen := HostPrefixLen(target)
 	cmd := sb.buildAnnounceCmd(ip, prefixLen)
 
 	log.Printf("bgp[script]: ANNOUNCE %s/%d — executing: %s", ip, prefixLen, cmd)
@@ -156,10 +193,14 @@ func (sb *ScriptBlocker) Announce(ctx context.Context, target net.IP, duration t
 	}
 
 	ar := &activeRoute{block: block}
+	var timerCtx context.Context
 	if duration > 0 {
-		ar.cancel = sb.scheduleWithdraw(ip, duration)
+		timerCtx, ar.cancel = context.WithCancel(context.Background())
 	}
 	sb.routes[ip] = ar
+	if timerCtx != nil {
+		sb.startWithdrawTimer(ip, duration, timerCtx)
+	}
 
 	log.Printf("bgp[script]: ANNOUNCE %s/%d succeeded (duration=%s, reason=%q)", ip, prefixLen, duration, reason)
 	return nil
@@ -167,6 +208,13 @@ func (sb *ScriptBlocker) Announce(ctx context.Context, target net.IP, duration t
 
 // Withdraw removes a blackhole route for the given target IP.
 func (sb *ScriptBlocker) Withdraw(ctx context.Context, target net.IP) error {
+	_, err := sb.withdraw(ctx, target, true)
+	return err
+}
+
+// withdraw removes a route and reports whether it was present. cancelTimer is
+// false when the timer itself performs the withdrawal.
+func (sb *ScriptBlocker) withdraw(ctx context.Context, target net.IP, cancelTimer bool) (bool, error) {
 	ip := target.String()
 
 	sb.mu.Lock()
@@ -175,12 +223,7 @@ func (sb *ScriptBlocker) Withdraw(ctx context.Context, target net.IP) error {
 	ar, exists := sb.routes[ip]
 	if !exists {
 		log.Printf("bgp[script]: %s not in active routes, nothing to withdraw", ip)
-		return nil
-	}
-
-	// Cancel the auto-withdraw timer if one is pending.
-	if ar.cancel != nil {
-		ar.cancel()
+		return false, nil
 	}
 
 	prefixLen := ar.block.PrefixLen
@@ -188,12 +231,18 @@ func (sb *ScriptBlocker) Withdraw(ctx context.Context, target net.IP) error {
 
 	log.Printf("bgp[script]: WITHDRAW %s/%d — executing: %s", ip, prefixLen, cmd)
 	if err := sb.execCmd(ctx, cmd); err != nil {
-		return fmt.Errorf("bgp withdraw %s: %w", ip, err)
+		return false, fmt.Errorf("bgp withdraw %s: %w", ip, err)
+	}
+
+	// Do not cancel a pending timer until the command succeeds: cancellation
+	// after a daemon error would turn a temporary failure into a permanent route.
+	if cancelTimer && ar.cancel != nil {
+		ar.cancel()
 	}
 
 	delete(sb.routes, ip)
 	log.Printf("bgp[script]: WITHDRAW %s/%d succeeded", ip, prefixLen)
-	return nil
+	return true, nil
 }
 
 // List returns currently active blackhole announcements.
@@ -278,12 +327,14 @@ func (sb *ScriptBlocker) buildStatusCmd() string {
 	return sb.expandTemplate(sb.cfg.StatusCmd, "", 0)
 }
 
-// expandTemplate replaces {ip}, {prefix_len}, {community}, {next_hop},
+// expandTemplate replaces {ip}, {prefix_len}, {family}, {community}, {next_hop},
 // {peer_address} in the given template string.
 func (sb *ScriptBlocker) expandTemplate(tmpl string, ip string, prefixLen uint8) string {
+	family := addressFamily(net.ParseIP(ip))
 	r := strings.NewReplacer(
 		"{ip}", ip,
 		"{prefix_len}", fmt.Sprintf("%d", prefixLen),
+		"{family}", family,
 		"{community}", sb.cfg.Community,
 		"{next_hop}", sb.cfg.NextHop,
 		"{peer_address}", sb.cfg.PeerAddress,
@@ -314,33 +365,56 @@ func (sb *ScriptBlocker) execCmdOutput(ctx context.Context, cmdStr string) (stri
 	return strings.TrimSpace(string(out)), err
 }
 
-// scheduleWithdraw starts a background goroutine that auto-withdraws a
-// route after the given duration. Returns a cancel function that aborts
-// the timer.
-func (sb *ScriptBlocker) scheduleWithdraw(ip string, after time.Duration) context.CancelFunc {
-	ctx, cancel := context.WithCancel(context.Background())
-
+// startWithdrawTimer auto-withdraws a route and persists its expiration. Both
+// daemon and store failures are retried until success or shutdown.
+func (sb *ScriptBlocker) startWithdrawTimer(ip string, after time.Duration, timerCtx context.Context) {
 	sb.wg.Add(1)
 	go func() {
 		defer sb.wg.Done()
 
-		select {
-		case <-time.After(after):
-			// Timer fired — withdraw the route.
-			log.Printf("bgp[script]: auto-withdraw timer fired for %s", ip)
-			wCtx, wCancel := context.WithTimeout(context.Background(), cmdTimeout)
-			defer wCancel()
-			if err := sb.Withdraw(wCtx, net.ParseIP(ip)); err != nil {
-				log.Printf("bgp[script]: auto-withdraw %s failed: %v", ip, err)
+		delay := after
+		for {
+			timer := time.NewTimer(delay)
+			select {
+			case <-timer.C:
+				log.Printf("bgp[script]: auto-withdraw timer fired for %s", ip)
+				wCtx, wCancel := context.WithTimeout(context.Background(), cmdTimeout)
+				withdrawn, err := sb.withdraw(wCtx, net.ParseIP(ip), false)
+				wCancel()
+				if err != nil {
+					log.Printf("bgp[script]: auto-withdraw %s failed; retrying in %s: %v", ip, autoWithdrawRetryDelay, err)
+					delay = autoWithdrawRetryDelay
+					continue
+				}
+				if !withdrawn {
+					return
+				}
+
+				for {
+					pCtx, pCancel := context.WithTimeout(context.Background(), cmdTimeout)
+					err = sb.store.WithdrawBlock(pCtx, ip, "system", "block duration expired")
+					pCancel()
+					if err == nil {
+						return
+					}
+					log.Printf("bgp[script]: persist expiration for %s failed; retrying in %s: %v", ip, autoWithdrawRetryDelay, err)
+					persistTimer := time.NewTimer(autoWithdrawRetryDelay)
+					select {
+					case <-persistTimer.C:
+					case <-sb.stopCh:
+						persistTimer.Stop()
+						return
+					}
+				}
+			case <-timerCtx.Done():
+				timer.Stop()
+				return
+			case <-sb.stopCh:
+				timer.Stop()
+				return
 			}
-		case <-ctx.Done():
-			// Cancelled (manual withdraw or Stop()).
-		case <-sb.stopCh:
-			// Blocker is shutting down.
 		}
 	}()
-
-	return cancel
 }
 
 // parseStatusOutput attempts to parse gobgp-style JSON output into the
@@ -431,10 +505,9 @@ func (sb *ScriptBlocker) parseGoBGPNeighbor(obj map[string]any, st *SessionStatu
 	}
 }
 
-// prefixLenForIP returns /32 for IPv4 and /128 for IPv6.
-func prefixLenForIP(ip net.IP) uint8 {
-	if ip.To4() != nil {
-		return 32
+func addressFamily(ip net.IP) string {
+	if ip != nil && ip.To4() == nil {
+		return "ipv6"
 	}
-	return 128
+	return "ipv4"
 }

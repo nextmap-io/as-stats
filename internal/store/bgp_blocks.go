@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -11,6 +12,11 @@ import (
 
 // InsertBlock persists a new BGP block record.
 func (s *ClickHouseStore) InsertBlock(ctx context.Context, b model.BGPBlock) error {
+	normalizedIP, prefixLen, err := normalizeBlockIP(b.IP)
+	if err != nil {
+		return err
+	}
+
 	expiresAt := time.Time{}
 	if b.ExpiresAt != nil {
 		expiresAt = *b.ExpiresAt
@@ -34,8 +40,8 @@ func (s *ClickHouseStore) InsertBlock(ctx context.Context, b model.BGPBlock) err
 			@duration_seconds, @expires_at
 		)`,
 		clickhouse.Named("id", b.ID),
-		clickhouse.Named("ip", b.IP),
-		clickhouse.Named("prefix_len", b.PrefixLen),
+		clickhouse.Named("ip", normalizedIP),
+		clickhouse.Named("prefix_len", prefixLen),
 		clickhouse.Named("community", b.Community),
 		clickhouse.Named("next_hop", b.NextHop),
 		clickhouse.Named("reason", b.Reason),
@@ -67,7 +73,8 @@ func (s *ClickHouseStore) WithdrawBlock(ctx context.Context, ip, unblockedBy, re
 			unblocked_by = @user,
 			unblocked_at = @now,
 			unblock_reason = @reason
-		WHERE toString(ip) = @ip AND status = 'active'`,
+		WHERE toString(ip) = @ip AND status = 'active'
+		SETTINGS mutations_sync = 1`,
 		clickhouse.Named("user", unblockedBy),
 		clickhouse.Named("now", time.Now().UTC()),
 		clickhouse.Named("reason", reason),
@@ -149,6 +156,10 @@ func (s *ClickHouseStore) queryBlocks(ctx context.Context, query string) ([]mode
 			return nil, err
 		}
 		b.IP = cleanIPv4Mapped(b.IP)
+		if normalizedIP, prefixLen, err := normalizeBlockIP(b.IP); err == nil {
+			b.IP = normalizedIP
+			b.PrefixLen = prefixLen
+		}
 		if !unblockedAt.IsZero() && unblockedAt.Year() > 1970 {
 			b.UnblockedAt = &unblockedAt
 		}
@@ -170,4 +181,17 @@ func containsColon(s string) bool {
 		}
 	}
 	return false
+}
+
+// normalizeBlockIP canonicalizes the address and enforces single-host routes.
+// In particular, IPv6 blackholes are /128, never the historical /32 value.
+func normalizeBlockIP(raw string) (string, uint8, error) {
+	ip := net.ParseIP(raw)
+	if ip == nil {
+		return "", 0, fmt.Errorf("invalid BGP block IP %q", raw)
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return v4.String(), 32, nil
+	}
+	return ip.String(), 128, nil
 }

@@ -54,6 +54,7 @@ function getCSRFToken(): string {
 interface FetchOptions {
   method?: string
   body?: unknown
+  skipAPIBase?: boolean
 }
 
 async function fetchAPI<T>(
@@ -62,7 +63,7 @@ async function fetchAPI<T>(
   opts?: FetchOptions,
 ): Promise<ApiResponse<T>> {
   const url = new URL(path, window.location.origin)
-  url.pathname = `${BASE}${path}`
+  url.pathname = opts?.skipAPIBase ? path : `${BASE}${path}`
 
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
@@ -149,7 +150,7 @@ export const api = {
   search: (q: string) => fetchAPI<ASInfo[]>("/search", { q }),
 
   me: () => fetchAPI<UserInfo>("/auth/me"),
-  logout: () => fetchAPI<unknown>("/auth/logout", undefined, { method: "POST" }),
+  logout: () => fetchAPI<unknown>("/auth/logout", undefined, { method: "POST", skipAPIBase: true }),
 
   // Admin endpoints (POST/DELETE — include CSRF token)
   adminLinks: () => fetchAPI<LinkConfig[]>("/admin/links"),

@@ -21,7 +21,6 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
-      - ./migrations:/docker-entrypoint-initdb.d
       # Repeated from the base file: this list is merged by container path, so
       # spelling both mounts out keeps prod identical to a plain `up`.
       - ./clickhouse/config.d/system-logs-ttl.xml:/etc/clickhouse-server/config.d/system-logs-ttl.xml:ro
@@ -29,6 +28,14 @@ services:
       resources:
         limits:
           memory: 8G
+
+  migrate:
+    image: ghcr.io/nextmap-io/as-stats-migrate:${IMAGE_TAG:-latest}
+    restart: "no"
+    environment:
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in .env}"
+      MIGRATE_AUTO_BASELINE: "${MIGRATE_AUTO_BASELINE:-true}"
+      MIGRATE_TIMEOUT: "${MIGRATE_TIMEOUT:-30m}"
 
   collector:
     image: ghcr.io/nextmap-io/as-stats-collector:${IMAGE_TAG:-latest}
@@ -47,7 +54,8 @@ services:
     ports: !override []
     environment:
       CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:?Set CLICKHOUSE_PASSWORD in .env}"
-      AUTH_ENABLED: "${AUTH_ENABLED:-false}"
+      AUTH_ENABLED: "${AUTH_ENABLED:-true}"
+      ALLOW_UNAUTHENTICATED: "${ALLOW_UNAUTHENTICATED:-false}"
       OIDC_ISSUER_URL: "${OIDC_ISSUER_URL:-}"
       OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-}"
       OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:-}"

@@ -1,7 +1,7 @@
-.PHONY: build build-collector build-api run-collector run-api test test-cover lint migrate dev docker-build docker-up docker-down frontend-dev frontend-lint frontend-typecheck ci clean
+.PHONY: build build-collector build-api build-migrate run-collector run-api run-migrate test test-cover lint migrate dev docker-build docker-up docker-down frontend-dev frontend-lint frontend-test frontend-typecheck ci clean
 
 # Go build
-build: build-collector build-api
+build: build-collector build-api build-migrate
 
 build-collector:
 	go build -o bin/collector ./cmd/collector
@@ -9,12 +9,18 @@ build-collector:
 build-api:
 	go build -o bin/api ./cmd/api
 
+build-migrate:
+	go build -o bin/migrate ./cmd/migrate
+
 # Run locally
 run-collector:
 	go run ./cmd/collector
 
 run-api:
 	go run ./cmd/api
+
+run-migrate:
+	go run ./cmd/migrate
 
 # Test
 test:
@@ -28,12 +34,7 @@ lint:
 	golangci-lint run ./...
 
 # Database
-migrate:
-	@echo "Applying migrations to ClickHouse..."
-	@for f in migrations/*.up.sql; do \
-		echo "  Applying $$f"; \
-		clickhouse-client --host localhost --user asstats --password asstats --database asstats --multiquery < "$$f"; \
-	done
+migrate: run-migrate
 
 # Docker
 docker-up:
@@ -57,9 +58,12 @@ frontend-lint:
 
 frontend-typecheck:
 	cd frontend && npx tsc -b
+frontend-test:
+	cd frontend && npm test
+
 
 # CI: run all checks locally
-ci: lint test frontend-lint frontend-typecheck frontend-build build
+ci: lint test frontend-lint frontend-test frontend-typecheck frontend-build build
 	@echo "All CI checks passed."
 
 # Dev: start infrastructure + run services
