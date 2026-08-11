@@ -94,7 +94,7 @@ func (s *ClickHouseStore) History(ctx context.Context) ([]Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	latest := make(map[uint64]Record)
 	var order []uint64
 	for rows.Next() {
