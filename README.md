@@ -32,6 +32,7 @@ without falling over.
 | **Per-link** | Map router SNMP interfaces to named "links" with custom colors and capacity, get true per-uplink graphs |
 | **Search** | Type an IP, an ASN, an AS name or a prefix — auto-routing to the right view |
 | **Reverse DNS** | PTR records resolved on the fly and shown inline in IP tables |
+| **Private ASNs** | Private-use ASNs (64512-65534, 4200000000-4294967294) collapse into one "Private / Internal" row instead of cluttering Top AS with anonymous entries |
 | **Auth** | Optional OIDC (PKCE) with admin / viewer RBAC — works with Azure AD, Authentik, Keycloak, Google, etc. |
 | **Deployment** | Three Docker images, one Compose file, one `.env` |
 
@@ -250,7 +251,7 @@ The API fails closed by default. Running without OIDC requires both
 | Variable | Default | What it enables |
 |---|---|---|
 | `FEATURE_FLOW_SEARCH` | `false` | Forensic flow log + Search UI + CSV export |
-| `FLOW_LOG_RETENTION_DAYS` | `180` | Applied via `ALTER TABLE` on collector startup, idempotent |
+| `FLOW_LOG_RETENTION_DAYS` | `180` | **Seeds** the `flows_log` retention policy on first startup only. Afterwards `retention_policies` is authoritative — change it via Admin > Retention (`PUT /admin/retention/flows_log`) |
 | `FEATURE_PORT_STATS` | `false` | Top Protocols + Top Ports views |
 | `FEATURE_ALERTS` | `false` | DDoS detection engine + Alerts + Live Threats + Admin UI |
 | `ALERT_EVAL_INTERVAL` | `30s` | How often the alert engine evaluates rules |
@@ -341,6 +342,44 @@ lightweight (a few MB to a few GB per day).
 | `traffic_by_dst_1min` / `traffic_by_src_1min` *(opt)* | 1 min | 7 days |
 
 All TTLs are enforced by ClickHouse itself — no cron jobs to maintain.
+
+Retention is **editable at runtime**: every table above has a row in
+`retention_policies`, surfaced in Admin > Retention and via
+`PUT /admin/retention/{table}`. A reconciler in the collector applies any change
+to the live table. The `ALTER` is metadata-only — existing parts age out through
+normal TTL merges rather than being rewritten, which matters because a
+whole-table rewrite lands on the very disk you are usually trying to free.
+
+ClickHouse's own `system.*_log` tables share this volume and are unbounded by
+default (they reached ~12 GiB on one deployment and helped fill the disk). The
+Compose files mount `clickhouse/config.d/system-logs-ttl.xml`, which caps them
+at 7 days. Mount that **file**, not the `config.d` directory — a directory
+bind-mount masks the image's own `docker_related_config.xml` and ClickHouse then
+listens on loopback only, unreachable from the other containers while its
+healthcheck still passes.
+
+## Monitoring
+
+Both binaries expose Prometheus metrics on `/metrics` (guarded by
+`PROMETHEUS_ALLOW_CIDR` and/or basic auth — see Configuration).
+
+The ingest counters worth alerting on:
+
+| Metric | Meaning |
+|---|---|
+| `asstats_flows_received_total{protocol}` | Flows decoded from routers |
+| `asstats_flows_written_total` | Flows committed to ClickHouse |
+| `asstats_batch_write_errors_total` | Batch INSERTs that failed |
+| `asstats_flows_dropped_total` | Flows discarded because their batch failed |
+| `asstats_decode_errors_total{protocol}` | Malformed / undecodable packets |
+| `asstats_timestamps_clamped_total` | Flows whose exporter timestamp was out of range and rewritten to receive time |
+
+`rate(asstats_batch_write_errors_total[5m]) > 0` is the alert that matters: a
+database refusing writes (full disk, bad credentials, schema drift) otherwise
+looks exactly like "no traffic", because the success counters simply stop
+advancing. A steadily rising `asstats_timestamps_clamped_total` means a router
+has a broken clock — left unclamped those flows land in partitions that never
+expire.
 
 ## Networking notes
 
