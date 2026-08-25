@@ -7,6 +7,155 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-08-25
+
+### Changed
+- Frontend dependency refresh only — no functional change. `lucide-react`
+  1.30.0 → 1.31.0, plus dev-only bumps of `typescript-eslint` 8.66.0 → 8.67.0,
+  `eslint-plugin-react-refresh` 0.5.4 and `globals` 17.11.0.
+
+  TypeScript stays on 6.x deliberately: `typescript-eslint` still declares
+  `peer typescript ">=4.8.4 <6.1.0"`, so TypeScript 7 makes a plain `npm ci`
+  fail with ERESOLVE. Dependabot is configured to ignore `typescript >=6.1.0`
+  until that peer range opens up.
+
+## [3.0.0] - 2026-08-11
+
+Major release. Adds the v2 analytics modules, a real migration runner, and a
+large round of correctness and stability fixes found by a full audit.
+
+### Added
+- **Schema migration runner** (`cmd/migrate`, `Dockerfile.migrate`). Migrations
+  are embedded in the binary and their SHA-256 recorded and verified, so a
+  released image always executes exactly the SQL it was built with. Replaces
+  relying on ClickHouse's `docker-entrypoint-initdb.d`, which only ever ran on
+  a *fresh* volume — existing deployments silently never got new migrations.
+  **Migration files must never be edited after release.**
+- **Retention subsystem** (Module A). DB-backed `retention_policies`, a
+  reconciler that applies divergent TTLs, soft-delete purging, and storage
+  observability via `GET /admin/storage` + `PUT /admin/retention/{table}`.
+- **Capacity planning** (Module B): utilisation %, linear-regression forecast
+  and a load-duration curve per link.
+- **Country analytics** (Module C): AS-level geo via `as_names.country`.
+- **Changes** (Module D1): movers, talkers, p50/p95/p99 percentiles and a
+  previous-window comparison overlay.
+- **Scheduled reports** (Module D2): HTML + CSV email reports over SMTP
+  (`FEATURE_REPORTS`).
+- **Anomaly detection** (Module E): median + MAD baseline over same-hour-of-week
+  history, with a contributor breakdown endpoint.
+- **Multi-metric analytics** (Module F): Top-N by bytes / packets / flows,
+  in-out asymmetry, and a bidirectional conversations explorer.
+- **Read-only API tokens** (Module G): Bearer tokens restricted to safe methods.
+- **UI modules U1-U10**: command palette, richer time-range picker, density
+  toggle, day x hour traffic heatmap, treemap/donut, generic data table,
+  universal CSV export, and accessibility work.
+- **Admin-only System Status page** aggregating ingestion, storage and
+  retention, enabled features and the active-alert summary.
+- **Prometheus metrics for the ingest path**: `asstats_batch_write_errors_total`,
+  `asstats_flows_dropped_total` and `asstats_timestamps_clamped_total`, plus the
+  previously-declared-but-never-incremented `asstats_flows_received_total` and
+  `asstats_decode_errors_total`. A stalled ingest is now visible instead of
+  looking identical to idle traffic.
+- **ClickHouse system-log cap**: a shipped `config.d` snippet TTLs the
+  `system.*_log` tables at 7 days. They share the data volume and are unbounded
+  by default.
+
+### Changed
+- **Private-use ASNs collapse into a single "Private / Internal" entry** in the
+  AS-keyed views (Top AS, movers/talkers, conversations). On a real deployment
+  they accounted for 37% of traffic spread over a dozen anonymous rows. The
+  fold is applied to the grouping key before `GROUP BY`, so sums, ordering and
+  percentages stay exact.
+- Header navigation grouped into themed dropdown menus.
+- The day x hour heatmap uses its own multi-week lookback instead of the global
+  time filter — a weekly pattern needs several weeks of samples per slot.
+
+### Fixed
+- **Alert thresholds were effectively ~4x too lenient.** `traffic_by_dst_1min`
+  and `traffic_by_src_1min` are `AggregatingMergeTree` but declared their
+  counters as plain `UInt64`; that engine keeps one arbitrary value per sorting
+  key and discards the rest. Measured on production: 67.1 GB of real traffic in
+  a 10-minute window was stored as 17.2 GB. Now
+  `SimpleAggregateFunction(sum, UInt64)` (migration 000015, metadata-only).
+- **`ALTER TABLE ... MODIFY TTL` without `materialize_ttl_after_modify = 0`.**
+  ClickHouse defaults it to `1`, so every retention change enqueued a mutation
+  rewriting every part of the table — tens of GB of write amplification on the
+  disk an operator is usually trying to free. This turned a full disk into a
+  20-hour ingestion outage.
+- **A zero-length NetFlow v9 / IPFIX template wedged a decoder goroutine** in an
+  infinite allocating loop, reachable from one malformed or spoofed UDP packet.
+- **Exporter timestamps were trusted unvalidated** although `flows_raw.timestamp`
+  is both the partition key and the TTL column, so a router with a broken clock
+  created partitions that never expired. Now clamped to receive time outside
+  `[-24h, +5m]`.
+- **CSRF cookie was never issued to non-admins**, so every alert ack/resolve
+  returned 403. CSRF is now mounted once on the whole `/api/v1` tree.
+- **Rate-limit bucket key was client-controlled**: the left-most
+  `X-Forwarded-For` entry was trusted although the shipped nginx *appends* to
+  it. Forwarded headers are now honoured only from a trusted peer, right-most
+  entry, and the visitor map is bounded.
+- **`/metrics` IP allow-list was bypassable** with a single forged header.
+- **Flow Search never matched an IPv4 CIDR** — raw CIDRs were compared against
+  IPv6 columns storing IPv4 as `::ffff:a.b.c.d`.
+- **`/as/{asn}/ips` and `/as/{asn}?link=` returned HTTP 500** and Top AS / Top
+  Country percentages silently rendered as 0, all from filter fragments
+  referencing a table alias against an unaliased `FROM`.
+- Unbounded PTR and HTTP response caches, an SMTP sender with no timeouts that
+  could wedge the report scheduler permanently, a shutdown flush that always
+  failed because it reused an already-cancelled context, and a chart X axis that
+  ballooned sparse data because it was a category axis rather than a time scale.
+
+## [2.0.2] - 2026-04-14
+
+### Fixed
+- Chart fill fragmentation on sparse per-AS data.
+
+## [2.0.1] - 2026-04-14
+
+### Fixed
+- Table overflow with long IPv6 addresses combined with reverse DNS names.
+
+## [2.0.0] - 2026-04-10
+
+### Added
+- **BGP blackhole client** with auto-block, a status page and the full block
+  lifecycle (announce / withdraw / history).
+- Edit button for hostgroups in the admin panel.
+
+### Fixed
+- Spacing between the Threshold and Triggered columns in the alerts table.
+
+## [1.6.4] - 2026-04-10
+
+### Fixed
+- `validateRule` rejected valid rules: all rule types are now in the allow-list.
+
+## [1.6.3] - 2026-04-10
+
+### Added
+- `smtp_abuse` detection rule type (spam-relay signature).
+
+## [1.6.2] - 2026-04-09
+
+### Fixed
+- CSRF cookie was not set on admin GETs, so creating a hostgroup failed.
+
+## [1.6.1] - 2026-04-09
+
+### Fixed
+- Vertical alignment of the Alerts severity cards.
+
+## [1.6.0] - 2026-04-09
+
+### Added
+- **Hostgroups**, carpet-bombing detection and Live Threats annotation.
+- **Prometheus `/metrics` endpoints** on both binaries, with an optional
+  IP allow-list / basic-auth guard.
+
+### Changed
+- README and docs refreshed for the v1.2 - v1.5 feature set.
+
+
 ## [1.5.0] - 2026-04-08
 
 ### Added
