@@ -346,9 +346,12 @@ All TTLs are enforced by ClickHouse itself — no cron jobs to maintain.
 Retention is **editable at runtime**: every table above has a row in
 `retention_policies`, surfaced in Admin > Retention and via
 `PUT /admin/retention/{table}`. A reconciler in the collector applies any change
-to the live table. The `ALTER` is metadata-only — existing parts age out through
-normal TTL merges rather than being rewritten, which matters because a
-whole-table rewrite lands on the very disk you are usually trying to free.
+to the live table. The `ALTER` is metadata-only — it never rewrites existing
+parts, which matters because a whole-table rewrite lands on the very disk you
+are usually trying to free. Because already-merged parts keep the expiry they
+were written with, the reconciler also drops any partition whose newest row is
+entirely past the retention (`DROP PARTITION`, no rewrite), so lowering a
+retention frees the old data on the next cycle instead of months later.
 
 ClickHouse's own `system.*_log` tables share this volume and are unbounded by
 default (they reached ~12 GiB on one deployment and helped fill the disk). The

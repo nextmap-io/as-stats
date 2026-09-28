@@ -118,3 +118,24 @@ func TestSetRetentionPolicyRejectsZeroDays(t *testing.T) {
 		t.Errorf("expected 'ttl_days' error, got %v", err)
 	}
 }
+
+// TestBuildDropPartitionStatement guards the only place a partition ID is
+// interpolated into DDL: unknown tables and anything that is not a plain
+// YYYYMM / YYYYMMDD id must be refused.
+func TestBuildDropPartitionStatement(t *testing.T) {
+	stmt, ok := buildDropPartitionStatement("flows_log", "20260630")
+	if !ok || stmt != "ALTER TABLE flows_log DROP PARTITION ID '20260630'" {
+		t.Fatalf("daily partition: got %q ok=%v", stmt, ok)
+	}
+	if _, ok := buildDropPartitionStatement("traffic_by_as", "202604"); !ok {
+		t.Error("monthly partition id should be accepted")
+	}
+	for _, bad := range []string{"", "2026", "20260630'; DROP TABLE x --", "all", "tuple()", "202606301"} {
+		if _, ok := buildDropPartitionStatement("flows_log", bad); ok {
+			t.Errorf("partition id %q must be refused", bad)
+		}
+	}
+	if _, ok := buildDropPartitionStatement("not_a_table", "20260630"); ok {
+		t.Error("unknown table must be refused")
+	}
+}

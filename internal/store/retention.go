@@ -341,6 +341,104 @@ func (s *ClickHouseStore) ReconcileRetention(ctx context.Context) error {
 		if applied {
 			log.Printf("retention: applied TTL %d day(s) to %s", p.TTLDays, p.TableName)
 		}
+
+		if err := s.sweepExpiredPartitions(ctx, p.TableName, p.TTLDays); err != nil {
+			log.Printf("retention: partition sweep %s failed: %v", p.TableName, err)
+		}
+	}
+	return nil
+}
+
+// partitionIDPattern matches the partition IDs our tables produce: every
+// whitelisted table is PARTITION BY toYYYYMM(col) or toYYYYMMDD(col), whose IDs
+// are plain digits. DROP PARTITION ID cannot take a bound parameter, so the ID is
+// validated against this before being interpolated.
+var partitionIDPattern = regexp.MustCompile(`^[0-9]{6,8}$`)
+
+// buildDropPartitionStatement returns the DROP PARTITION ID statement for a
+// whitelisted table, or ok=false if the table is unknown or the ID malformed.
+func buildDropPartitionStatement(table, partitionID string) (string, bool) {
+	if _, ok := retentionTables[table]; !ok {
+		return "", false
+	}
+	if !partitionIDPattern.MatchString(partitionID) {
+		return "", false
+	}
+	return fmt.Sprintf("ALTER TABLE %s DROP PARTITION ID '%s'", table, partitionID), true
+}
+
+// sweepGraceDays keeps a partition until it is a full day past its retention
+// cutoff, so a partition is never dropped while TTL could still be keeping
+// some of its rows.
+const sweepGraceDays = 1
+
+// sweepExpiredPartitions drops whole partitions whose newest row is already
+// past the table's retention.
+//
+// TTL alone is not enough. Because buildModifyTTLStatement pins
+// materialize_ttl_after_modify = 0, lowering a retention only changes the TTL
+// metadata of parts written or merged afterwards. Parts that were already fully
+// merged — which is every closed daily/monthly partition — are never merged
+// again, so they keep the expiry computed under the OLD retention. In
+// production, cutting flows_log from 180 to 60 days left ~30 daily partitions
+// (~38 GB) scheduled to expire months later while the disk filled up.
+//
+// Every whitelisted table partitions on a function of its TTL column, so
+// system.parts.max_time is the newest TTL-column value in the partition. A
+// partition whose max_time is past the cutoff holds no row that TTL would keep,
+// and DROP PARTITION removes it by unlinking files: no rewrite, and it works even
+// when the disk is too full for a merge to run.
+func (s *ClickHouseStore) sweepExpiredPartitions(ctx context.Context, table string, days uint32) error {
+	if _, ok := retentionTables[table]; !ok {
+		return fmt.Errorf("unknown table %q", table)
+	}
+	if days == 0 {
+		return nil
+	}
+
+	rows, err := s.conn.Query(ctx, `
+		SELECT partition_id, sum(bytes_on_disk)
+		FROM system.parts
+		WHERE database = currentDatabase() AND table = @table AND active
+		  AND min_time > toDateTime(0)
+		GROUP BY partition_id
+		HAVING max(max_time) < now() - toIntervalDay(@days)
+	`,
+		clickhouse.Named("table", table),
+		clickhouse.Named("days", uint64(days)+sweepGraceDays),
+	)
+	if err != nil {
+		return fmt.Errorf("list expired partitions: %w", err)
+	}
+	type expired struct {
+		id    string
+		bytes uint64
+	}
+	var victims []expired
+	for rows.Next() {
+		var e expired
+		if err := rows.Scan(&e.id, &e.bytes); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		victims = append(victims, e)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	_ = rows.Close()
+
+	for _, v := range victims {
+		stmt, ok := buildDropPartitionStatement(table, v.id)
+		if !ok {
+			log.Printf("retention: refusing to drop %s partition %q: unexpected partition id", table, v.id)
+			continue
+		}
+		if err := s.conn.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("drop partition %s: %w", v.id, err)
+		}
+		log.Printf("retention: dropped %s partition %s (%d bytes) — entirely past its %d-day retention", table, v.id, v.bytes, days)
 	}
 	return nil
 }

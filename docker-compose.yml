@@ -62,7 +62,10 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "nc -zu localhost 2055 || exit 1"]
+      # HTTP /healthz on the metrics listener (COLLECTOR_PROMETHEUS_ADDR,
+      # default :9090). A UDP probe of 2055 looked like a malformed flow to the
+      # decoder and polluted asstats_decode_errors_total.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/healthz || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
