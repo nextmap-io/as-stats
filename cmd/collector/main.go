@@ -144,9 +144,17 @@ func main() {
 		}
 	}()
 
-	// Start Prometheus /metrics HTTP server for the collector
+	// Start Prometheus /metrics HTTP server for the collector. It also serves an
+	// unauthenticated /healthz for the container healthcheck: probing the UDP
+	// listener instead (nc -zu) sends an empty datagram that the decoder rejects,
+	// which logged ~5,700 "decode errors" a day and made
+	// asstats_decode_errors_total useless as an alert signal.
 	if cfg.PrometheusAddr != "" {
 		mux := http.NewServeMux()
+		mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"ok"}`))
+		})
 		mux.Handle("/metrics", handler.MetricsHandler(
 			cfg.PrometheusAllowCIDR,
 			cfg.PrometheusUser,

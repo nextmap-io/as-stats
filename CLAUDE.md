@@ -111,6 +111,7 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 |---|---|
 | `cmd/collector/` | Flow collector entrypoint. Loads config, wires the pipeline, starts the alert engine if `FEATURE_ALERTS=true`. |
 | `cmd/api/` | API server entrypoint. |
+| `cmd/migrate/` | One-shot schema migrator (embedded `migrations/*.up.sql`, checksum-verified). |
 | `internal/collector/netflow/` | NetFlow v5 (fixed), v9/IPFIX (template-based) parsers. |
 | `internal/collector/sflow/` | sFlow v5 parser (raw packet header decoding). |
 | `internal/collector/enricher/` | `(router_ip, snmp_index)` → link tag + direction. |
@@ -142,7 +143,7 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 | `internal/services/wellknown.go` | IANA protocol + well-known port name resolution (used by Flow Search and Top Ports). |
 | `internal/model/` | Shared types: `FlowRecord`, `ASTraffic`, `IPTraffic`, `LiveThreat`, `AlertRule`, etc. |
 | `internal/config/` | Env-var config loading. `LoadCollector` and `LoadAPI`. |
-| `migrations/` | ClickHouse DDL, numbered 000001–000014 (000007–000013 include feature-gated tables; 000012 `retention_policies`, 000013 `report_schedules`, 000014 `api_tokens`). Applied to fresh installs via `docker-entrypoint-initdb.d`. |
+| `migrations/` | ClickHouse DDL, numbered 000001–000015 (000007–000013 include feature-gated tables; 000012 `retention_policies`, 000013 `report_schedules`, 000014 `api_tokens`, 000015 hot-table `SimpleAggregateFunction` fix). Embedded in and applied by `cmd/migrate` (the `migrate` service runs before collector/api), which records each file's SHA-256 — **never edit a released migration**, add a new one. |
 | `frontend/src/pages/` | One React page per route in `App.tsx`. |
 | `frontend/src/hooks/` | TanStack Query hooks (`useApi.ts`), URL-synced filters (`useFilters.ts`), unit toggle (`useUnit.ts`), chart theme (`useChartColors.ts`), DNS (`useDns.ts`), feature flags (`useFeatures.ts`). |
 | `frontend/src/components/charts/` | `TrafficChart` (single in/out), `LinkTrafficChart` (stacked by link), `ASTrafficChart` (stacked by AS) — all Recharts `AreaChart` with `stepAfter`. |
@@ -205,7 +206,12 @@ row per TTL-bearing table (`table_name`, `ttl_column`, `ttl_days`, `enabled`),
 seeded once from the migration defaults (idempotent — never clobbers operator
 edits). A **reconciler goroutine** in the collector (`RETENTION_RECONCILE_INTERVAL`,
 default 15m) applies `ALTER TABLE … MODIFY TTL` when a policy diverges, skipping
-absent feature-gated tables. A daily **purge goroutine** physically deletes
+absent feature-gated tables. Because that ALTER pins
+`materialize_ttl_after_modify = 0`, already-merged parts keep the expiry they
+were written with; the reconciler therefore also **drops whole partitions whose
+`max_time` is past the retention** (`sweepExpiredPartitions`, one grace day).
+Without it, cutting `flows_log` from 180 to 60 days left ~38 GB of closed daily
+partitions scheduled to expire months later. A daily **purge goroutine** physically deletes
 `deleted=1` rows from the `ReplacingMergeTree` config tables (`alert_rules`,
 `webhook_configs`, `hostgroups`, `report_schedules`) older than
 `CONFIG_PURGE_DAYS` (default 30). Storage observability is served by
@@ -528,6 +534,18 @@ frontend lint + typecheck + build).
     *safe* methods, so if no GET passes through a CSRF-wrapped route the client
     never receives the cookie and every write 403s. CSRF is mounted once on the
     whole `/api/v1` tree — keep it there.
+
+13. **Assuming a lowered TTL frees old data.** With
+    `materialize_ttl_after_modify = 0` (entry 7), parts already merged keep the
+    `delete_ttl_info_max` computed under the old retention, and closed
+    partitions are never merged again — so they only expire at the *old*
+    deadline. `sweepExpiredPartitions` drops them; do not remove it on the
+    assumption that "TTL will get there".
+
+14. **Healthchecking a UDP flow port with `nc -zu`.** The probe is an empty
+    datagram the decoder rejects, so it logged ~5,700 decode errors a day and
+    drowned `asstats_decode_errors_total`. The collector serves `/healthz` on
+    its metrics listener instead.
 
 ## Operational notes — ClickHouse
 
