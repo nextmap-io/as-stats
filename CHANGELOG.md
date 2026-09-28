@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.2] - 2026-09-28
+
+### Fixed
+- **Lowering a retention did not free the old data.** The reconciler's
+  `MODIFY TTL` is metadata-only (`materialize_ttl_after_modify = 0`), so parts
+  already merged kept the expiry computed under the previous retention, and
+  closed partitions are never merged again. Cutting `flows_log` from 180 to 60
+  days left ~38 GB of partitions scheduled to expire months later. The
+  reconciler now drops whole partitions whose newest row is past the retention
+  (plus one grace day) — no rewrite, and it works on a nearly full disk.
+  **On upgrade, the first reconcile removes any partition already outside its
+  configured retention.**
+- The collector healthcheck probed UDP 2055 with an empty datagram, logging
+  ~5,700 decode errors a day and drowning `asstats_decode_errors_total`. The
+  collector now serves `/healthz` on its metrics listener
+  (`COLLECTOR_PROMETHEUS_ADDR`, default `:9090`).
+
+### Changed
+- Go toolchain / images: golang 1.27-alpine; go-oidc 3.21, chi 5.3.2,
+  oauth2 0.37.
+- Frontend: React 19.3, react-router 7.18.4, TanStack Query 5.103, vitest 5.
+  TypeScript pinned to `~6.0.3` (`typescript-eslint` still caps its peer at
+  `<6.1.0`).
+
+### Security
+- vitest / @vitest/mocker path-traversal advisory (dev only) — fixed by vitest 5.
+- @humanfs/node symlink-following copy advisory (dev only) — 0.16.8.
+
+
 ## [3.0.1] - 2026-08-25
 
 ### Changed
