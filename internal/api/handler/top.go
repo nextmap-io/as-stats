@@ -3,7 +3,7 @@ package handler
 import (
 	"net/http"
 
-	"github.com/nextmap-io/as-stats/internal/ripestat"
+	"github.com/nextmap-io/as-stats/internal/store"
 )
 
 // TopAS handles GET /api/v1/top/as
@@ -67,7 +67,7 @@ func (h *Handler) TopASTraffic(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, Response{
 		Data: results,
-		Meta: &ResponseMeta{From: p.From, To: p.To, Limit: p.Limit},
+		Meta: &ResponseMeta{From: p.From, To: p.To, Limit: p.Limit, StepSeconds: store.ASSeriesStepSeconds(p.From, p.To)},
 	})
 }
 
@@ -79,7 +79,7 @@ func (h *Handler) TopIP(w http.ResponseWriter, r *http.Request) {
 	if scope == "internal" && h.LocalIPFilter != "" {
 		p.LocalIPFilter = h.LocalIPFilter
 	} else if scope == "external" && h.LocalIPFilter != "" {
-		p.LocalIPFilter = "NOT " + h.LocalIPFilter + " AND NOT " + ripestat.PrivateIPFilter("t.ip_address")
+		p.LocalIPFilter = "NOT " + h.LocalIPFilter + " AND NOT " + store.PrivateRangeSQL("t.ip_address")
 	}
 
 	results, _, err := h.Store.TopIP(r.Context(), p)

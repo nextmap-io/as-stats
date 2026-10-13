@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nextmap-io/as-stats/internal/model"
+	"github.com/nextmap-io/as-stats/internal/store"
 )
 
 // LinksCapacity handles GET /api/v1/links/capacity — per-link utilization and
@@ -23,7 +24,7 @@ func (h *Handler) LinksCapacity(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, Response{
 		Data: caps,
-		Meta: &ResponseMeta{From: p.From, To: p.To},
+		Meta: &ResponseMeta{From: p.From, To: p.To, StepSeconds: store.CapacityStepSeconds(p.From, p.To)},
 	})
 }
 
@@ -46,6 +47,6 @@ func (h *Handler) LinkLoadCurve(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, Response{
 		Data: curve,
-		Meta: &ResponseMeta{From: p.From, To: p.To},
+		Meta: &ResponseMeta{From: p.From, To: p.To, StepSeconds: store.LinkSeriesStepSeconds(p.From, p.To)},
 	})
 }
