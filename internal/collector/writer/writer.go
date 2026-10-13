@@ -17,7 +17,17 @@ type Metrics struct {
 	FlowsWritten    atomic.Uint64
 	BatchesWritten  atomic.Uint64
 	WriteErrors     atomic.Uint64
+	FlowsDropped    atomic.Uint64
 	LastBatchSizeMs atomic.Int64
+}
+
+// Pending returns the flows the writer has accepted but not yet written or
+// dropped: the accumulating batch plus any INSERT in flight.
+func (m *Metrics) Pending() uint64 {
+	// Outcomes first: a flow is counted received before it is written or
+	// dropped, so this order can never underflow.
+	done := m.FlowsWritten.Load() + m.FlowsDropped.Load()
+	return m.FlowsReceived.Load() - done
 }
 
 // DefaultFlushTimeout bounds a single INSERT when the caller passes no
@@ -155,6 +165,7 @@ func (w *BatchWriter) write(batch []*model.FlowRecord) {
 
 	if err != nil {
 		w.Metrics.WriteErrors.Add(1)
+		w.Metrics.FlowsDropped.Add(uint64(len(batch)))
 		// Surface the failure to Prometheus. Without it a total ingestion stall
 		// looks exactly like idle traffic.
 		metrics.BatchWriteErrors.Inc()

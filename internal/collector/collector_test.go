@@ -105,4 +105,7 @@ func TestRunShutdownIsBounded(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run blocked past the shutdown timeout")
 	}
+	if got := c.unwritten(); got != 1 {
+		t.Errorf("unwritten() = %d, want the 1 flow stuck in the writer", got)
+	}
 }

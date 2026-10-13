@@ -195,8 +195,8 @@ func (c *Collector) shutdown(writerDone <-chan struct{}) {
 	case <-decodersDone:
 		close(c.flows)
 	case <-deadline.C:
-		log.Printf("warning: decoders still running after %s; about %d queued flows not written",
-			timeout, len(c.flows)+len(c.enriched))
+		log.Printf("warning: decoders still running after %s; about %d flows not written",
+			timeout, c.unwritten())
 		return
 	}
 
@@ -204,9 +204,15 @@ func (c *Collector) shutdown(writerDone <-chan struct{}) {
 	case <-writerDone:
 		log.Println("Collector pipeline drained")
 	case <-deadline.C:
-		log.Printf("warning: writer did not finish within %s; about %d queued flows not written",
-			timeout, len(c.flows)+len(c.enriched))
+		log.Printf("warning: writer did not finish within %s; about %d flows not written",
+			timeout, c.unwritten())
 	}
+}
+
+// unwritten estimates the flows that would be lost by exiting now: those still
+// queued in the channels plus those held by the writer.
+func (c *Collector) unwritten() uint64 {
+	return uint64(len(c.flows)+len(c.enriched)) + c.writer.Metrics.Pending()
 }
 
 // runEnricher reads from the raw flows channel, enriches each flow, and sends
