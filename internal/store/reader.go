@@ -1114,21 +1114,9 @@ func (s *ClickHouseStore) Overview(ctx context.Context, p QueryParams) (*model.O
 		clickhouse.Named("to", p.To),
 	).Scan(&ov.ActiveASCount)
 
-	// Top AS
-	topASParams := p
-	topASParams.Limit = 10
-	ov.TopAS, _, _ = s.TopAS(ctx, topASParams)
-	if ov.TopAS == nil {
-		ov.TopAS = []model.ASTraffic{}
-	}
-
-	// Top IP
-	topIPParams := p
-	topIPParams.Limit = 10
-	ov.TopIP, _, _ = s.TopIP(ctx, topIPParams)
-	if ov.TopIP == nil {
-		ov.TopIP = []model.IPTraffic{}
-	}
+	// No Top AS / Top IP here: nothing renders them from this payload (the
+	// dashboard has its own /top/* calls), and Top IP was the slowest query
+	// of the whole dashboard.
 
 	// Links
 	ov.Links, _ = s.LinkList(ctx, p)

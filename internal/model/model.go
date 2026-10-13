@@ -186,8 +186,6 @@ type Overview struct {
 	TotalBytesOut uint64        `json:"total_bytes_out"`
 	TotalFlows    uint64        `json:"total_flows"`
 	ActiveASCount uint64        `json:"active_as_count"`
-	TopAS         []ASTraffic   `json:"top_as"`
-	TopIP         []IPTraffic   `json:"top_ip"`
 	Links         []LinkTraffic `json:"links"`
 }
 
