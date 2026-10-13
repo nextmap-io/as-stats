@@ -3,7 +3,6 @@ package handler
 import (
 	"net/http"
 
-	"github.com/nextmap-io/as-stats/internal/ripestat"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
 
@@ -80,7 +79,7 @@ func (h *Handler) TopIP(w http.ResponseWriter, r *http.Request) {
 	if scope == "internal" && h.LocalIPFilter != "" {
 		p.LocalIPFilter = h.LocalIPFilter
 	} else if scope == "external" && h.LocalIPFilter != "" {
-		p.LocalIPFilter = "NOT " + h.LocalIPFilter + " AND NOT " + ripestat.PrivateIPFilter("t.ip_address")
+		p.LocalIPFilter = "NOT " + h.LocalIPFilter + " AND NOT " + store.PrivateRangeSQL("t.ip_address")
 	}
 
 	results, _, err := h.Store.TopIP(r.Context(), p)

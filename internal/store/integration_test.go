@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -181,6 +182,82 @@ func TestIntegrationASRemoteIPsMatchesFlowsRaw(t *testing.T) {
 		}
 	}
 	t.Logf("AS%d: %d remote IPs identical", asn, len(got))
+}
+
+// TestIntegrationCIDRRangeMatchesIsIPAddressInRange is the property test for
+// the buildCIDRFilter rewrite: for many CIDRs (random, derived from real
+// addresses so they actually match rows, plus edge cases), the typed range
+// predicate must select exactly the rows the old
+// isIPAddressInRange(toString(col), normalized) predicate selected.
+func TestIntegrationCIDRRangeMatchesIsIPAddressInRange(t *testing.T) {
+	s := itStore(t)
+	ctx := context.Background()
+
+	// Sample real addresses to derive CIDRs from.
+	rows, err := s.conn.Query(ctx, `SELECT toString(src_ip) FROM flows_raw GROUP BY src_ip ORDER BY cityHash64(src_ip) LIMIT 60`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sample []string
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err != nil {
+			t.Fatal(err)
+		}
+		sample = append(sample, ip)
+	}
+	_ = rows.Close()
+	if len(sample) == 0 {
+		t.Skip("no flows")
+	}
+
+	cidrs := []string{"0.0.0.0/0", "::/0", "::ffff:0:0/96", "2001:db8::/32", "10.0.0.0/8", "192.0.2.1", "2001:db8::1"}
+	for i, ip := range sample {
+		ip = cleanIPv4Mapped(ip)
+		if strings.Contains(ip, ":") {
+			cidrs = append(cidrs, fmt.Sprintf("%s/%d", ip, []int{16, 32, 48, 64, 100, 127, 128}[i%7]))
+		} else {
+			cidrs = append(cidrs, fmt.Sprintf("%s/%d", ip, []int{8, 12, 16, 19, 22, 24, 30, 32}[i%8]))
+		}
+	}
+
+	var totalMatched uint64
+	for i, c := range cidrs {
+		norm, ok := normalizeCIDRForIPv6Column(c)
+		if !ok {
+			t.Fatalf("normalize %q", c)
+		}
+		clause, args := buildCIDRFilter("f.src_ip", "p_", []string{c})
+		args = append(args, clickhouse.Named("norm", norm))
+		var oldN, newN, diff uint64
+		q := fmt.Sprintf(`
+			SELECT
+				countIf(isIPAddressInRange(toString(f.src_ip), @norm)),
+				countIf(%[1]s),
+				countIf(isIPAddressInRange(toString(f.src_ip), @norm) != (%[1]s))
+			FROM flows_raw f`, clause)
+		if err := s.conn.QueryRow(ctx, q, args...).Scan(&oldN, &newN, &diff); err != nil {
+			t.Fatalf("cidr %d %q: %v", i, c, err)
+		}
+		if diff != 0 || oldN != newN {
+			t.Errorf("cidr %q: old=%d new=%d differing=%d", c, oldN, newN, diff)
+		}
+		totalMatched += newN
+	}
+	if totalMatched == 0 {
+		t.Fatal("no CIDR matched any row: the comparison proved nothing")
+	}
+
+	// Bug #1, end to end: an IPv4 CIDR must match IPv4-mapped rows.
+	var n uint64
+	clause, args := buildCIDRFilter("f.src_ip", "v4_", []string{"0.0.0.0/0"})
+	if err := s.conn.QueryRow(ctx, "SELECT count() FROM flows_raw f WHERE f.ip_version = 4 AND NOT "+clause, args...).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("%d IPv4 rows fall outside 0.0.0.0/0", n)
+	}
+	t.Logf("%d CIDRs compared over flows_raw, %d matches, 0 differences", len(cidrs), totalMatched)
 }
 
 // TestIntegrationReadPathSmoke runs every read query over a spread of windows

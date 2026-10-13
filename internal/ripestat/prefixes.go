@@ -45,33 +45,3 @@ func FetchASPrefixes(asn uint32) ([]net.IPNet, error) {
 
 	return nets, nil
 }
-
-// PrefixesToSQL returns a SQL OR expression for ClickHouse isIPAddressInRange().
-// Example: "(isIPAddressInRange(toString(ip), '192.0.2.0/24') OR isIPAddressInRange(toString(ip), '2001:db8::/32'))"
-func PrefixesToSQL(col string, prefixes []net.IPNet) string {
-	if len(prefixes) == 0 {
-		return "1=1"
-	}
-	s := "("
-	for i, p := range prefixes {
-		if i > 0 {
-			s += " OR "
-		}
-		s += fmt.Sprintf("isIPAddressInRange(replaceRegexpOne(toString(%s), '^::ffff:', ''), '%s')", col, p.String())
-	}
-	s += ")"
-	return s
-}
-
-// PrivateIPFilter returns a SQL expression that matches RFC1918, CGNAT, link-local IPs.
-func PrivateIPFilter(col string) string {
-	return fmt.Sprintf(`(
-		isIPAddressInRange(replaceRegexpOne(toString(%s), '^::ffff:', ''), '10.0.0.0/8') OR
-		isIPAddressInRange(replaceRegexpOne(toString(%s), '^::ffff:', ''), '172.16.0.0/12') OR
-		isIPAddressInRange(replaceRegexpOne(toString(%s), '^::ffff:', ''), '192.168.0.0/16') OR
-		isIPAddressInRange(replaceRegexpOne(toString(%s), '^::ffff:', ''), '100.64.0.0/10') OR
-		isIPAddressInRange(replaceRegexpOne(toString(%s), '^::ffff:', ''), '169.254.0.0/16') OR
-		isIPAddressInRange(toString(%s), 'fe80::/10') OR
-		isIPAddressInRange(toString(%s), 'fc00::/7')
-	)`, col, col, col, col, col, col, col)
-}

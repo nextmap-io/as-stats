@@ -19,18 +19,21 @@ func TestBuildCIDRFilter_ValidCIDRs(t *testing.T) {
 	prefixes := []string{"10.0.0.0/8", "192.168.0.0/16", "2001:db8::/32"}
 	clause, args := buildCIDRFilter("dst_ip", "p_", prefixes)
 
-	// Should produce 3 OR-joined parameterized conditions
-	if !strings.Contains(clause, "isIPAddressInRange(toString(dst_ip), @p_cidr0)") {
-		t.Errorf("missing first parameter ref in clause: %s", clause)
+	// Should produce 3 OR-joined parameterized typed range conditions
+	if !strings.Contains(clause, "(dst_ip BETWEEN toIPv6(@p_lo0) AND toIPv6(@p_hi0))") {
+		t.Errorf("missing first range in clause: %s", clause)
 	}
-	if !strings.Contains(clause, "@p_cidr1") || !strings.Contains(clause, "@p_cidr2") {
+	if !strings.Contains(clause, "@p_lo1") || !strings.Contains(clause, "@p_hi2") {
 		t.Errorf("missing additional parameter refs in clause: %s", clause)
+	}
+	if strings.Contains(clause, "toString") || strings.Contains(clause, "isIPAddressInRange") {
+		t.Errorf("clause must compare the typed column, not its string form: %s", clause)
 	}
 	if strings.Count(clause, " OR ") != 2 {
 		t.Errorf("expected 2 ORs joining 3 conditions, got %s", clause)
 	}
-	if len(args) != 3 {
-		t.Errorf("expected 3 named args, got %d", len(args))
+	if len(args) != 6 {
+		t.Errorf("expected 6 named args (lo+hi per CIDR), got %d", len(args))
 	}
 }
 
@@ -45,9 +48,9 @@ func TestBuildCIDRFilter_InvalidEntriesSkipped(t *testing.T) {
 	}
 	clause, args := buildCIDRFilter("src_ip", "x_", prefixes)
 
-	// Should keep 3 valid entries (10/8, 192.168.1.1, 172.16/12)
-	if len(args) != 3 {
-		t.Errorf("expected 3 args (2 CIDR + 1 IP), got %d (clause=%s)", len(args), clause)
+	// Should keep 3 valid entries (10/8, 192.168.1.1, 172.16/12) → 6 bounds
+	if len(args) != 6 {
+		t.Errorf("expected 6 args (2 CIDR + 1 IP, lo+hi each), got %d (clause=%s)", len(args), clause)
 	}
 
 	// Crucially: no SQL injection should appear in the clause string
@@ -75,13 +78,13 @@ func TestBuildCIDRFilter_NamingPrefixes(t *testing.T) {
 	clauseA, argsA := buildCIDRFilter("dst_ip", "a_", []string{"10.0.0.0/8"})
 	clauseB, argsB := buildCIDRFilter("src_ip", "b_", []string{"192.168.0.0/16"})
 
-	if !strings.Contains(clauseA, "@a_cidr0") {
+	if !strings.Contains(clauseA, "@a_lo0") || !strings.Contains(clauseA, "@a_hi0") {
 		t.Errorf("clause A missing prefix: %s", clauseA)
 	}
-	if !strings.Contains(clauseB, "@b_cidr0") {
+	if !strings.Contains(clauseB, "@b_lo0") || !strings.Contains(clauseB, "@b_hi0") {
 		t.Errorf("clause B missing prefix: %s", clauseB)
 	}
-	if len(argsA) != 1 || len(argsB) != 1 {
-		t.Errorf("expected 1 arg each, got A=%d B=%d", len(argsA), len(argsB))
+	if len(argsA) != 2 || len(argsB) != 2 {
+		t.Errorf("expected 2 args each, got A=%d B=%d", len(argsA), len(argsB))
 	}
 }
