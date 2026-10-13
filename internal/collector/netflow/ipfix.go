@@ -7,6 +7,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/nextmap-io/as-stats/internal/metrics"
 	"github.com/nextmap-io/as-stats/internal/model"
 )
 
@@ -129,9 +130,11 @@ func parseIPFIXTemplates(data []byte, routerKey [16]byte, domainID uint32) {
 			log.Printf("ipfix: ignoring template %d from domain %d: zero-length record", templateID, domainID)
 			continue
 		}
-		globalTemplateCache.Set(routerKey, domainID, tmpl)
-		log.Printf("ipfix: cached template %d from domain %d (%d fields, %d bytes/record)",
-			templateID, domainID, fieldCount, tmpl.TotalLen)
+		// Logged only when new or changed (templates are re-sent periodically).
+		if globalTemplateCache.Set(routerKey, domainID, tmpl) {
+			log.Printf("ipfix: cached template %d from %s domain %d (%d fields, %d bytes/record)",
+				templateID, net.IP(routerKey[:]), domainID, fieldCount, tmpl.TotalLen)
+		}
 	}
 }
 
@@ -175,13 +178,17 @@ func parseIPFIXOptionsTemplates(data []byte, routerKey [16]byte, domainID uint32
 			log.Printf("ipfix: ignoring options template %d from domain %d: zero-length record", templateID, domainID)
 			continue
 		}
-		globalTemplateCache.Set(routerKey, domainID, tmpl)
+		if globalTemplateCache.Set(routerKey, domainID, tmpl) {
+			log.Printf("ipfix: cached options template %d from %s domain %d (%d scope + %d option fields)",
+				templateID, net.IP(routerKey[:]), domainID, scopeCount, totalFieldCount-scopeCount)
+		}
 	}
 }
 
 func decodeIPFIXDataSet(data []byte, routerKey [16]byte, domainID uint32, setID uint16, routerIP net.IP, ts time.Time) []*model.FlowRecord {
 	tmpl := globalTemplateCache.Get(routerKey, domainID, setID)
 	if tmpl == nil {
+		metrics.FlowSetsNoTemplate.WithLabelValues(metrics.RouterLabel(routerIP)).Inc()
 		return nil
 	}
 	return decodeRecords(data, tmpl, routerKey, domainID, routerIP, ts, "ipfix")

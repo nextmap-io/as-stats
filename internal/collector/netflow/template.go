@@ -1,6 +1,7 @@
 package netflow
 
 import (
+	"slices"
 	"sync"
 	"time"
 )
@@ -129,11 +130,14 @@ func makeKey(routerIP [16]byte, sourceID uint32, templateID uint16) templateKey 
 
 const maxTemplateCacheSize = 10000
 
-// Set stores a template in the cache.
-func (tc *TemplateCache) Set(routerIP [16]byte, sourceID uint32, tmpl *Template) {
+// Set stores a template in the cache and reports whether it is new or differs
+// from the cached one (exporters re-send unchanged templates periodically).
+func (tc *TemplateCache) Set(routerIP [16]byte, sourceID uint32, tmpl *Template) bool {
 	key := makeKey(routerIP, sourceID, tmpl.ID)
 	tc.mu.Lock()
-	if len(tc.templates) >= maxTemplateCacheSize {
+	defer tc.mu.Unlock()
+	prev, exists := tc.templates[key]
+	if !exists && len(tc.templates) >= maxTemplateCacheSize {
 		// Evict oldest entry to prevent unbounded growth
 		var oldestKey templateKey
 		var oldestTime time.Time
@@ -146,7 +150,11 @@ func (tc *TemplateCache) Set(routerIP [16]byte, sourceID uint32, tmpl *Template)
 		delete(tc.templates, oldestKey)
 	}
 	tc.templates[key] = tmpl
-	tc.mu.Unlock()
+	return !exists || !sameLayout(prev, tmpl)
+}
+
+func sameLayout(a, b *Template) bool {
+	return a.Options == b.Options && a.ScopeFields == b.ScopeFields && slices.Equal(a.Fields, b.Fields)
 }
 
 // Get retrieves a template from the cache. Returns nil if not found or expired.
@@ -161,7 +169,10 @@ func (tc *TemplateCache) Get(routerIP [16]byte, sourceID uint32, templateID uint
 	}
 	if tc.ttl > 0 && time.Since(tmpl.ReceivedAt) > tc.ttl {
 		tc.mu.Lock()
-		delete(tc.templates, key)
+		// Only drop the entry we judged stale, not one re-sent meanwhile.
+		if tc.templates[key] == tmpl {
+			delete(tc.templates, key)
+		}
 		tc.mu.Unlock()
 		return nil
 	}

@@ -7,6 +7,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/nextmap-io/as-stats/internal/metrics"
 	"github.com/nextmap-io/as-stats/internal/model"
 )
 
@@ -17,7 +18,13 @@ const (
 	v9OptionsSet  = 1
 )
 
-var globalTemplateCache = NewTemplateCache(30 * time.Minute)
+// globalTemplateCache never expires templates by age. Exporters re-send them
+// on a fixed period (commonly 30 min on Cisco/Juniper) and each re-send
+// replaces the entry, so a TTL close to that period only creates a window
+// where data arrives just before the refresh and is dropped as "no
+// template". A changed template under the same ID still takes effect on its
+// next re-send, and the cache stays bounded by maxTemplateCacheSize.
+var globalTemplateCache = NewTemplateCache(0)
 
 // DecodeV9 parses a NetFlow v9 packet.
 func DecodeV9(data []byte, routerIP net.IP) ([]*model.FlowRecord, error) {
@@ -105,9 +112,12 @@ func parseV9Templates(data []byte, routerKey [16]byte, sourceID uint32) {
 			continue
 		}
 
-		globalTemplateCache.Set(routerKey, sourceID, tmpl)
-		log.Printf("v9: cached template %d from source %d (%d fields, %d bytes/record)",
-			templateID, sourceID, fieldCount, totalLen)
+		// Logged only when new or changed: routers re-send every template
+		// periodically, which used to log a line per template per refresh.
+		if globalTemplateCache.Set(routerKey, sourceID, tmpl) {
+			log.Printf("v9: cached template %d from %s source %d (%d fields, %d bytes/record)",
+				templateID, net.IP(routerKey[:]), sourceID, fieldCount, totalLen)
+		}
 	}
 }
 
@@ -152,14 +162,18 @@ func parseV9OptionsTemplates(data []byte, routerKey [16]byte, sourceID uint32) {
 			log.Printf("v9: ignoring options template %d from source %d: zero-length record", templateID, sourceID)
 			continue
 		}
-		globalTemplateCache.Set(routerKey, sourceID, tmpl)
+		if globalTemplateCache.Set(routerKey, sourceID, tmpl) {
+			log.Printf("v9: cached options template %d from %s source %d (%d scope + %d option fields)",
+				templateID, net.IP(routerKey[:]), sourceID, tmpl.ScopeFields, fieldCount-tmpl.ScopeFields)
+		}
 	}
 }
 
 func decodeDataSet(data []byte, routerKey [16]byte, sourceID uint32, setID uint16, routerIP net.IP, ts time.Time) []*model.FlowRecord {
 	tmpl := globalTemplateCache.Get(routerKey, sourceID, setID)
 	if tmpl == nil {
-		return nil // template not yet received
+		metrics.FlowSetsNoTemplate.WithLabelValues(metrics.RouterLabel(routerIP)).Inc()
+		return nil
 	}
 	return decodeRecords(data, tmpl, routerKey, sourceID, routerIP, ts, "netflow9")
 }

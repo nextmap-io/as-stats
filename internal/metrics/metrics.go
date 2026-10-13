@@ -76,6 +76,16 @@ var FlowsBothInterfacesLinked = promauto.NewCounter(prometheus.CounterOpts{
 	Help: "Flows whose input and output interfaces both match configured links.",
 })
 
+// FlowSetsNoTemplate counts v9/IPFIX data sets discarded because their
+// template has not been received from that exporter. It is counted in sets,
+// not flows: without the template the record count cannot be known. Expected
+// for one template refresh period after a collector restart; a rate that
+// persists means the exporter's templates never reach the collector.
+var FlowSetsNoTemplate = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "asstats_flowsets_dropped_no_template_total",
+	Help: "v9/IPFIX data sets dropped because their template is unknown (sets, not flows).",
+}, []string{"router"})
+
 // ── Collector: alert engine ─────────────────────────────────────────────────
 
 var AlertEvaluations = promauto.NewCounterVec(prometheus.CounterOpts{
