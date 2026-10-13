@@ -241,9 +241,7 @@ func (h *Handler) alertTarget(ctx context.Context, id string) (alertTargetRow, b
 	if count == 0 {
 		return target, false, nil
 	}
-	if strings.HasPrefix(target.ip, "::ffff:") {
-		target.ip = strings.TrimPrefix(target.ip, "::ffff:")
-	}
+	target.ip = strings.TrimPrefix(target.ip, "::ffff:")
 	// The rule type tells link/disk/subnet alerts apart from host alerts. A
 	// deleted rule just leaves it empty; the address checks still apply.
 	// (An aggregate without GROUP BY always yields one row: '' when absent.)
