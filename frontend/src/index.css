@@ -9,7 +9,7 @@
    light values override them under `.light`. Keep both blocks in step.
    ─────────────────────────────────────────────────────────────────────────── */
 
-@theme {
+@theme static {
   --font-sans: "Archivo", "Helvetica Neue", Arial, system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 

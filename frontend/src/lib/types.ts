@@ -600,7 +600,7 @@ export interface Alert {
   protocol?: number
   metric_value: number
   threshold: number
-  metric_type: "bps" | "pps" | "count"
+  metric_type: "bps" | "pps" | "count" | "percent"
   details?: string
   status: AlertStatus
   acknowledged_by?: string

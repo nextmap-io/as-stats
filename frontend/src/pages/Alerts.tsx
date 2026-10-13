@@ -539,6 +539,6 @@ function parseAlertDetails(raw?: string): AlertDetailsPayload | null {
 
 
 // Alert values carry their own unit (metric_type).
-function formatMetric(type: string, value: number): string {
-  return type === "bps" || type === "pps" ? formatAlertMetric(value, type) : value.toLocaleString()
+function formatMetric(type: Alert["metric_type"], value: number): string {
+  return formatAlertMetric(value, type)
 }

@@ -40,5 +40,6 @@ export function formatAlertMetric(value: number, type: Alert["metric_type"]): st
     const { value: v, prefix } = siParts(value)
     return `${v} ${prefix}p/s`
   }
+  if (type === "percent") return `${NUMBER.format(Math.round(value * 10) / 10)}%`
   return NUMBER.format(Math.round(value * 10) / 10)
 }

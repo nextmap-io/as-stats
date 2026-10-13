@@ -178,10 +178,19 @@ function IngestionFact() {
   const ok = data.routers.filter((r) => r.state === "ok").length
   const lastSeen = data.routers.map((r) => Date.parse(r.last_seen)).filter((t) => !Number.isNaN(t))
   const newest = lastSeen.length ? new Date(Math.max(...lastSeen)).toISOString() : ""
-  const level = worst(ingestionLevel(data), diskLevel(data.disk_used_pct))
+  const flowLevel = ingestionLevel(data)
+  const disk = diskLevel(data.disk_used_pct)
+  const level = worst(flowLevel, disk)
   const silent = data.routers.filter((r) => r.state !== "ok")
+  // The headline must name what lit the cell up: a full disk with healthy
+  // routers would otherwise show an amber "N flows/s" that reads as a flow problem.
+  const value =
+    disk !== "normal" && flowLevel === "normal"
+      ? `Disk ${formatPct(data.disk_used_pct ?? 0)} full`
+      : `${formatCount(flowsPerSecond(data))} flows/s`
   return (
-    <Fact label="Ingestion" level={level} value={`${formatCount(flowsPerSecond(data))} flows/s`}>
+    <Fact label="Ingestion" level={level} value={value}>
+      {value.startsWith("Disk") && <>{formatCount(flowsPerSecond(data))} flows/s. </>}
       {ok} of {data.routers.length} router{data.routers.length === 1 ? "" : "s"} reporting, last flow{" "}
       {formatAge(ageSeconds(newest, dataUpdatedAt))}.
       {silent.length > 0 && (
