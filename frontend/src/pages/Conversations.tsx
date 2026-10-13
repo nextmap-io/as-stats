@@ -87,7 +87,7 @@ export function Conversations() {
           sortable: true,
           className: "max-w-[260px]",
           render: (c) => (
-            <Link to={`/ip/${c.endpoint_a}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px] block truncate">
+            <Link to={`/ip/${c.endpoint_a}${filterSearch}`} className="text-primary hover:underline font-ip text-[13px] block truncate">
               <IPWithPTR ip={c.endpoint_a} />
             </Link>
           ),
@@ -98,7 +98,7 @@ export function Conversations() {
           sortable: true,
           className: "max-w-[260px]",
           render: (c) => (
-            <Link to={`/ip/${c.endpoint_b}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px] block truncate">
+            <Link to={`/ip/${c.endpoint_b}${filterSearch}`} className="text-primary hover:underline font-ip text-[13px] block truncate">
               <IPWithPTR ip={c.endpoint_b} />
             </Link>
           ),
@@ -111,7 +111,7 @@ export function Conversations() {
           header: "AS A",
           sortable: true,
           render: (c) => (
-            <ASRef asn={c.endpoint_a} search={filterSearch} className="text-primary hover:underline font-mono" />
+            <ASRef asn={c.endpoint_a} search={filterSearch} className="text-primary hover:underline" />
           ),
         },
         {
@@ -119,7 +119,7 @@ export function Conversations() {
           header: "AS B",
           sortable: true,
           render: (c) => (
-            <ASRef asn={c.endpoint_b} search={filterSearch} className="text-primary hover:underline font-mono" />
+            <ASRef asn={c.endpoint_b} search={filterSearch} className="text-primary hover:underline" />
           ),
         },
       )
@@ -129,7 +129,7 @@ export function Conversations() {
           key: "endpoint_a",
           header: "Protocol",
           sortable: true,
-          className: "font-mono text-[11px]",
+          className: "font-ip text-[13px]",
           render: (c) => protoLabel(c.endpoint_a),
         },
         {
@@ -148,7 +148,7 @@ export function Conversations() {
       align: "right",
       numeric: true,
       sortable: true,
-      render: (c) => formatTraffic(c.total_bytes, periodSeconds),
+      render: (c) => formatTraffic(c.total_bytes, periodSeconds, c.total_packets),
     })
 
     if (dim === "dst_port_proto") {
@@ -166,23 +166,23 @@ export function Conversations() {
       cols.push(
         {
           key: "forward_bytes",
-          header: "A → B",
+          header: "A B",
           align: "right",
           numeric: true,
           sortable: true,
           hideOnMobile: true,
           className: "text-traffic-out",
-          render: (c) => formatTraffic(c.forward_bytes, periodSeconds),
+          render: (c) => formatTraffic(c.forward_bytes, periodSeconds, c.forward_packets),
         },
         {
           key: "reverse_bytes",
-          header: "B → A",
+          header: "B A",
           align: "right",
           numeric: true,
           sortable: true,
           hideOnMobile: true,
           className: "text-traffic-in",
-          render: (c) => formatTraffic(c.reverse_bytes, periodSeconds),
+          render: (c) => formatTraffic(c.reverse_bytes, periodSeconds, c.reverse_packets),
         },
       )
     }
@@ -242,11 +242,11 @@ export function Conversations() {
   if (!features.flow_search) {
     return (
       <div className="space-y-6">
-        <h1 className="text-lg font-semibold tracking-tight">Conversations</h1>
+        <h1 className="text-2xl font-semibold">Conversations</h1>
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
             The Conversations explorer requires the flow-search feature
-            (<code className="font-mono">FEATURE_FLOW_SEARCH</code>) to be enabled.
+            (<code>FEATURE_FLOW_SEARCH</code>) to be enabled.
           </CardContent>
         </Card>
       </div>
@@ -256,19 +256,19 @@ export function Conversations() {
   return (
     <div className="space-y-6">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Conversations</h1>
-        <span className="text-[10px] text-muted-foreground">
+        <h1 className="text-2xl font-semibold">Conversations</h1>
+        <span className="text-xs text-muted-foreground">
           Bidirectional top talkers — A↔B folded into one row
         </span>
       </div>
 
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader>
           <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-sm">Top conversations</CardTitle>
+            <CardTitle>Top conversations</CardTitle>
             <div className="flex items-center gap-2">
               <div
-                className="flex gap-0.5 rounded border border-input bg-muted/30 p-0.5"
+                className="inline-flex gap-0.5 rounded border border-input p-0.5"
                 role="group"
                 aria-label="Conversation dimension"
               >
@@ -279,7 +279,7 @@ export function Conversations() {
                     onClick={() => setFilter("dim", d.value === "src_dst_ip" ? undefined : d.value)}
                     aria-pressed={dim === d.value}
                     className={cn(
-                      "px-2 py-0.5 text-[11px] font-medium rounded transition-colors",
+                      "px-2 py-0.5 text-[13px] font-medium rounded transition-colors",
                       dim === d.value
                         ? "bg-primary text-primary-foreground"
                         : "text-muted-foreground hover:text-foreground hover:bg-accent",
@@ -294,7 +294,7 @@ export function Conversations() {
           </div>
         </CardHeader>
         <CardContent>
-          <QueryBoundary query={query} isEmpty={(d) => d.data.length === 0} loadingCols={8}>
+          <QueryBoundary query={query} isEmpty={(d) => !d.data?.length} loadingCols={8}>
             {(data) => (
               <DataTable
                 rows={data.data}

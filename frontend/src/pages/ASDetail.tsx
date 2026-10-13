@@ -15,11 +15,13 @@ import { ExternalLink, Search } from "lucide-react"
 import { IPWithPTR } from "@/components/PTR"
 import { RatioBar, AsymmetryBadge } from "@/components/Asymmetry"
 import { countryFlag, countryName, hasCountry } from "@/lib/countries"
+import { ourView } from "@/lib/asn"
+import { stepSecondsOf } from "@/lib/rate"
 
 export function ASDetail() {
   const { asn } = useParams<{ asn: string }>()
   const asnNum = Number(asn) || 0
-  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds, bounds, setFilter } = useFilters()
+  const { filters, filterSearch, periodSeconds, timeBounds, bounds, setFilter } = useFilters()
   const { formatTraffic } = useUnit()
   const features = useFeatureFlags()
   const linkColors = useLinkColors()
@@ -49,15 +51,20 @@ export function ASDetail() {
   if (!detail) return null
 
   const quickPeriods = ["1h", "6h", "24h", "7d"] as const
+  // Bucket width the server used for the series and the p95 values.
+  const step = stepSecondsOf(data?.meta, periodSeconds)
+  // One direction convention on this page: your side. The IPv4/IPv6 totals and
+  // the charts already count that way; the asymmetry fields do not.
+  const { inBytes, outBytes } = ourView(detail)
 
   return (
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-baseline justify-between flex-wrap gap-2">
-        <h1 className="text-lg font-semibold tracking-tight">
+        <h1 className="text-2xl font-semibold">
           AS{detail.as_number}
           {detail.as_name && (
-            <span className="ml-2 text-sm font-normal text-muted-foreground">{detail.as_name}</span>
+            <span className="ml-3 text-lg font-normal text-foreground-secondary">{detail.as_name}</span>
           )}
           {hasCountry(detail.country) && (
             <span
@@ -65,20 +72,22 @@ export function ASDetail() {
               title={countryName(detail.country)}
             >
               <span aria-hidden>{countryFlag(detail.country)}</span>{" "}
-              <span className="font-mono text-xs">{detail.country}</span>
+              <span className="text-xs">{detail.country}</span>
             </span>
           )}
         </h1>
-        <div className="flex items-center gap-3 text-[10px]">
-          <div className="hidden md:flex items-center gap-0.5 px-1 py-0.5 rounded border border-input bg-muted/30">
+        <div className="flex flex-wrap items-center gap-3 text-[13px]">
+          <div className="hidden md:inline-flex overflow-hidden rounded border border-input" role="group" aria-label="Quick time range">
             {quickPeriods.map(p => (
               <button
                 key={p}
+                type="button"
                 onClick={() => setFilter("period", p)}
-                className={`px-1.5 py-0.5 text-[10px] font-medium rounded transition-colors ${
+                aria-pressed={filters.period === p}
+                className={`px-2 py-0.5 text-[13px] ${
                   filters.period === p
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                    ? "bg-accent font-semibold text-foreground"
+                    : "text-foreground-secondary hover:text-foreground"
                 }`}
                 title={`Switch to ${p} window`}
               >
@@ -88,15 +97,15 @@ export function ASDetail() {
           </div>
           <a href={`https://bgp.he.net/AS${detail.as_number}`} target="_blank" rel="noopener noreferrer"
             className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1">
-            HE.net <ExternalLink className="size-2.5" />
+            HE.net <ExternalLink className="size-3" aria-hidden />
           </a>
           <a href={`https://www.peeringdb.com/asn/${detail.as_number}`} target="_blank" rel="noopener noreferrer"
             className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1">
-            PeeringDB <ExternalLink className="size-2.5" />
+            PeeringDB <ExternalLink className="size-3" aria-hidden />
           </a>
           <a href={`https://bgp.tools/as/${detail.as_number}`} target="_blank" rel="noopener noreferrer"
             className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1">
-            bgp.tools <ExternalLink className="size-2.5" />
+            bgp.tools <ExternalLink className="size-3" aria-hidden />
           </a>
           {features.flow_search && (
             <Link
@@ -104,7 +113,7 @@ export function ASDetail() {
               className="text-primary hover:text-primary/80 transition-colors inline-flex items-center gap-1"
               title="Search flows involving this AS"
             >
-              <Search className="size-2.5" />
+              <Search className="size-3" aria-hidden />
               Flows
             </Link>
           )}
@@ -113,7 +122,7 @@ export function ASDetail() {
       </div>
 
       {/* Volume + P95 summary */}
-      <div className="flex flex-wrap gap-x-8 gap-y-1 text-xs">
+      <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
         <div>
           <span className="text-muted-foreground">IPv4:</span>{" "}
           <span className="text-traffic-in">{formatBytes(detail.v4_bytes_in || 0)} in</span>
@@ -121,8 +130,8 @@ export function ASDetail() {
           <span className="text-traffic-out">{formatBytes(detail.v4_bytes_out || 0)} out</span>
           {(detail.p95_v4_in || detail.p95_v4_out) ? (
             <span className="ml-2 text-muted-foreground">
-              p95: <span className="text-traffic-in">{formatTraffic(detail.p95_v4_in || 0, bucketSeconds)}</span>
-              {" / "}<span className="text-traffic-out">{formatTraffic(detail.p95_v4_out || 0, bucketSeconds)}</span>
+              p95: <span className="text-traffic-in">{formatTraffic(detail.p95_v4_in || 0, step)}</span>
+              {" / "}<span className="text-traffic-out">{formatTraffic(detail.p95_v4_out || 0, step)}</span>
             </span>
           ) : null}
         </div>
@@ -133,15 +142,15 @@ export function ASDetail() {
           <span className="text-traffic-out">{formatBytes(detail.v6_bytes_out || 0)} out</span>
           {(detail.p95_v6_in || detail.p95_v6_out) ? (
             <span className="ml-2 text-muted-foreground">
-              p95: <span className="text-traffic-in">{formatTraffic(detail.p95_v6_in || 0, bucketSeconds)}</span>
-              {" / "}<span className="text-traffic-out">{formatTraffic(detail.p95_v6_out || 0, bucketSeconds)}</span>
+              p95: <span className="text-traffic-in">{formatTraffic(detail.p95_v6_in || 0, step)}</span>
+              {" / "}<span className="text-traffic-out">{formatTraffic(detail.p95_v6_out || 0, step)}</span>
             </span>
           ) : null}
         </div>
-        {(detail.bytes_in || detail.bytes_out) ? (
+        {inBytes || outBytes ? (
           <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Asymmetry:</span>
-            <RatioBar bytesIn={detail.bytes_in || 0} bytesOut={detail.bytes_out || 0} />
+            <span className="text-muted-foreground">In / out share:</span>
+            <RatioBar bytesIn={inBytes} bytesOut={outBytes} />
             <AsymmetryBadge cls={detail.class} />
           </div>
         ) : null}
@@ -150,11 +159,11 @@ export function ASDetail() {
       {/* Total traffic vs previous period (comparison overlay, opt-in) */}
       {compare && detail.time_series?.length > 0 && (
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Total traffic vs previous period</CardTitle>
+          <CardHeader>
+            <CardTitle>Total traffic against the previous period</CardTitle>
           </CardHeader>
           <CardContent>
-            <TrafficChart data={detail.time_series} previous={prevSeries} height={300} timeBounds={timeBounds} />
+            <TrafficChart data={detail.time_series} previous={prevSeries} height={300} timeBounds={timeBounds} stepSeconds={step} />
           </CardContent>
         </Card>
       )}
@@ -162,10 +171,10 @@ export function ASDetail() {
       {/* IPv4 + IPv6 traffic charts side by side, split by link */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="overflow-visible">
-          <CardContent className="px-4 pt-5 pb-4">
+          <CardContent className="pt-3">
             {detail.v4_series && detail.v4_series.length > 0 ? (
               <ExpandableChart title={`AS${detail.as_number} — IPv4`} fetchType="as-detail-v4" fetchParams={{ asn: asnNum }} linkColors={linkColors} currentPeriod={filters.period}>
-                <LinkTrafficChart series={detail.v4_series} title="IPv4 Traffic by Link" height={280} linkColors={linkColors} p95In={detail.p95_v4_in} p95Out={detail.p95_v4_out} timeBounds={timeBounds} />
+                <LinkTrafficChart series={detail.v4_series} title="IPv4 by link" height={280} linkColors={linkColors} p95In={detail.p95_v4_in} p95Out={detail.p95_v4_out} timeBounds={timeBounds} stepSeconds={step} />
               </ExpandableChart>
             ) : (
               <p className="text-xs text-muted-foreground py-8 text-center">No IPv4 data</p>
@@ -173,10 +182,10 @@ export function ASDetail() {
           </CardContent>
         </Card>
         <Card className="overflow-visible">
-          <CardContent className="px-4 pt-5 pb-4">
+          <CardContent className="pt-3">
             {detail.v6_series && detail.v6_series.length > 0 ? (
               <ExpandableChart title={`AS${detail.as_number} — IPv6`} fetchType="as-detail-v6" fetchParams={{ asn: asnNum }} linkColors={linkColors} currentPeriod={filters.period}>
-                <LinkTrafficChart series={detail.v6_series} title="IPv6 Traffic by Link" height={280} linkColors={linkColors} p95In={detail.p95_v6_in} p95Out={detail.p95_v6_out} timeBounds={timeBounds} />
+                <LinkTrafficChart series={detail.v6_series} title="IPv6 by link" height={280} linkColors={linkColors} p95In={detail.p95_v6_in} p95Out={detail.p95_v6_out} timeBounds={timeBounds} stepSeconds={step} />
               </ExpandableChart>
             ) : (
               <p className="text-xs text-muted-foreground py-8 text-center">No IPv6 data</p>
@@ -189,11 +198,11 @@ export function ASDetail() {
       <div className="grid gap-5 lg:grid-cols-2">
         {topIPsData?.data && topIPsData.data.length > 0 && (
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Top Internal IPs</CardTitle>
+            <CardHeader>
+              <CardTitle>Your top IPs with this network</CardTitle>
             </CardHeader>
             <CardContent>
-              <table className="w-full text-xs">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
                     <th className="pb-1.5 text-left font-medium text-muted-foreground">IP</th>
@@ -203,14 +212,14 @@ export function ASDetail() {
                 </thead>
                 <tbody>
                   {topIPsData.data.map(ip => (
-                    <tr key={ip.ip} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
+                    <tr key={ip.ip} className="border-b border-border-soft last:border-0 hover:bg-accent/60">
                       <td className="py-1 max-w-[280px]">
-                        <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px] block truncate">
+                        <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-ip text-[13px] block truncate">
                           <IPWithPTR ip={ip.ip} />
                         </Link>
                       </td>
-                      <td className="py-1 text-right font-mono">{formatTraffic(ip.bytes, periodSeconds)}</td>
-                      <td className="py-1 text-right font-mono text-muted-foreground">{formatNumber(ip.flows)}</td>
+                      <td className="py-1 text-right">{formatTraffic(ip.bytes, periodSeconds, ip.packets)}</td>
+                      <td className="py-1 text-right text-muted-foreground">{formatNumber(ip.flows)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -221,11 +230,11 @@ export function ASDetail() {
 
         {remoteIPsData?.data && remoteIPsData.data.length > 0 && (
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Top Remote IPs</CardTitle>
+            <CardHeader>
+              <CardTitle>Their top IPs</CardTitle>
             </CardHeader>
             <CardContent>
-              <table className="w-full text-xs">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
                     <th className="pb-1.5 text-left font-medium text-muted-foreground">IP</th>
@@ -235,14 +244,14 @@ export function ASDetail() {
                 </thead>
                 <tbody>
                   {remoteIPsData.data.map(ip => (
-                    <tr key={ip.ip} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
+                    <tr key={ip.ip} className="border-b border-border-soft last:border-0 hover:bg-accent/60">
                       <td className="py-1 max-w-[280px]">
-                        <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px] block truncate">
+                        <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-ip text-[13px] block truncate">
                           <IPWithPTR ip={ip.ip} />
                         </Link>
                       </td>
-                      <td className="py-1 text-right font-mono">{formatTraffic(ip.bytes, periodSeconds)}</td>
-                      <td className="py-1 text-right font-mono text-muted-foreground">{formatNumber(ip.flows)}</td>
+                      <td className="py-1 text-right">{formatTraffic(ip.bytes, periodSeconds, ip.packets)}</td>
+                      <td className="py-1 text-right text-muted-foreground">{formatNumber(ip.flows)}</td>
                     </tr>
                   ))}
                 </tbody>

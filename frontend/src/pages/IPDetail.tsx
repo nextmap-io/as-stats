@@ -4,6 +4,7 @@ import { useFilters } from "@/hooks/useFilters"
 import { useFeatureFlags } from "@/hooks/useFeatures"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TrafficChart } from "@/components/charts/TrafficChart"
+import { stepSecondsOf } from "@/lib/rate"
 import { ExpandableChart } from "@/components/ExpandableChart"
 import { formatNumber } from "@/lib/utils"
 import { ASRef } from "@/components/ASRef"
@@ -31,7 +32,7 @@ export function IPDetail() {
       {/* Header with IP info */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight font-mono">{detail.ip}</h1>
+          <h1 className="text-2xl font-semibold font-ip">{detail.ip}</h1>
           <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-muted-foreground">
             {detail.ptr && <span>{detail.ptr}</span>}
             {detail.as_number ? (
@@ -39,17 +40,17 @@ export function IPDetail() {
                 AS{detail.as_number}{detail.as_name ? ` ${detail.as_name}` : ""}
               </Link>
             ) : null}
-            {detail.prefix && <span className="font-mono">{detail.prefix}</span>}
+            {detail.prefix && <span className="font-ip">{detail.prefix}</span>}
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {/* Quick period buttons — change current period filter without losing context */}
-          <div className="hidden md:flex items-center gap-0.5 px-1 py-0.5 rounded border border-input bg-muted/30">
+          <div className="hidden md:flex items-center gap-0.5 px-1 py-0.5 rounded border border-input bg-background">
             {QUICK_PERIODS.map(p => (
               <button
                 key={p}
                 onClick={() => setFilter("period", p)}
-                className={`px-1.5 py-0.5 text-[10px] font-medium rounded transition-colors ${
+                className={`px-1.5 py-0.5 text-xs font-medium rounded transition-colors ${
                   filters.period === p
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-accent"
@@ -63,7 +64,7 @@ export function IPDetail() {
           {features.flow_search && (
             <Link
               to={`/flows?period=${filters.period || "1h"}&dst_ip=${encodeURIComponent(detail.ip)}`}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors shrink-0"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[13px] font-medium rounded border border-input bg-background hover:bg-accent transition-colors shrink-0"
               title="Search flows involving this IP"
             >
               <Search className="size-3" />
@@ -74,13 +75,13 @@ export function IPDetail() {
       </div>
 
       <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Traffic</CardTitle>
+        <CardHeader>
+          <CardTitle>Traffic</CardTitle>
         </CardHeader>
         <CardContent>
           {detail.time_series?.length > 0 ? (
             <ExpandableChart title="IP Traffic">
-              <TrafficChart data={detail.time_series} height={350} timeBounds={timeBounds} />
+              <TrafficChart data={detail.time_series} height={350} timeBounds={timeBounds} stepSeconds={stepSecondsOf(data?.meta, periodSeconds)} />
             </ExpandableChart>
           ) : (
             <p className="text-sm text-muted-foreground">No traffic data for this period</p>
@@ -92,11 +93,11 @@ export function IPDetail() {
         {/* Peer IPs */}
         {detail.peer_ips && detail.peer_ips.length > 0 && (
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Top Communicating IPs</CardTitle>
+            <CardHeader>
+              <CardTitle>Top Communicating IPs</CardTitle>
             </CardHeader>
             <CardContent>
-              <table className="w-full text-xs">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
                     <th className="pb-1.5 text-left font-medium text-muted-foreground">IP</th>
@@ -106,14 +107,14 @@ export function IPDetail() {
                 </thead>
                 <tbody>
                   {detail.peer_ips.map(peer => (
-                    <tr key={peer.ip} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
+                    <tr key={peer.ip} className="border-b border-border-soft last:border-0 hover:bg-accent/60">
                       <td className="py-1 max-w-[280px]">
-                        <Link to={`/ip/${peer.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px] block truncate">
+                        <Link to={`/ip/${peer.ip}${filterSearch}`} className="text-primary hover:underline font-ip text-[13px] block truncate">
                           <IPWithPTR ip={peer.ip} />
                         </Link>
                       </td>
-                      <td className="py-1 text-right font-mono">{formatTraffic(peer.bytes, periodSeconds)}</td>
-                      <td className="py-1 text-right font-mono text-muted-foreground hidden sm:table-cell">{formatNumber(peer.flows)}</td>
+                      <td className="py-1 text-right">{formatTraffic(peer.bytes, periodSeconds, peer.packets)}</td>
+                      <td className="py-1 text-right text-muted-foreground hidden sm:table-cell">{formatNumber(peer.flows)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -125,11 +126,11 @@ export function IPDetail() {
         {/* AS breakdown */}
         {detail.top_as?.length > 0 && (
           <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Traffic by AS</CardTitle>
+            <CardHeader>
+              <CardTitle>Traffic by AS</CardTitle>
             </CardHeader>
             <CardContent>
-              <table className="w-full text-xs">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
                     <th className="pb-1.5 text-left font-medium text-muted-foreground">ASN</th>
@@ -140,18 +141,18 @@ export function IPDetail() {
                 </thead>
                 <tbody>
                   {detail.top_as.map(as => (
-                    <tr key={as.as_number} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
+                    <tr key={as.as_number} className="border-b border-border-soft last:border-0 hover:bg-accent/60">
                       <td className="py-1">
                         <ASRef
                           asn={as.as_number}
                           search={filterSearch}
                           prefix={false}
-                          className="text-primary hover:underline font-mono"
+                          className="text-primary hover:underline"
                         />
                       </td>
                       <td className="py-1 text-muted-foreground truncate max-w-40">{as.as_name || "-"}</td>
-                      <td className="py-1 text-right font-mono">{formatTraffic(as.bytes, periodSeconds)}</td>
-                      <td className="py-1 text-right font-mono text-muted-foreground hidden sm:table-cell">{formatNumber(as.flows)}</td>
+                      <td className="py-1 text-right">{formatTraffic(as.bytes, periodSeconds, as.packets)}</td>
+                      <td className="py-1 text-right text-muted-foreground hidden sm:table-cell">{formatNumber(as.flows)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -44,7 +44,7 @@ function TopCountriesBar({ rows }: { rows: CountryTraffic[] }) {
         <XAxis
           type="number"
           tickFormatter={(v) => formatBytes(Number(v))}
-          tick={{ fill: colors.text, fontSize: 10 }}
+          tick={{ fill: colors.text, fontSize: 12 }}
           stroke={colors.grid}
         />
         <YAxis
@@ -100,7 +100,7 @@ export function Countries() {
               {countryFlag(c.country)}
             </span>
             <span>{countryName(c.country, c.name)}</span>
-            <span className="text-muted-foreground font-mono text-[10px]">
+            <span className="text-muted-foreground text-xs">
               {c.country || "??"}
             </span>
           </span>
@@ -112,7 +112,7 @@ export function Countries() {
         align: "right",
         numeric: true,
         sortable: true,
-        render: (c) => formatTraffic(c.bytes, periodSeconds),
+        render: (c) => formatTraffic(c.bytes, periodSeconds, c.packets),
       },
       {
         key: "packets",
@@ -156,20 +156,20 @@ export function Countries() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Countries</h1>
+      <h1 className="text-2xl font-semibold">Countries</h1>
       <p className="text-sm text-muted-foreground -mt-4">
         Traffic by country, derived from the source AS registration (AS-level geo — no per-IP lookup).
       </p>
 
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Top 10 by traffic volume</CardTitle>
+        <CardHeader>
+          <CardTitle>Top 10 by traffic volume</CardTitle>
         </CardHeader>
         <CardContent>
           <QueryBoundary
             query={query}
-            isEmpty={(d) => d.data.length === 0}
-            skeleton={<div className="h-64 animate-pulse rounded bg-muted/40" />}
+            isEmpty={(d) => !d.data?.length}
+            skeleton={<div className="h-64 rounded bg-muted/40" />}
           >
             {(data) => <TopCountriesBar rows={data.data} />}
           </QueryBoundary>
@@ -177,14 +177,14 @@ export function Countries() {
       </Card>
 
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader>
           <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-base">Countries by traffic volume</CardTitle>
+            <CardTitle>Countries by traffic volume</CardTitle>
             <ExportButton rows={rows} columns={exportColumns} filename="top-countries" />
           </div>
         </CardHeader>
         <CardContent>
-          <QueryBoundary query={query} isEmpty={(d) => d.data.length === 0} loadingCols={6}>
+          <QueryBoundary query={query} isEmpty={(d) => !d.data?.length} loadingCols={6}>
             {(data) => (
               <DataTable rows={data.data} columns={columns} rowKey={(c) => c.country || "unknown"} />
             )}

@@ -9,12 +9,12 @@ import { ExportButton, type ExportColumn } from "@/components/ExportButton"
 import { formatBitsPerSec, formatPercent } from "@/lib/utils"
 import type { LinkCapacity } from "@/lib/types"
 
-// utilBarClass maps a utilization percentage to a bar color: green < 70,
-// amber >= 70, red >= 90.
+// utilBarClass maps a utilisation percentage to a bar colour. Normal stays
+// neutral ink; only "watch" (>= 70%, amber) and "incident" (>= 90%, red) light up.
 function utilBarClass(pct: number): string {
   if (pct >= 90) return "bg-destructive"
-  if (pct >= 70) return "bg-warning"
-  return "bg-success"
+  if (pct >= 70) return "bg-warning-mark"
+  return "bg-foreground-secondary"
 }
 
 // minForecastDays returns the soonest of the 80/95/100% saturation forecasts,
@@ -45,7 +45,7 @@ function SaturationCell({ lc }: { lc: LinkCapacity }) {
       <span className={days <= 30 ? "font-medium text-destructive" : days <= 90 ? "font-medium text-warning" : "font-medium"}>
         {rounded.toLocaleString()}d
       </span>
-      <span className="text-[10px] text-muted-foreground">{projectedDate(days)}</span>
+      <span className="text-xs text-muted-foreground">{projectedDate(days)}</span>
     </span>
   )
 }
@@ -87,7 +87,7 @@ export function Capacity() {
       },
       {
         key: "current_bps",
-        header: "Current",
+        header: "Now, busier direction",
         align: "right",
         numeric: true,
         sortable: true,
@@ -95,7 +95,7 @@ export function Capacity() {
       },
       {
         key: "p95_bps",
-        header: "P95",
+        header: "p95, busier direction",
         align: "right",
         numeric: true,
         sortable: true,
@@ -104,7 +104,7 @@ export function Capacity() {
       },
       {
         key: "utilization",
-        header: "Utilization",
+        header: "Utilisation",
         align: "right",
         sortable: true,
         sortValue: (l) => (l.utilization_pct == null ? -1 : l.utilization_pct),
@@ -160,18 +160,18 @@ export function Capacity() {
   return (
     <div className="space-y-6">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Capacity</h1>
+        <h1 className="text-2xl font-semibold">Capacity</h1>
       </div>
 
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader>
           <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-base">Link utilization &amp; saturation forecast</CardTitle>
+            <CardTitle>Link utilisation and saturation forecast</CardTitle>
             <ExportButton rows={rows} columns={exportColumns} filename="capacity" />
           </div>
         </CardHeader>
         <CardContent>
-          <QueryBoundary query={capacityQuery} isEmpty={(d) => d.data.length === 0} loadingCols={7}>
+          <QueryBoundary query={capacityQuery} isEmpty={(d) => !d.data?.length} loadingCols={7}>
             {(data) => (
               <DataTable
                 rows={data.data}
@@ -181,17 +181,11 @@ export function Capacity() {
               />
             )}
           </QueryBoundary>
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
-            <span className="inline-flex items-center gap-1">
-              <span className="inline-block size-2 rounded-sm bg-success" /> &lt; 70% (utilization based on window P95)
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="inline-block size-2 rounded-sm bg-warning" /> {formatPercent(70)}–90%
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="inline-block size-2 rounded-sm bg-destructive" /> &gt;= 90%
-            </span>
-          </div>
+          <p className="mt-3 text-[13px] text-muted-foreground">
+            Utilisation is the busier direction's p95 over the window against capacity: a link is full duplex, so
+            inbound and outbound are never added. Bars turn amber from {formatPercent(70)} and red from{" "}
+            {formatPercent(90)}.
+          </p>
         </CardContent>
       </Card>
     </div>
