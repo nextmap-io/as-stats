@@ -310,19 +310,24 @@ on-call engineer doesn't need to dig further.
 ### Live Threats view
 
 The Alerts dashboard shows what already fired. The **Live Threats** page
-(`/live`) shows what's *building*: a real-time, auto-refreshing snapshot of
-the top destinations from the alert engine's hot tables, evaluated against
-every active rule and color-coded by how close each row is to triggering.
+(`/live`) shows what's *building*, ranked by **how abnormal** each of your
+hosts is rather than by raw volume:
 
-```
- Status   Destination           bps        pps      SYN/s    Unique src   Worst rule
- 64%      192.0.2.10            3.6 Mbps   450 pps  —        6,405        Reflection/amplification
- OK       192.0.2.225           13.6 Mbps  1.2 Kpps —        737          Reflection/amplification
- OK       192.0.2.8             93.4 Mbps  15 Kpps  —        25           High inbound volume
-```
+- every local host seen in the window is compared with **its own usual
+  traffic** — the same time of day over the previous 7 days (per-minute p50 /
+  p95 of bps and pps). A busy server at its everyday level stays quiet;
+- rows are matched against **attack signatures** — SYN / UDP / ICMP flood,
+  reflection-amplification (with the reflector port, e.g. NTP/123), small
+  packets, many sources; outbound: port scan, host sweep, SMTP burst,
+  outbound flood — and against the active alert rules (closest rule, % of its
+  threshold);
+- each host gets a level: **incident**, **watch** or **normal**. Only the
+  first two are listed by default; `all=1` lists the top hosts by volume.
 
-Sortable columns, configurable window (1m / 5m / 15m / 1h), 10-second
-auto-refresh.
+**Inbound** looks at your destinations (DDoS targets), **outbound** at your
+sources (compromised hosts). Each row carries a 60-minute sparkline and the
+time it went above its usual level. Configurable window (1m / 5m / 15m / 1h),
+auto-refresh. API: `GET /api/v1/threats/live?direction=in|out&window=300&all=0`.
 
 ### BGP blackhole hook
 
