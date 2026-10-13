@@ -67,7 +67,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 	// SMTP config; loadSMTP already enforces SMTP_HOST/SMTP_FROM when the feature
 	// is on, so a non-nil generator implies a usable sender.
 	if cfg.FeatureReports {
-		if gen, err := reports.NewGenerator(s); err != nil {
+		if gen, err := reports.NewGenerator(s, reports.WithExcludeAS(cfg.LocalAS)); err != nil {
 			log.Printf("WARNING: report generator init failed: %v — test-send disabled", err)
 		} else {
 			h.ReportService = reports.NewService(s, gen, reports.NewSender(cfg.SMTP))
