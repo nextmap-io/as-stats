@@ -167,10 +167,13 @@ func (e *Enricher) Enrich(flow *model.FlowRecord) {
 
 	// Override private/missing AS for IPs in local prefixes
 	if e.localAS > 0 && len(e.localNets) > 0 {
-		if e.isLocalIP(flow.SrcIP) && (flow.SrcAS == 0 || isPrivateAS(flow.SrcAS)) {
+		// The AS test is a couple of comparisons; isLocalIP is a linear scan of
+		// every announced prefix. Most flows carry a public AS, so test that
+		// first and only scan when the result can change something.
+		if (flow.SrcAS == 0 || isPrivateAS(flow.SrcAS)) && e.isLocalIP(flow.SrcIP) {
 			flow.SrcAS = e.localAS
 		}
-		if e.isLocalIP(flow.DstIP) && (flow.DstAS == 0 || isPrivateAS(flow.DstAS)) {
+		if (flow.DstAS == 0 || isPrivateAS(flow.DstAS)) && e.isLocalIP(flow.DstIP) {
 			flow.DstAS = e.localAS
 		}
 	}

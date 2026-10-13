@@ -132,6 +132,27 @@ func TestEnrichFlowDirectionFallsBackToOtherSide(t *testing.T) {
 	}
 }
 
+func TestEnrichLocalASRemap(t *testing.T) {
+	e := New()
+	_, local, _ := net.ParseCIDR("192.0.2.0/24")
+	e.SetLocalAS(64496, []net.IPNet{*local})
+
+	f := &model.FlowRecord{
+		SrcIP: net.ParseIP("192.0.2.10"), SrcAS: 65001, // private, local → remapped
+		DstIP: net.ParseIP("198.51.100.1"), DstAS: 0, // not local → untouched
+	}
+	e.Enrich(f)
+	if f.SrcAS != 64496 || f.DstAS != 0 {
+		t.Errorf("got src AS %d dst AS %d, want 64496 / 0", f.SrcAS, f.DstAS)
+	}
+
+	pub := &model.FlowRecord{SrcIP: net.ParseIP("192.0.2.11"), SrcAS: 13335}
+	e.Enrich(pub)
+	if pub.SrcAS != 13335 {
+		t.Errorf("public AS on a local IP was rewritten to %d", pub.SrcAS)
+	}
+}
+
 func TestASNames(t *testing.T) {
 	e := New()
 	e.LoadASNames([]model.ASInfo{
