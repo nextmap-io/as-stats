@@ -38,12 +38,64 @@ type TemplateField struct {
 	Length uint16
 }
 
+// varLenField is the IPFIX field length that announces a variable-length
+// field (RFC 7011 §7): the record then carries the actual length inline.
+const varLenField = 0xFFFF
+
 // Template represents a decoded template.
 type Template struct {
-	ID         uint16
-	Fields     []TemplateField
-	TotalLen   int
-	ReceivedAt time.Time
+	ID     uint16
+	Fields []TemplateField
+	// TotalLen is the record length, or its minimum when VarLen is set
+	// (each variable-length field counting for its 1-byte length prefix).
+	TotalLen int
+	// VarLen is set for IPFIX templates with variable-length fields.
+	VarLen bool
+	// Options marks an options template: its data records describe the
+	// exporter (sampling, interface names, …) and are never flows.
+	Options bool
+	// ScopeFields is the number of leading scope fields of an options template.
+	ScopeFields int
+	ReceivedAt  time.Time
+}
+
+// fieldLen returns the length a field contributes to Template.TotalLen.
+func fieldLen(f TemplateField, ipfix bool) int {
+	if ipfix && f.Length == varLenField {
+		return 1
+	}
+	return int(f.Length)
+}
+
+// walkRecord calls fn for each field of the record at the start of data and
+// returns the number of bytes the record occupies, or 0 when it does not fit.
+// The result is never 0 for a record that fits a template with TotalLen > 0,
+// so callers advancing by it always make progress.
+func walkRecord(data []byte, tmpl *Template, fn func(i int, f TemplateField, v []byte)) int {
+	off := 0
+	for i, f := range tmpl.Fields {
+		l := int(f.Length)
+		if tmpl.VarLen && f.Length == varLenField {
+			if off >= len(data) {
+				return 0
+			}
+			l = int(data[off])
+			off++
+			if l == 255 {
+				if off+2 > len(data) {
+					return 0
+				}
+				l = int(data[off])<<8 | int(data[off+1])
+				off += 2
+			}
+		}
+		if off+l > len(data) {
+			return 0
+		}
+		fn(i, f, data[off:off+l])
+		off += l
+	}
+	return off
 }
 
 type templateKey struct {

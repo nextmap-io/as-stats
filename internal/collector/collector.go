@@ -33,6 +33,8 @@ func New(cfg *config.CollectorConfig, s store.FlowWriter) *Collector {
 	// what arrives while both buffers are full. Worst case the pipeline holds
 	// 4×BatchSize flows at ~310 B each: ~60 MiB at the 50k default, against
 	// ~150 MiB when these were sized 4×BatchSize apiece.
+	netflow.SetSamplingOverride(cfg.SamplingOverride)
+
 	flowsCh := make(chan *model.FlowRecord, cfg.BatchSize)
 	enrichedCh := make(chan *model.FlowRecord, cfg.BatchSize)
 

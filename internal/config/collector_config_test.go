@@ -36,6 +36,22 @@ func TestLoadCollectorDefaults(t *testing.T) {
 	}
 }
 
+func TestParseSamplingOverride(t *testing.T) {
+	got, err := parseSamplingOverride(" 2001:db8::1=1000 , 192.0.2.1=512")
+	if err != nil {
+		t.Fatalf("parseSamplingOverride() error = %v", err)
+	}
+	if len(got) != 2 || got["2001:db8::1"] != 1000 || got["192.0.2.1"] != 512 {
+		t.Errorf("parseSamplingOverride() = %v", got)
+	}
+
+	for _, bad := range []string{"2001:db8::1", "router1=1000", "192.0.2.1=0", "192.0.2.1=-5", "192.0.2.1=x"} {
+		if _, err := parseSamplingOverride(bad); err == nil {
+			t.Errorf("parseSamplingOverride(%q) accepted a malformed entry", bad)
+		}
+	}
+}
+
 func TestLoadCollectorRejectsNonPositiveDurations(t *testing.T) {
 	for _, k := range []string{"COLLECTOR_FLUSH_INTERVAL", "COLLECTOR_FLUSH_TIMEOUT", "COLLECTOR_SHUTDOWN_TIMEOUT"} {
 		t.Run(k, func(t *testing.T) {

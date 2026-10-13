@@ -56,7 +56,7 @@ func DecodeIPFIX(data []byte, routerIP net.IP) ([]*model.FlowRecord, error) {
 		case setID == ipfixTemplateSet:
 			parseIPFIXTemplates(setData, routerKey, domainID)
 		case setID == ipfixOptionsSet:
-			parseIPFIXOptionsTemplate(setData, routerKey, domainID)
+			parseIPFIXOptionsTemplates(setData, routerKey, domainID)
 		case setID >= 256:
 			decoded := decodeIPFIXDataSet(setData, routerKey, domainID, setID, routerIP, ts)
 			flows = append(flows, decoded...)
@@ -66,6 +66,38 @@ func DecodeIPFIX(data []byte, routerIP net.IP) ([]*model.FlowRecord, error) {
 	}
 
 	return flows, nil
+}
+
+// parseIPFIXFields reads count field specifiers starting at data[offset],
+// skipping enterprise numbers. It returns the new offset and false when the
+// specifiers run past the set.
+func parseIPFIXFields(data []byte, offset, count int, tmpl *Template) (int, bool) {
+	for i := 0; i < count; i++ {
+		if offset+4 > len(data) {
+			return offset, false
+		}
+
+		fType := binary.BigEndian.Uint16(data[offset : offset+2])
+		fLen := binary.BigEndian.Uint16(data[offset+2 : offset+4])
+		offset += 4
+
+		// Enterprise bit: if high bit of type is set, skip 4-byte enterprise number
+		if fType&0x8000 != 0 {
+			fType &= 0x7FFF
+			if offset+4 > len(data) {
+				return offset, false
+			}
+			offset += 4 // skip enterprise number
+		}
+
+		f := TemplateField{Type: fType, Length: fLen}
+		if fLen == varLenField {
+			tmpl.VarLen = true
+		}
+		tmpl.Fields = append(tmpl.Fields, f)
+		tmpl.TotalLen += fieldLen(f, true)
+	}
+	return offset, true
 }
 
 func parseIPFIXTemplates(data []byte, routerKey [16]byte, domainID uint32) {
@@ -85,94 +117,66 @@ func parseIPFIXTemplates(data []byte, routerKey [16]byte, domainID uint32) {
 			ReceivedAt: time.Now(),
 		}
 
-		totalLen := 0
-		valid := true
-		for i := 0; i < fieldCount; i++ {
-			if offset+4 > len(data) {
-				valid = false
-				break
-			}
-
-			fType := binary.BigEndian.Uint16(data[offset : offset+2])
-			fLen := binary.BigEndian.Uint16(data[offset+2 : offset+4])
-			offset += 4
-
-			// Enterprise bit: if high bit of type is set, skip 4-byte enterprise number
-			if fType&0x8000 != 0 {
-				fType &= 0x7FFF
-				if offset+4 > len(data) {
-					valid = false
-					break
-				}
-				offset += 4 // skip enterprise number
-			}
-
-			tmpl.Fields = append(tmpl.Fields, TemplateField{Type: fType, Length: fLen})
-			totalLen += int(fLen)
-		}
-
-		if !valid {
+		var ok bool
+		if offset, ok = parseIPFIXFields(data, offset, fieldCount, tmpl); !ok {
 			break
 		}
 
-		tmpl.TotalLen = totalLen
-		// Zero-byte records would make decodeIPFIXDataSet loop forever (it
-		// advances by TotalLen). Refuse the template rather than the packets.
-		if totalLen <= 0 {
+		// Zero-byte records would make the data set loop spin forever (it
+		// advances by the record length). Refuse the template rather than the
+		// packets.
+		if tmpl.TotalLen <= 0 {
 			log.Printf("ipfix: ignoring template %d from domain %d: zero-length record", templateID, domainID)
 			continue
 		}
 		globalTemplateCache.Set(routerKey, domainID, tmpl)
 		log.Printf("ipfix: cached template %d from domain %d (%d fields, %d bytes/record)",
-			templateID, domainID, fieldCount, totalLen)
+			templateID, domainID, fieldCount, tmpl.TotalLen)
 	}
 }
 
-func parseIPFIXOptionsTemplate(data []byte, routerKey [16]byte, domainID uint32) {
-	if len(data) < 6 {
-		return
-	}
+// parseIPFIXOptionsTemplates parses an options template set (RFC 7011 §3.4.2.2):
+// template ID, field count, scope field count, then the field specifiers.
+// A set may carry several templates.
+func parseIPFIXOptionsTemplates(data []byte, routerKey [16]byte, domainID uint32) {
+	offset := 0
+	for offset+4 <= len(data) {
+		templateID := binary.BigEndian.Uint16(data[offset : offset+2])
+		totalFieldCount := int(binary.BigEndian.Uint16(data[offset+2 : offset+4]))
+		if totalFieldCount == 0 {
+			// Template withdrawal (4 bytes) — or set padding. Nothing to cache.
+			offset += 4
+			continue
+		}
+		if offset+6 > len(data) {
+			return
+		}
+		scopeCount := int(binary.BigEndian.Uint16(data[offset+4 : offset+6]))
+		offset += 6
 
-	templateID := binary.BigEndian.Uint16(data[0:2])
-	totalFieldCount := int(binary.BigEndian.Uint16(data[2:4]))
-	// data[4:6] = scope field count (unused, all fields parsed uniformly)
-	offset := 6
-
-	tmpl := &Template{
-		ID:         templateID,
-		Fields:     make([]TemplateField, 0, totalFieldCount),
-		ReceivedAt: time.Now(),
-	}
-
-	totalLen := 0
-	for i := 0; i < totalFieldCount; i++ {
-		if offset+4 > len(data) {
+		if totalFieldCount > 256 || scopeCount == 0 || scopeCount > totalFieldCount {
 			return
 		}
 
-		fType := binary.BigEndian.Uint16(data[offset : offset+2])
-		fLen := binary.BigEndian.Uint16(data[offset+2 : offset+4])
-		offset += 4
-
-		if fType&0x8000 != 0 {
-			fType &= 0x7FFF
-			if offset+4 > len(data) {
-				return
-			}
-			offset += 4
+		tmpl := &Template{
+			ID:          templateID,
+			Fields:      make([]TemplateField, 0, totalFieldCount),
+			Options:     true,
+			ScopeFields: scopeCount,
+			ReceivedAt:  time.Now(),
+		}
+		var ok bool
+		if offset, ok = parseIPFIXFields(data, offset, totalFieldCount, tmpl); !ok {
+			return
 		}
 
-		tmpl.Fields = append(tmpl.Fields, TemplateField{Type: fType, Length: fLen})
-		totalLen += int(fLen)
+		// Same infinite-loop guard as the regular template path.
+		if tmpl.TotalLen <= 0 {
+			log.Printf("ipfix: ignoring options template %d from domain %d: zero-length record", templateID, domainID)
+			continue
+		}
+		globalTemplateCache.Set(routerKey, domainID, tmpl)
 	}
-
-	tmpl.TotalLen = totalLen
-	// Same infinite-loop guard as the regular template path.
-	if totalLen <= 0 {
-		log.Printf("ipfix: ignoring options template %d from domain %d: zero-length record", templateID, domainID)
-		return
-	}
-	globalTemplateCache.Set(routerKey, domainID, tmpl)
 }
 
 func decodeIPFIXDataSet(data []byte, routerKey [16]byte, domainID uint32, setID uint16, routerIP net.IP, ts time.Time) []*model.FlowRecord {
@@ -180,25 +184,5 @@ func decodeIPFIXDataSet(data []byte, routerKey [16]byte, domainID uint32, setID 
 	if tmpl == nil {
 		return nil
 	}
-	// Defence in depth against a zero-length record wedging the loop below.
-	if tmpl.TotalLen <= 0 {
-		return nil
-	}
-
-	var flows []*model.FlowRecord
-	offset := 0
-
-	for offset+tmpl.TotalLen <= len(data) {
-		flow := decodeIPFIXRecord(data[offset:offset+tmpl.TotalLen], tmpl, routerIP, ts)
-		if flow != nil {
-			flows = append(flows, flow)
-		}
-		offset += tmpl.TotalLen
-	}
-
-	return flows
-}
-
-func decodeIPFIXRecord(data []byte, tmpl *Template, routerIP net.IP, ts time.Time) *model.FlowRecord {
-	return decodeTemplateRecord(data, tmpl, routerIP, ts, "ipfix")
+	return decodeRecords(data, tmpl, routerKey, domainID, routerIP, ts, "ipfix")
 }

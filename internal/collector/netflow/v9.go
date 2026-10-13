@@ -19,7 +19,6 @@ const (
 
 var globalTemplateCache = NewTemplateCache(30 * time.Minute)
 
-// V9Header represents a NetFlow v9 packet header.
 // DecodeV9 parses a NetFlow v9 packet.
 func DecodeV9(data []byte, routerIP net.IP) ([]*model.FlowRecord, error) {
 	if len(data) < v9HeaderLen {
@@ -54,7 +53,7 @@ func DecodeV9(data []byte, routerIP net.IP) ([]*model.FlowRecord, error) {
 		case setID == v9TemplateSet:
 			parseV9Templates(setData, routerKey, sourceID)
 		case setID == v9OptionsSet:
-			// Options templates - skip for now
+			parseV9OptionsTemplates(setData, routerKey, sourceID)
 		case setID >= 256:
 			decoded := decodeDataSet(setData, routerKey, sourceID, setID, routerIP, ts)
 			flows = append(flows, decoded...)
@@ -98,9 +97,9 @@ func parseV9Templates(data []byte, routerKey [16]byte, sourceID uint32) {
 		tmpl.TotalLen = totalLen
 
 		// A template whose fields are all zero-length yields a zero-byte record.
-		// decodeDataSet advances by TotalLen, so caching this would wedge the
-		// decoder goroutine in an infinite allocating loop on the next data set
-		// referencing it. Drop it instead of trusting the exporter.
+		// decodeDataSet advances by the record length, so caching this would
+		// wedge the decoder goroutine in an infinite allocating loop on the next
+		// data set referencing it. Drop it instead of trusting the exporter.
 		if totalLen <= 0 {
 			log.Printf("v9: ignoring template %d from source %d: zero-length record", templateID, sourceID)
 			continue
@@ -112,33 +111,105 @@ func parseV9Templates(data []byte, routerKey [16]byte, sourceID uint32) {
 	}
 }
 
+// parseV9OptionsTemplates parses an options template FlowSet (RFC 3954 §6.1).
+// Each template is: template ID, scope length and option length (both in
+// bytes), then the scope fields followed by the option fields.
+func parseV9OptionsTemplates(data []byte, routerKey [16]byte, sourceID uint32) {
+	offset := 0
+	// Anything shorter than a template header is FlowSet padding.
+	for offset+6 <= len(data) {
+		templateID := binary.BigEndian.Uint16(data[offset : offset+2])
+		scopeLen := int(binary.BigEndian.Uint16(data[offset+2 : offset+4]))
+		optionLen := int(binary.BigEndian.Uint16(data[offset+4 : offset+6]))
+		offset += 6
+
+		if scopeLen%4 != 0 || optionLen%4 != 0 || offset+scopeLen+optionLen > len(data) {
+			return
+		}
+		fieldCount := (scopeLen + optionLen) / 4
+		if fieldCount == 0 || fieldCount > 256 {
+			return
+		}
+
+		tmpl := &Template{
+			ID:          templateID,
+			Fields:      make([]TemplateField, fieldCount),
+			Options:     true,
+			ScopeFields: scopeLen / 4,
+			ReceivedAt:  time.Now(),
+		}
+		for i := 0; i < fieldCount; i++ {
+			tmpl.Fields[i] = TemplateField{
+				Type:   binary.BigEndian.Uint16(data[offset : offset+2]),
+				Length: binary.BigEndian.Uint16(data[offset+2 : offset+4]),
+			}
+			tmpl.TotalLen += int(tmpl.Fields[i].Length)
+			offset += 4
+		}
+
+		// Same infinite-loop guard as data templates.
+		if tmpl.TotalLen <= 0 {
+			log.Printf("v9: ignoring options template %d from source %d: zero-length record", templateID, sourceID)
+			continue
+		}
+		globalTemplateCache.Set(routerKey, sourceID, tmpl)
+	}
+}
+
 func decodeDataSet(data []byte, routerKey [16]byte, sourceID uint32, setID uint16, routerIP net.IP, ts time.Time) []*model.FlowRecord {
 	tmpl := globalTemplateCache.Get(routerKey, sourceID, setID)
 	if tmpl == nil {
 		return nil // template not yet received
 	}
-	// Defence in depth: parseV9Templates refuses to cache these, but a zero
-	// record length would make the loop below never advance.
+	return decodeRecords(data, tmpl, routerKey, sourceID, routerIP, ts, "netflow9")
+}
+
+// decodeRecords decodes every record of a v9 / IPFIX data set. Records of an
+// options template only feed the sampling table: they describe the exporter,
+// and emitting them as flows used to insert rows with :: addresses.
+func decodeRecords(data []byte, tmpl *Template, routerKey [16]byte, sourceID uint32, routerIP net.IP, ts time.Time, flowType string) []*model.FlowRecord {
+	// Defence in depth: templates with a zero-length record are never cached,
+	// and the loop below must always advance.
 	if tmpl.TotalLen <= 0 {
 		return nil
 	}
 
 	var flows []*model.FlowRecord
 	offset := 0
-
 	for offset+tmpl.TotalLen <= len(data) {
-		flow := decodeRecord(data[offset:offset+tmpl.TotalLen], tmpl, routerIP, ts)
-		if flow != nil {
-			flows = append(flows, flow)
+		rec := data[offset:]
+		var n int
+		if tmpl.Options {
+			n = recordLen(rec, tmpl)
+			if n > 0 {
+				learnSampling(rec[:n], tmpl, routerKey, sourceID, flowType == "ipfix", flowType)
+			}
+		} else {
+			var flow *model.FlowRecord
+			flow, n = decodeTemplateRecord(rec, tmpl, routerKey, sourceID, routerIP, ts, flowType)
+			if flow != nil {
+				flows = append(flows, flow)
+			}
 		}
-		offset += tmpl.TotalLen
+		if n <= 0 {
+			break // truncated record (or set padding)
+		}
+		offset += n
 	}
 
 	return flows
 }
 
-func decodeRecord(data []byte, tmpl *Template, routerIP net.IP, ts time.Time) *model.FlowRecord {
-	return decodeTemplateRecord(data, tmpl, routerIP, ts, "netflow9")
+// recordLen returns the length of the record at the start of data, or 0 when
+// it does not fit.
+func recordLen(data []byte, tmpl *Template) int {
+	if !tmpl.VarLen {
+		if tmpl.TotalLen > len(data) {
+			return 0
+		}
+		return tmpl.TotalLen
+	}
+	return walkRecord(data, tmpl, func(int, TemplateField, []byte) {})
 }
 
 // recordState holds the fields of one data record that cannot be applied in
@@ -150,33 +221,31 @@ type recordState struct {
 	hasInBytes        bool
 	hasInPkts         bool
 	srcMask, dstMask  int // -1 when absent
+	sampling          samplingInfo
 }
 
-// decodeTemplateRecord decodes one v9 / IPFIX data record. v9 and IPFIX share
-// the IANA field IDs used here.
-func decodeTemplateRecord(data []byte, tmpl *Template, routerIP net.IP, ts time.Time, flowType string) *model.FlowRecord {
+// decodeTemplateRecord decodes the v9 / IPFIX data record at the start of
+// data and returns it with its length (0 when it does not fit). v9 and IPFIX
+// share the IANA field IDs used here.
+func decodeTemplateRecord(data []byte, tmpl *Template, routerKey [16]byte, sourceID uint32, routerIP net.IP, ts time.Time, flowType string) (*model.FlowRecord, int) {
 	flow := &model.FlowRecord{
-		Timestamp:    ts,
-		RouterIP:     routerIP,
-		IPVersion:    4,
-		SamplingRate: 1,
-		FlowType:     flowType,
+		Timestamp: ts,
+		RouterIP:  routerIP,
+		IPVersion: 4,
+		FlowType:  flowType,
 	}
 	st := recordState{srcMask: -1, dstMask: -1}
 
-	offset := 0
-	for _, field := range tmpl.Fields {
-		if offset+int(field.Length) > len(data) {
-			return nil
-		}
-
-		fieldData := data[offset : offset+int(field.Length)]
-		applyField(flow, &st, field.Type, fieldData)
-		offset += int(field.Length)
+	n := walkRecord(data, tmpl, func(_ int, f TemplateField, v []byte) {
+		applyField(flow, &st, f.Type, v)
+	})
+	if n == 0 {
+		return nil, 0
 	}
 
 	st.finish(flow)
-	return flow
+	flow.SamplingRate = resolveSamplingRate(&st.sampling, routerKey, sourceID)
+	return flow, n
 }
 
 // finish applies the order-dependent fields once the whole record is read.
@@ -295,47 +364,39 @@ func applyField(flow *model.FlowRecord, st *recordState, fieldType uint16, data 
 				flow.Direction = model.DirectionOutbound
 			}
 		}
-	case FieldSamplingRate:
-		flow.SamplingRate = readUint32(data)
 	case FieldIPVersion:
 		if len(data) >= 1 {
 			flow.IPVersion = data[0]
 		}
+	default:
+		// Sampling fields (34, 48, 50, 302, 305, …) are resolved after the
+		// record against the options-announced rates.
+		st.sampling.apply(fieldType, data)
 	}
 }
 
-// readUint32 reads a variable-length unsigned integer as uint32.
+// readUint32 reads a big-endian unsigned integer of up to 4 bytes (IPFIX
+// allows reduced-size encoding). Longer fields yield their first 4 bytes.
 func readUint32(data []byte) uint32 {
-	switch len(data) {
-	case 1:
-		return uint32(data[0])
-	case 2:
-		return uint32(binary.BigEndian.Uint16(data))
-	case 4:
-		return binary.BigEndian.Uint32(data)
-	default:
-		if len(data) >= 4 {
-			return binary.BigEndian.Uint32(data[:4])
-		}
-		return 0
+	if len(data) > 4 {
+		data = data[:4]
 	}
+	var v uint32
+	for _, b := range data {
+		v = v<<8 | uint32(b)
+	}
+	return v
 }
 
-// readUint64 reads a variable-length unsigned integer as uint64.
+// readUint64 reads a big-endian unsigned integer of up to 8 bytes (IPFIX
+// allows reduced-size encoding). Longer fields yield their first 8 bytes.
 func readUint64(data []byte) uint64 {
-	switch len(data) {
-	case 1:
-		return uint64(data[0])
-	case 2:
-		return uint64(binary.BigEndian.Uint16(data))
-	case 4:
-		return uint64(binary.BigEndian.Uint32(data))
-	case 8:
-		return binary.BigEndian.Uint64(data)
-	default:
-		if len(data) >= 8 {
-			return binary.BigEndian.Uint64(data[:8])
-		}
-		return 0
+	if len(data) > 8 {
+		data = data[:8]
 	}
+	var v uint64
+	for _, b := range data {
+		v = v<<8 | uint64(b)
+	}
+	return v
 }

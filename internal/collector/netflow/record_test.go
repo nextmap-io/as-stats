@@ -14,6 +14,13 @@ func be32(b []byte, v uint32) []byte { return binary.BigEndian.AppendUint32(b, v
 
 var testTS = time.Unix(1700000000, 0).UTC()
 
+// decodeOne decodes a single record from a router that announced nothing.
+func decodeOne(rec []byte, tmpl *Template, flowType string) *model.FlowRecord {
+	ip := net.IP{192, 0, 2, 1}
+	f, _ := decodeTemplateRecord(rec, tmpl, ipToKey(ip), 0, ip, testTS, flowType)
+	return f
+}
+
 func tmplOf(fields ...TemplateField) *Template {
 	t := &Template{Fields: fields}
 	for _, f := range fields {
@@ -60,7 +67,7 @@ func TestCountersPreferInOverOut(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, ft := range []string{"netflow9", "ipfix"} {
-				f := decodeTemplateRecord(tc.rec, tc.tmpl, net.IP{192, 0, 2, 1}, testTS, ft)
+				f := decodeOne(tc.rec, tc.tmpl, ft)
 				if f.Bytes != tc.bytes || f.Packets != tc.pkts {
 					t.Errorf("%s: bytes=%d packets=%d, want %d/%d", ft, f.Bytes, f.Packets, tc.bytes, tc.pkts)
 				}
@@ -125,7 +132,7 @@ func TestPrefixIndependentOfFieldOrder(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			f := decodeTemplateRecord(tc.rec, tc.tmpl, net.IP{192, 0, 2, 1}, testTS, "netflow9")
+			f := decodeOne(tc.rec, tc.tmpl, "netflow9")
 			if f.SrcPrefix != tc.src || f.DstPrefix != tc.dst {
 				t.Errorf("prefixes = (%q, %q), want (%q, %q)", f.SrcPrefix, f.DstPrefix, tc.src, tc.dst)
 			}
@@ -136,7 +143,7 @@ func TestPrefixIndependentOfFieldOrder(t *testing.T) {
 func TestFlowDirectionDecoded(t *testing.T) {
 	tmpl := tmplOf(TemplateField{FieldDirection, 1})
 	for raw, want := range map[byte]uint8{0: model.DirectionInbound, 1: model.DirectionOutbound, 7: model.DirectionUnknown} {
-		f := decodeTemplateRecord([]byte{raw}, tmpl, net.IP{192, 0, 2, 1}, testTS, "ipfix")
+		f := decodeOne([]byte{raw}, tmpl, "ipfix")
 		if f.Direction != want {
 			t.Errorf("flowDirection %d decoded as %d, want %d", raw, f.Direction, want)
 		}

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -69,6 +70,11 @@ type CollectorConfig struct {
 	// FlushTimeout bounds one batch INSERT. A batch that fails or times out is
 	// dropped (and counted), never retried — see writer.write.
 	FlushTimeout time.Duration
+
+	// SamplingOverride maps router IP → 1-in-N sampling rate, applied only to
+	// flows whose sampling rate is known neither from the record itself nor
+	// from the exporter's options data (COLLECTOR_SAMPLING_OVERRIDE).
+	SamplingOverride map[string]uint32
 
 	// Flow log retention (only applied when the table exists; default 180 days)
 	FlowLogRetentionDays int
@@ -201,6 +207,11 @@ func LoadCollector() (*CollectorConfig, error) {
 		return nil, fmt.Errorf("invalid COLLECTOR_FLUSH_TIMEOUT: %q", envOr("COLLECTOR_FLUSH_TIMEOUT", "30s"))
 	}
 
+	samplingOverride, err := parseSamplingOverride(envOr("COLLECTOR_SAMPLING_OVERRIDE", ""))
+	if err != nil {
+		return nil, err
+	}
+
 	localAS, _ := strconv.ParseUint(envOr("LOCAL_AS", "0"), 10, 32)
 
 	flowLogRetention, err := strconv.Atoi(envOr("FLOW_LOG_RETENTION_DAYS", "180"))
@@ -242,6 +253,7 @@ func LoadCollector() (*CollectorConfig, error) {
 		Workers:                    workers,
 		ShutdownTimeout:            shutdownTimeout,
 		FlushTimeout:               flushTimeout,
+		SamplingOverride:           samplingOverride,
 		LocalAS:                    uint32(localAS),
 		FlowLogRetentionDays:       flowLogRetention,
 		RetentionReconcileInterval: reconcileInterval,
@@ -345,6 +357,23 @@ func LoadAPI() (*APIConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+// parseSamplingOverride parses "ip=rate,ip=rate" (e.g.
+// "2001:db8::1=1000,192.0.2.1=512"). A wrong rate silently scales a router's
+// traffic, so any malformed entry fails startup instead of being skipped.
+func parseSamplingOverride(s string) (map[string]uint32, error) {
+	out := make(map[string]uint32)
+	for _, entry := range splitCSV(s) {
+		ipStr, rateStr, ok := strings.Cut(entry, "=")
+		ip := net.ParseIP(strings.TrimSpace(ipStr))
+		rate, err := strconv.ParseUint(strings.TrimSpace(rateStr), 10, 32)
+		if !ok || ip == nil || err != nil || rate == 0 {
+			return nil, fmt.Errorf("invalid COLLECTOR_SAMPLING_OVERRIDE entry %q: want <router-ip>=<rate>, rate >= 1", entry)
+		}
+		out[ip.String()] = uint32(rate)
+	}
+	return out, nil
 }
 
 func splitCSV(s string) []string {
