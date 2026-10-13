@@ -76,55 +76,71 @@ func (s *ClickHouseStore) Movers(ctx context.Context, dim string, from, to time.
 		// Private-use ASNs collapse into the single PrivateASGroup entity, same
 		// as Top AS — a mover list is only useful if its entities match the
 		// entities the rest of the UI shows.
+		// Names joined after aggregation, from the deduplicated view (names.go).
 		asExpr := groupedAS("t.as_number")
 		query = fmt.Sprintf(`
-			SELECT
-				toString(%[1]s) AS k,
-				%[2]s AS lbl,
-				sumIf(t.bytes, t.ts >= @from) AS cur,
-				sumIf(t.bytes, t.ts < @from) AS prev
-			FROM %[3]s t
-			LEFT JOIN as_names an ON t.as_number = an.as_number
-			WHERE t.ts >= @from2 AND t.ts < @to
-			GROUP BY %[1]s
-			HAVING cur > 0 OR prev > 0
-			ORDER BY abs(toInt64(cur) - toInt64(prev)) DESC
-			LIMIT @limit
-		`, asExpr, groupedASName(asExpr, "any(an.as_name)"), table)
+			SELECT toString(a.as_num) AS k, %[2]s AS lbl, a.cur, a.prev
+			FROM (
+				SELECT
+					%[1]s AS as_num,
+					sumIf(t.bytes, t.ts >= @from) AS cur,
+					sumIf(t.bytes, t.ts < @from) AS prev
+				FROM %[3]s t
+				WHERE t.ts >= @from2 AND t.ts < @to
+				GROUP BY as_num
+				HAVING cur > 0 OR prev > 0
+				ORDER BY abs(toInt64(cur) - toInt64(prev)) DESC
+				LIMIT @limit
+			) a
+			LEFT JOIN %[4]s an ON a.as_num = an.as_number
+			ORDER BY abs(toInt64(a.cur) - toInt64(a.prev)) DESC, a.as_num
+		`, asExpr, groupedASName("a.as_num", "an.as_name"), table, asNamesLatest)
 	case "country":
 		table := pickASTable(from2, to)
+		// Country needs the join before the final GROUP BY, so aggregate per
+		// ASN first (cheap) and join the deduplicated names onto that.
 		query = fmt.Sprintf(`
 			SELECT
 				if(an.country = '', 'Unknown', an.country) AS k,
 				'' AS lbl,
-				sumIf(t.bytes, t.ts >= @from) AS cur,
-				sumIf(t.bytes, t.ts < @from) AS prev
-			FROM %s t
-			LEFT JOIN as_names an ON t.as_number = an.as_number
-			WHERE t.ts >= @from2 AND t.ts < @to
+				sum(a.cur) AS cur,
+				sum(a.prev) AS prev
+			FROM (
+				SELECT t.as_number AS as_number,
+					sumIf(t.bytes, t.ts >= @from) AS cur,
+					sumIf(t.bytes, t.ts < @from) AS prev
+				FROM %s t
+				WHERE t.ts >= @from2 AND t.ts < @to
+				GROUP BY t.as_number
+			) a
+			LEFT JOIN %s an ON a.as_number = an.as_number
 			GROUP BY k
 			HAVING cur > 0 OR prev > 0
-			ORDER BY abs(toInt64(cur) - toInt64(prev)) DESC
+			ORDER BY abs(toInt64(cur) - toInt64(prev)) DESC, k
 			LIMIT @limit
-		`, table)
+		`, table, asNamesLatest)
 	case "prefix":
 		// Only traffic_by_prefix exists (5-min, 30d TTL). Grouping is on the
 		// stored prefix string; no IP filtering is applied, so no CIDR
 		// normalisation is required here (the column is already the canonical
 		// IPv6-mapped-aware textual prefix written by the collector).
 		query = `
-			SELECT
-				t.prefix AS k,
-				any(an.as_name) AS lbl,
-				sumIf(t.bytes, t.ts >= @from) AS cur,
-				sumIf(t.bytes, t.ts < @from) AS prev
-			FROM traffic_by_prefix t
-			LEFT JOIN as_names an ON t.as_number = an.as_number
-			WHERE t.ts >= @from2 AND t.ts < @to
-			GROUP BY t.prefix
-			HAVING cur > 0 OR prev > 0
-			ORDER BY abs(toInt64(cur) - toInt64(prev)) DESC
-			LIMIT @limit
+			SELECT a.k, an.as_name AS lbl, a.cur, a.prev
+			FROM (
+				SELECT
+					t.prefix AS k,
+					any(t.as_number) AS as_number,
+					sumIf(t.bytes, t.ts >= @from) AS cur,
+					sumIf(t.bytes, t.ts < @from) AS prev
+				FROM traffic_by_prefix t
+				WHERE t.ts >= @from2 AND t.ts < @to
+				GROUP BY t.prefix
+				HAVING cur > 0 OR prev > 0
+				ORDER BY abs(toInt64(cur) - toInt64(prev)) DESC
+				LIMIT @limit
+			) a
+			LEFT JOIN ` + asNamesLatest + ` an ON a.as_number = an.as_number
+			ORDER BY abs(toInt64(a.cur) - toInt64(a.prev)) DESC, a.k
 		`
 	case "port":
 		query = `
@@ -203,47 +219,57 @@ func (s *ClickHouseStore) Talkers(ctx context.Context, dim string, from, to time
 		// the answer an operator actually wants for a downstream aggregate.
 		asExpr := groupedAS("t.as_number")
 		query = fmt.Sprintf(`
-			SELECT
-				toString(%[1]s) AS k,
-				%[2]s AS lbl,
-				sumIf(t.bytes, t.ts >= @from) AS cur,
-				sumIf(t.bytes, t.ts < @from) AS prev
-			FROM %[3]s t
-			LEFT JOIN as_names an ON t.as_number = an.as_number
-			WHERE t.ts >= @from2 AND t.ts < @to
-			GROUP BY %[1]s
-			HAVING (cur = 0 AND prev > 0) OR (prev = 0 AND cur > 0)
-			ORDER BY greatest(cur, prev) DESC
-			LIMIT @limit
-		`, asExpr, groupedASName(asExpr, "any(an.as_name)"), table)
+			SELECT toString(a.as_num) AS k, %[2]s AS lbl, a.cur, a.prev
+			FROM (
+				SELECT
+					%[1]s AS as_num,
+					sumIf(t.bytes, t.ts >= @from) AS cur,
+					sumIf(t.bytes, t.ts < @from) AS prev
+				FROM %[3]s t
+				WHERE t.ts >= @from2 AND t.ts < @to
+				GROUP BY as_num
+				HAVING (cur = 0 AND prev > 0) OR (prev = 0 AND cur > 0)
+				ORDER BY greatest(cur, prev) DESC
+				LIMIT @limit
+			) a
+			LEFT JOIN %[4]s an ON a.as_num = an.as_number
+			ORDER BY greatest(a.cur, a.prev) DESC, a.as_num
+		`, asExpr, groupedASName("a.as_num", "an.as_name"), table, asNamesLatest)
 	case "ip":
 		query = `
-			SELECT
-				toString(t.ip_address) AS k,
-				'' AS lbl,
-				sumIf(t.bytes, t.ts >= @from) AS cur,
-				sumIf(t.bytes, t.ts < @from) AS prev
-			FROM traffic_by_ip t
-			WHERE t.ts >= @from2 AND t.ts < @to
-			GROUP BY t.ip_address
-			HAVING (cur = 0 AND prev > 0) OR (prev = 0 AND cur > 0)
-			ORDER BY greatest(cur, prev) DESC
-			LIMIT @limit
+			SELECT toString(a.ip_addr) AS k, '' AS lbl, a.cur, a.prev
+			FROM (
+				SELECT
+					t.ip_address AS ip_addr,
+					sumIf(t.bytes, t.ts >= @from) AS cur,
+					sumIf(t.bytes, t.ts < @from) AS prev
+				FROM traffic_by_ip t
+				WHERE t.ts >= @from2 AND t.ts < @to
+				GROUP BY t.ip_address
+				HAVING (cur = 0 AND prev > 0) OR (prev = 0 AND cur > 0)
+				ORDER BY greatest(cur, prev) DESC
+				LIMIT @limit
+			) a
+			ORDER BY greatest(a.cur, a.prev) DESC, a.ip_addr
 		`
 	case "prefix":
 		query = `
-			SELECT
-				t.prefix AS k,
-				any(an.as_name) AS lbl,
-				sumIf(t.bytes, t.ts >= @from) AS cur,
-				sumIf(t.bytes, t.ts < @from) AS prev
-			FROM traffic_by_prefix t
-			LEFT JOIN as_names an ON t.as_number = an.as_number
-			WHERE t.ts >= @from2 AND t.ts < @to
-			GROUP BY t.prefix
-			HAVING (cur = 0 AND prev > 0) OR (prev = 0 AND cur > 0)
-			ORDER BY greatest(cur, prev) DESC
-			LIMIT @limit
+			SELECT a.k, an.as_name AS lbl, a.cur, a.prev
+			FROM (
+				SELECT
+					t.prefix AS k,
+					any(t.as_number) AS as_number,
+					sumIf(t.bytes, t.ts >= @from) AS cur,
+					sumIf(t.bytes, t.ts < @from) AS prev
+				FROM traffic_by_prefix t
+				WHERE t.ts >= @from2 AND t.ts < @to
+				GROUP BY t.prefix
+				HAVING (cur = 0 AND prev > 0) OR (prev = 0 AND cur > 0)
+				ORDER BY greatest(cur, prev) DESC
+				LIMIT @limit
+			) a
+			LEFT JOIN ` + asNamesLatest + ` an ON a.as_number = an.as_number
+			ORDER BY greatest(a.cur, a.prev) DESC, a.k
 		`
 	}
 
@@ -286,31 +312,32 @@ func (s *ClickHouseStore) Talkers(ctx context.Context, dim string, from, to time
 }
 
 // LinkPercentiles returns the p50/p95/p99 of per-bucket in/out throughput
-// (bytes per bucket) for a single link over [from,to]. It mirrors LinkP95 but
-// computes three quantiles in one pass via quantiles(0.5,0.95,0.99). Bucket
-// size follows autoStep; short windows read flows_raw for finer granularity.
+// (bytes per bucket) for a single link over [from,to], in one pass via
+// quantiles(0.5,0.95,0.99). Buckets follow linkSeriesPlan — flows_raw for
+// short windows, never finer than the source table — so the values divide by
+// LinkSeriesStepSeconds to give bps. It is the link detail page's only
+// percentile query (the former LinkP95 computed the same p95 a second time).
 func (s *ClickHouseStore) LinkPercentiles(ctx context.Context, tag string, p QueryParams) (in, out model.Percentiles, err error) {
-	step := autoStep(p.From, p.To)
+	plan := linkSeriesPlan(p.From, p.To)
 
 	var query string
-	if useRawTable(p.From, p.To) {
+	if plan.Raw() {
 		query = fmt.Sprintf(`
 			SELECT quantiles(0.5, 0.95, 0.99)(bi), quantiles(0.5, 0.95, 0.99)(bo) FROM (
-				SELECT toStartOfInterval(timestamp, INTERVAL %d SECOND) AS period,
-					sumIf(bytes * sampling_rate, direction = 'in') AS bi,
-					sumIf(bytes * sampling_rate, direction = 'out') AS bo
-				FROM flows_raw WHERE timestamp >= @from AND timestamp < @to AND link_tag = @tag
+				SELECT toStartOfInterval(f.timestamp, INTERVAL %d SECOND) AS period,
+					sumIf(f.bytes * f.sampling_rate, f.direction = 'in') AS bi,
+					sumIf(f.bytes * f.sampling_rate, f.direction = 'out') AS bo
+				FROM flows_raw f WHERE f.timestamp >= @from AND f.timestamp < @to AND f.link_tag = @tag
 				GROUP BY period
-			)`, int(step.Seconds()))
+			)`, plan.Secs())
 	} else {
-		table := pickLinkTable(p.From, p.To)
 		query = fmt.Sprintf(`
 			SELECT quantiles(0.5, 0.95, 0.99)(bi), quantiles(0.5, 0.95, 0.99)(bo) FROM (
-				SELECT toStartOfInterval(ts, INTERVAL %d SECOND) AS period,
-					sum(bytes_in) AS bi, sum(bytes_out) AS bo
-				FROM %s WHERE ts >= @from AND ts < @to AND link_tag = @tag
+				SELECT toStartOfInterval(f.ts, INTERVAL %d SECOND) AS period,
+					sum(f.bytes_in) AS bi, sum(f.bytes_out) AS bo
+				FROM %s f WHERE f.ts >= @from AND f.ts < @to AND f.link_tag = @tag
 				GROUP BY period
-			)`, int(step.Seconds()), table)
+			)`, plan.Secs(), plan.Table)
 	}
 
 	var inQ, outQ []float64

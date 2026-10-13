@@ -28,15 +28,41 @@ type AlertViolation struct {
 	Extra map[string]any
 }
 
+// The hot tables hold one row per (minute, key). The minute containing now()
+// is still being written — the collector flushes in batches — so a window of
+// `ts >= now() - INTERVAL window SECOND` included a partial bucket and then
+// divided by the full window, under-reading every rate (and the partial
+// share grows as the collector flushes less often). Rules therefore
+// evaluate COMPLETE minutes only:
+//
+//	ts >= toStartOfMinute(now()) - INTERVAL window SECOND
+//	AND ts < toStartOfMinute(now())
+//
+// with the window rounded down to whole minutes (at least one) so the
+// divisor matches exactly the buckets read.
+
+// alertWindow rounds an evaluation window down to whole minutes, minimum 60 s.
+// It is the value bound to @window, so the time filter and every
+// "/ @window" rate conversion agree.
+func alertWindow(window uint32) uint32 {
+	return max(60, window-window%60)
+}
+
+// completeMinutes is the complete-minute time filter on col (a caller
+// controlled column reference) for the @window parameter.
+func completeMinutes(col string) string {
+	return fmt.Sprintf("%[1]s >= toStartOfMinute(now()) - INTERVAL @window SECOND AND %[1]s < toStartOfMinute(now())", col)
+}
+
 // EvalVolumeInbound queries traffic_by_dst_1min for destinations exceeding a bps/pps threshold.
 // Window is the evaluation window in seconds (e.g. 60).
 // localPrefixes is the list of CIDRs to filter (only alert on our own IPs).
 func (s *ClickHouseStore) EvalVolumeInbound(ctx context.Context, thresholdBps, thresholdPps uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
 	// We express the threshold as bits/sec and packets/sec; the window
 	// aggregation gives us totals over `window` seconds, so divide.
-	where := []string{"ts >= now() - INTERVAL @window SECOND"}
+	where := []string{completeMinutes("ts")}
 	args := []any{
-		clickhouse.Named("window", window),
+		clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("th_bps", thresholdBps),
 		clickhouse.Named("th_pps", thresholdPps),
 	}
@@ -97,9 +123,9 @@ func (s *ClickHouseStore) EvalVolumeInbound(ctx context.Context, thresholdBps, t
 
 // EvalSynFlood finds destinations receiving too many TCP SYN packets.
 func (s *ClickHouseStore) EvalSynFlood(ctx context.Context, thresholdPps uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
-	where := []string{"ts >= now() - INTERVAL @window SECOND", "protocol = 6"}
+	where := []string{completeMinutes("ts"), "protocol = 6"}
 	args := []any{
-		clickhouse.Named("window", window),
+		clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("th_pps", thresholdPps),
 	}
 	if len(localPrefixes) > 0 {
@@ -150,9 +176,9 @@ func (s *ClickHouseStore) EvalSynFlood(ctx context.Context, thresholdPps uint64,
 // IPs from many sources at trivial volume, which would otherwise generate
 // constant amplification false positives. Pass 0 to disable the floor.
 func (s *ClickHouseStore) EvalAmplification(ctx context.Context, thresholdCount, minBps uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
-	where := []string{"ts >= now() - INTERVAL @window SECOND"}
+	where := []string{completeMinutes("ts")}
 	args := []any{
-		clickhouse.Named("window", window),
+		clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("th_count", thresholdCount),
 		clickhouse.Named("min_bps", minBps),
 	}
@@ -212,11 +238,11 @@ func (s *ClickHouseStore) EvalAmplification(ctx context.Context, thresholdCount,
 // the hot table without per-port aggregates.
 func (s *ClickHouseStore) EvalProtocolFlood(ctx context.Context, protocol uint8, thresholdPps uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
 	where := []string{
-		"ts >= now() - INTERVAL @window SECOND",
+		completeMinutes("ts"),
 		"protocol = @proto",
 	}
 	args := []any{
-		clickhouse.Named("window", window),
+		clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("th_pps", thresholdPps),
 		clickhouse.Named("proto", protocol),
 	}
@@ -265,9 +291,9 @@ func (s *ClickHouseStore) EvalProtocolFlood(ctx context.Context, protocol uint8,
 // patterns volume_in misses: Slowloris, half-open scans, churning short
 // connections that never reach SYN flood territory but still exhaust state.
 func (s *ClickHouseStore) EvalConnectionFlood(ctx context.Context, thresholdCount uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
-	where := []string{"ts >= now() - INTERVAL @window SECOND"}
+	where := []string{completeMinutes("ts")}
 	args := []any{
-		clickhouse.Named("window", window),
+		clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("th_count", thresholdCount),
 	}
 	if len(localPrefixes) > 0 {
@@ -345,13 +371,13 @@ func (s *ClickHouseStore) TopSourcesForTarget(ctx context.Context, targetIP net.
 		SELECT toString(src_ip) AS src
 		FROM flows_raw
 		WHERE timestamp >= now() - INTERVAL @window SECOND
-		  AND toString(dst_ip) = @target
+		  AND dst_ip = toIPv6(@target)
 		GROUP BY src_ip
 		ORDER BY sum(bytes * sampling_rate) DESC
 		LIMIT @limit
 	`
 	rows, err := s.conn.Query(ctx, query,
-		clickhouse.Named("window", window),
+		clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("target", probe),
 		clickhouse.Named("limit", limit),
 	)
@@ -374,9 +400,9 @@ func (s *ClickHouseStore) TopSourcesForTarget(ctx context.Context, targetIP net.
 // EvalPortScan finds sources hitting too many unique destination ports.
 // This detects outbound scans from compromised hosts in our network.
 func (s *ClickHouseStore) EvalPortScan(ctx context.Context, thresholdCount uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
-	where := []string{"ts >= now() - INTERVAL @window SECOND"}
+	where := []string{completeMinutes("ts")}
 	args := []any{
-		clickhouse.Named("window", window),
+		clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("th_count", thresholdCount),
 	}
 	if len(localPrefixes) > 0 {
@@ -425,9 +451,9 @@ func (s *ClickHouseStore) EvalPortScan(ctx context.Context, thresholdCount uint6
 
 // EvalVolumeOutbound finds internal sources emitting too much traffic (bots).
 func (s *ClickHouseStore) EvalVolumeOutbound(ctx context.Context, thresholdBps, thresholdPps uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
-	where := []string{"ts >= now() - INTERVAL @window SECOND"}
+	where := []string{completeMinutes("ts")}
 	args := []any{
-		clickhouse.Named("window", window),
+		clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("th_bps", thresholdBps),
 		clickhouse.Named("th_pps", thresholdPps),
 	}
@@ -485,40 +511,112 @@ func (s *ClickHouseStore) EvalVolumeOutbound(ctx context.Context, thresholdBps, 
 }
 
 // buildCIDRFilter returns a parameterized SQL fragment matching any of the
-// given CIDRs against the named column. The named-arg prefix lets multiple
-// filters coexist in the same query without name collisions.
+// given CIDRs against the named IPv6 column. The named-arg prefix lets
+// multiple filters coexist in the same query without name collisions.
 //
 // Each prefix is validated as a real CIDR (or single IP) — invalid entries
-// are skipped with a warning. The CIDRs themselves are passed as ClickHouse
-// named parameters, never templated into the SQL string.
+// are skipped. The bounds are passed as ClickHouse named parameters, never
+// templated into the SQL string.
 //
-// IPv4 CIDRs are translated to their IPv6-mapped form (`::ffff:x.x.x.x/(n+96)`)
-// because the table columns are `IPv6` and `toString()` always emits the
-// mapped representation for IPv4 addresses. ClickHouse's
-// `isIPAddressInRange("::ffff:1.2.3.4", "1.2.3.0/24")` returns 0 even though
-// the address is logically in range — silently dropping every IPv4 row from
-// the alert evaluations.
+// Each CIDR becomes a typed range predicate on the raw column:
+//
+//	col BETWEEN toIPv6(@p_lo0) AND toIPv6(@p_hi0)
+//
+// with IPv4 CIDRs mapped onto their ::ffff:a.b.c.d range, exactly as
+// normalizeCIDRForIPv6Column does. That mapping is load-bearing (CLAUDE.md
+// bug #1): the columns store IPv4 as IPv4-mapped IPv6, and an unmapped IPv4
+// bound would silently drop every IPv4 row from every alert evaluation. The
+// predicate used to be isIPAddressInRange(toString(col), cidr), which
+// stringifies every row: 532 ms vs 107 ms for 12 prefixes on 24.3, with zero
+// rows of difference (pinned by TestIntegrationCIDRRangeMatchesIsIPAddressInRange).
 func buildCIDRFilter(column, prefix string, prefixes []string) (string, []any) {
 	if len(prefixes) == 0 {
 		return "1=1", nil
 	}
 	parts := make([]string, 0, len(prefixes))
-	args := make([]any, 0, len(prefixes))
+	args := make([]any, 0, 2*len(prefixes))
 	idx := 0
 	for _, p := range prefixes {
-		normalized, ok := normalizeCIDRForIPv6Column(p)
+		lo, hi, ok := cidrBounds(p)
 		if !ok {
 			continue // skip invalid entries silently — these come from RIPE or admin config
 		}
-		paramName := fmt.Sprintf("%scidr%d", prefix, idx)
-		parts = append(parts, fmt.Sprintf("isIPAddressInRange(toString(%s), @%s)", column, paramName))
-		args = append(args, clickhouse.Named(paramName, normalized))
+		loName := fmt.Sprintf("%slo%d", prefix, idx)
+		hiName := fmt.Sprintf("%shi%d", prefix, idx)
+		parts = append(parts, fmt.Sprintf("(%s BETWEEN toIPv6(@%s) AND toIPv6(@%s))", column, loName, hiName))
+		args = append(args, clickhouse.Named(loName, lo), clickhouse.Named(hiName, hi))
 		idx++
 	}
 	if len(parts) == 0 {
 		return "1=1", nil
 	}
 	return "(" + strings.Join(parts, " OR ") + ")", args
+}
+
+// CIDRRangeSQL returns a literal (parameter-free) SQL predicate matching any of
+// the CIDRs against an IPv6 column, with the same typed-range semantics as
+// buildCIDRFilter. It exists for filters built once at startup and reused on
+// every request (the LOCAL_AS prefixes from RIPEstat). Inlining is safe: the
+// bounds are re-rendered from parsed addresses (hex digits, ':' and '.' only),
+// never echoed from the input; invalid entries are skipped. Returns "1=1" when
+// nothing valid remains. col must be a caller-controlled column reference.
+func CIDRRangeSQL(col string, cidrs []string) string {
+	parts := make([]string, 0, len(cidrs))
+	for _, c := range cidrs {
+		lo, hi, ok := cidrBounds(c)
+		if !ok {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("(%s BETWEEN toIPv6('%s') AND toIPv6('%s'))", col, lo, hi))
+	}
+	if len(parts) == 0 {
+		return "1=1"
+	}
+	return "(" + strings.Join(parts, " OR ") + ")"
+}
+
+// privateRanges are the non-routable ranges excluded from "external" Top IPs:
+// RFC 1918, CGNAT (RFC 6598), IPv4 link-local, IPv6 link-local and ULA.
+var privateRanges = []string{
+	"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16",
+	"fe80::/10", "fc00::/7",
+}
+
+// PrivateRangeSQL matches the private / non-routable ranges against an IPv6
+// column (typed range predicates, IPv4 mapped — see CIDRRangeSQL).
+func PrivateRangeSQL(col string) string { return CIDRRangeSQL(col, privateRanges) }
+
+// cidrBounds returns the first and last address of a CIDR or bare IP as
+// strings that toIPv6() parses into the column's representation: IPv4
+// addresses and CIDRs become ::ffff:a.b.c.d (see normalizeCIDRForIPv6Column).
+// Host bits set in the input ("192.0.2.7/24") are masked off, like
+// isIPAddressInRange does.
+func cidrBounds(s string) (lo, hi string, ok bool) {
+	normalized, ok := normalizeCIDRForIPv6Column(s)
+	if !ok {
+		return "", "", false
+	}
+	_, ipnet, err := net.ParseCIDR(normalized)
+	if err != nil || len(ipnet.IP) != net.IPv6len || len(ipnet.Mask) != net.IPv6len {
+		return "", "", false
+	}
+	first := make(net.IP, net.IPv6len)
+	last := make(net.IP, net.IPv6len)
+	for i := range first {
+		first[i] = ipnet.IP[i] & ipnet.Mask[i]
+		last[i] = first[i] | ^ipnet.Mask[i]
+	}
+	return ipv6Literal(first), ipv6Literal(last), true
+}
+
+// ipv6Literal renders a 16-byte address for toIPv6(). Go prints addresses in
+// ::ffff:0:0/96 as a bare dotted quad, which toIPv6() would also map, but the
+// explicit ::ffff: form keeps the intent obvious in logged queries.
+func ipv6Literal(ip net.IP) string {
+	if v4 := ip.To4(); v4 != nil {
+		return "::ffff:" + v4.String()
+	}
+	return ip.String()
 }
 
 // normalizeCIDRForIPv6Column accepts a CIDR ("1.2.3.0/24"), a bare IP
@@ -530,12 +628,15 @@ func buildCIDRFilter(column, prefix string, prefixes []string) (string, []any) {
 //   - "1.2.3.4"      -> "::ffff:1.2.3.4/128"
 //   - "2001:db8::/32" -> "2001:db8::/32"        (unchanged)
 //   - "2001:db8::1"  -> "2001:db8::1/128"
+//   - "::ffff:1.2.3.0/120" -> unchanged (already in the column's form)
 //   - garbage        -> "", false
 func normalizeCIDRForIPv6Column(s string) (string, bool) {
 	if ip, ipnet, err := net.ParseCIDR(s); err == nil {
 		ones, _ := ipnet.Mask.Size()
-		if v4 := ip.To4(); v4 != nil {
-			return fmt.Sprintf("::ffff:%s/%d", v4.String(), ones+96), true
+		// The mask length, not ip.To4(), says whether this is an IPv4 CIDR:
+		// "::ffff:1.2.3.0/120" also has a To4() form but is already mapped.
+		if len(ipnet.Mask) == net.IPv4len {
+			return fmt.Sprintf("::ffff:%s/%d", ip.To4().String(), ones+96), true
 		}
 		return s, true
 	}
@@ -566,9 +667,9 @@ func (s *ClickHouseStore) EvalSubnetFlood(ctx context.Context, thresholdBps, thr
 	// +96 for the IPv4-mapped IPv6 representation
 	v6Prefix := aggPrefix + 96
 
-	where := []string{"t.ts >= now() - INTERVAL @window SECOND"}
+	where := []string{completeMinutes("t.ts")}
 	args := []any{
-		clickhouse.Named("window", window),
+		clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("agg_prefix", uint8(v6Prefix)),
 		clickhouse.Named("th_bps", thresholdBps),
 		clickhouse.Named("th_pps", thresholdPps),
@@ -637,12 +738,12 @@ func (s *ClickHouseStore) EvalSubnetFlood(ctx context.Context, thresholdBps, thr
 // (ThresholdCount for distinct connections). Both are supported.
 func (s *ClickHouseStore) EvalSMTPAbuse(ctx context.Context, thresholdPps, thresholdCount uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
 	where := []string{
-		"timestamp >= now() - INTERVAL @window SECOND",
+		completeMinutes("timestamp"),
 		"protocol = 6",
 		"dst_port IN (25, 465, 587)",
 	}
 	args := []any{
-		clickhouse.Named("window", window),
+		clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("th_pps", thresholdPps),
 		clickhouse.Named("th_count", thresholdCount),
 	}

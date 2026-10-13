@@ -1,6 +1,10 @@
 package handler
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/nextmap-io/as-stats/internal/store"
+)
 
 // TrafficHeatmap handles GET /api/v1/traffic/heatmap — a 7×24 day-of-week ×
 // hour-of-day throughput grid (U8) built from the hourly link rollup. Honours the
@@ -17,6 +21,6 @@ func (h *Handler) TrafficHeatmap(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, Response{
 		Data: data,
-		Meta: &ResponseMeta{From: p.From, To: p.To},
+		Meta: &ResponseMeta{From: p.From, To: p.To, StepSeconds: store.HeatmapStepSeconds},
 	})
 }

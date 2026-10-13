@@ -34,8 +34,13 @@ in `frontend/`.
   (`::ffff:1.2.3.4`). This is the source of two distinct bug families that
   have already cost us:
   1. `isIPAddressInRange("::ffff:x.x.x.x", "x.x.x.0/24")` returns `0`. Use
-     `buildCIDRFilter()` which normalises IPv4 CIDRs to their IPv6-mapped
-     equivalent (`x.x.x.0/24` → `::ffff:x.x.x.0/120`). See `internal/store/alert_queries.go`.
+     `buildCIDRFilter()` (parameterised) or `CIDRRangeSQL()` (startup-built
+     literal), which map IPv4 CIDRs onto their IPv6-mapped range
+     (`x.x.x.0/24` → `::ffff:x.x.x.0 … ::ffff:x.x.x.255`) and emit typed
+     `col BETWEEN toIPv6(lo) AND toIPv6(hi)` predicates — never
+     `isIPAddressInRange(toString(col), …)`, which stringifies every row
+     (532 ms vs 107 ms for 12 prefixes). Single IPs: `col = toIPv6(@ip)`
+     (`toIPv6` maps an IPv4 string itself). See `internal/store/alert_queries.go`.
   2. ClickHouse alias scoping — `min(ts) AS ts` shadows the source column
      in the same query's `WHERE`. **Qualify with a table alias** (`f.ts`)
      in any query that aggregates a column it also filters on. We've hit
@@ -119,16 +124,19 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 | `internal/api/handler/` | One file per resource: `as.go`, `ip.go`, `links.go`, `top.go`, `search.go`, `auth.go`, `dns.go`, `status.go`, `flows.go`, `alerts.go`, `threats.go`, `features.go`. |
 | `internal/api/middleware/` | Auth (OIDC sessions), CSRF (double-submit cookie), rate limiting, in-memory cache, audit. |
 | `internal/api/router.go` | `chi` router wiring, middleware stack, security headers, feature-gated route registration. |
-| `internal/ripestat/` | RIPEstat API client: fetch AS prefixes, generate SQL filter expressions. |
+| `internal/ripestat/` | RIPEstat API client: fetch AS prefixes (SQL filters are built by `store.CIDRRangeSQL`). |
 | `internal/store/store.go` | Interfaces: `FlowWriter`, `FlowReader`, `LinkStore`, `ASNameStore`. |
 | `internal/store/clickhouse.go` | Write implementation (batch INSERT). |
 | `internal/store/reader.go` | Read implementations — every aggregation query lives here. |
+| `internal/store/step.go` | Source-table + bucket-width planner (`linkSeriesPlan`, `asSeriesPlan`, `ipSeriesPlan`, `capacityPlan`) and the exported `*StepSeconds` helpers handlers put in `meta.step_seconds`. |
+| `internal/store/names.go` | `asNamesLatest` / `linksLatest`: deduplicated views every name join must use (see bug #15). |
+| `internal/store/status.go` | `LiveStatus` for `GET /status/live` (10-min flows_raw scan + configured routers + disk). |
 | `internal/store/flow_log.go` | `SearchFlowLog`, `FlowLogTimeSeries`, `TopProtocols`, `TopPorts`. (`SetFlowLogRetention` removed — retention is now in `retention.go`.) |
 | `internal/store/threats.go` | `LiveThreats` aggregating query for the `/threats/live` endpoint. |
 | `internal/store/alerts.go` | Alert rules / alerts / webhooks / audit log CRUD. `AlertDetails` JSON marshaling for `details` column. |
 | `internal/store/alert_queries.go` | `Eval*` query helpers used by the alert engine (incl. `EvalDiskUsage`, `EvalLinkCapacity`, `EvalAnomaly`). **`buildCIDRFilter` lives here** — read its docstring before touching any IP filtering code. |
 | `internal/store/retention.go` | v2: table→TTL whitelist, `EnsureRetentionPolicies`, `ReconcileRetention`, `StorageStats`, `PurgeSoftDeleted`. Runtime retention management (replaces `SetFlowLogRetention`). |
-| `internal/store/capacity.go` | v2: `LinksCapacity` (util% + linear-regression forecast), `LinkLoadCurve`. |
+| `internal/store/capacity.go` | v2: `LinksCapacity` (busier-direction util%, complete buckets, forecast on daily p95), `LinkLoadCurve`, `EvalLinkCapacity`. See "Capacity semantics". |
 | `internal/store/geo.go` | v2: `TopCountry` (AS-level geo via `as_names.country`). |
 | `internal/store/changes.go` | v2: `Movers`, `Talkers`, `LinkPercentiles` (p50/p95/p99). |
 | `internal/store/conversations.go` | v2: bidirectional top-talkers (`Conversations`). |
@@ -139,7 +147,7 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 | `internal/reports/` | v2: scheduled-report engine — HTML/CSV generation, `net/smtp` sender, scheduler loop (`isDue`). |
 | `internal/alerts/engine.go` | Alert engine goroutine — rule loop, cooldown map, top-source enrichment, auto-resolution, default-rule seeding. |
 | `internal/alerts/webhook.go` | Slack / Teams / Discord / generic webhook notifier. |
-| `internal/bgp/` | `Blocker` interface — `NoopBlocker` ships, swap in ExaBGP / GoBGP for real RFC 7999 blackholes. |
+| `internal/bgp/` | `Blocker` interface: `ScriptBlocker` (API side, `BGP_ENABLED=true`, runs gobgp/BIRD/FRR commands), `RemoteBlocker` (collector side, `BGP_API_URL`, proxies to the API), `NoopBlocker` (log-only fallback). |
 | `internal/services/wellknown.go` | IANA protocol + well-known port name resolution (used by Flow Search and Top Ports). |
 | `internal/model/` | Shared types: `FlowRecord`, `ASTraffic`, `IPTraffic`, `LiveThreat`, `AlertRule`, etc. |
 | `internal/config/` | Env-var config loading. `LoadCollector` and `LoadAPI`. |
@@ -159,7 +167,7 @@ All tables in the `asstats` database.
 
 | Table | Engine | Granularity | TTL |
 |---|---|---|---|
-| `flows_raw` | `MergeTree` | per flow | 7 days |
+| `flows_raw` | `MergeTree` | per flow | 3 days (migration 000004; runtime-managed via `retention_policies`) |
 | `traffic_by_as` | `SummingMergeTree` | 5 min | 90 days |
 | `traffic_by_as_hourly` | `SummingMergeTree` | 1 hour | 2 years |
 | `traffic_by_as_daily` | `SummingMergeTree` | 1 day | 5 years |
@@ -230,14 +238,15 @@ All under `/api/v1/`. Common params: `from`, `to`, `period`
 | Method | Path | Handler |
 |---|---|---|
 | `GET` | `/overview` | `Handler.Overview` |
-| `GET` | `/status` | `Handler.Status` |
+| `GET` | `/status` | `Handler.Status` (windowed; cached) |
+| `GET` | `/status/live` | `Handler.StatusLive` — header health dot: last 10 min of `flows_raw` only, per-router `ok` (<120 s) / `stale` / `missing` (configured link, no flow), `disk_used_pct`; cached |
 | `GET` | `/top/as` | `Handler.TopAS` |
 | `GET` | `/top/ip` | `Handler.TopIP` (scope: `internal` / `external`) |
 | `GET` | `/top/prefix` | `Handler.TopPrefix` |
 | `GET` | `/as/{asn}` | `Handler.ASDetail` |
 | `GET` | `/as/{asn}/peers` | `Handler.ASPeers` (uses `flows_raw`) |
-| `GET` | `/as/{asn}/ips` | `Handler.ASTopIPs` (uses `traffic_by_ip_as`) |
-| `GET` | `/ip/{ip}` | `Handler.IPDetail` (1m / 2m resolution on ≤6h via `flows_raw`, see `useRawTableForIP`) |
+| `GET` | `/as/{asn}/ips` | `Handler.ASTopIPs` (`traffic_by_ip_as`; `scope=external` reads `traffic_by_ip` direction `out` — never `flows_raw`) |
+| `GET` | `/ip/{ip}` | `Handler.IPDetail` (1m / 2m resolution on ≤6h via `flows_raw`, see `ipSeriesPlan`; 400 on an unparseable IP; no PTR lookup — `ptr` is always `""`, use `/dns/ptr`) |
 | `GET` | `/links` | `Handler.Links` |
 | `GET` | `/links/traffic` | `Handler.LinksTraffic` |
 | `GET` | `/link/{tag}` | `Handler.LinkDetail` |
@@ -256,6 +265,23 @@ All under `/api/v1/`. Common params: `from`, `to`, `period`
 | `PUT` | `/admin/retention/{table}` | `Handler.SetRetention` (admin, CSRF) |
 | `GET`/`POST`/`DELETE` | `/admin/tokens[/{id}]` | `Handler.*APIToken*` (admin, CSRF — read-only Bearer tokens) |
 
+`/overview` carries totals, active-AS count and links only (no `top_as` /
+`top_ip` — nothing rendered them; the dashboard calls `/top/*`).
+
+**Response cache**: every identity-free GET above (overview, top-N, links,
+heatmap, changes, status, `/as/*`, `/ip/*`, `/link/*`) sits in the 30 s
+`middleware.Cache` group, keyed by request URI. Do not add a route that
+reads the caller's identity to that group without adding the principal to
+the key.
+
+**`meta.step_seconds`**: every response holding a time series or
+percentiles of per-bucket values (`/links/traffic`, `/link/{tag}`,
+`/link/{tag}/load-curve`, `/links/capacity`, `/as/{asn}`, `/top/as/traffic`,
+`/ip/{ip}`, `/traffic/heatmap`) reports the bucket width the backend
+actually used. bytes-per-bucket × 8 / `step_seconds` = bps. Compute it
+from the same plan the store query used (`store.LinkSeriesStepSeconds` &
+co.) — never re-derive it in the handler or the frontend.
+
 ### Feature-gated
 
 Registered only when the corresponding `FEATURE_*` env var is set.
@@ -272,8 +298,8 @@ Registered only when the corresponding `FEATURE_*` env var is set.
 | `GET` | `/threats/live` | `ALERTS` | Live Threats — real-time top destinations |
 | `POST` | `/alerts/{id}/ack` | `ALERTS` | CSRF |
 | `POST` | `/alerts/{id}/resolve` | `ALERTS` | CSRF |
-| `POST` | `/alerts/{id}/block` | `ALERTS` | CSRF, **admin only** |
-| `GET` / `POST` / `PUT` / `DELETE` | `/admin/rules[/{id}]` | `ALERTS` | CSRF + admin for writes |
+| `POST` | `/alerts/{id}/block` | `ALERTS` | CSRF, **admin only**. 409 when BGP is off or fell back to `NoopBlocker`; 422 when the alert has no single host target (link_capacity / anomaly / disk_usage / subnet_flood, zero or 0100::/64 address) |
+| `GET` / `POST` / `PUT` / `DELETE` | `/admin/rules[/{id}]` | `ALERTS` | CSRF + admin for writes; `rule_type: "custom"` → 422 |
 | `GET` / `POST` / `PUT` / `DELETE` | `/admin/webhooks[/{id}]` | `ALERTS` | CSRF + admin for writes |
 | `GET` | `/admin/audit` | `ALERTS` | admin only |
 | `GET` | `/anomaly/explain` | `ALERTS` | anomaly contributor breakdown for a target+window |
@@ -325,7 +351,11 @@ when `FEATURE_ALERTS=true`.
    `ALERT_STALE_THRESHOLD` (default 5m).
 2. Load enabled rules from `alert_rules`.
 3. Load webhooks once per cycle.
-4. For each rule, run the corresponding `Eval*` against the hot 1-min table.
+4. For each rule, run the corresponding `Eval*` against the hot 1-min table,
+   over **complete minutes only** (`completeMinutes()` / `alertWindow()`:
+   `ts >= toStartOfMinute(now()) - window AND ts < toStartOfMinute(now())`,
+   window rounded down to whole minutes). The current minute is still being
+   flushed; including it and dividing by the full window under-reads rates.
 5. For each violation: enrich with the top 5 source IPs from `flows_raw`
    (bounded query, runs only on actual violations), then either INSERT a
    new alert or heartbeat the existing active one (DB-level dedup via
@@ -345,9 +375,9 @@ when `FEATURE_ALERTS=true`.
 | `udp_flood` | `EvalProtocolFlood(proto=17)` | `traffic_by_dst_1min` |
 | `connection_flood` | `EvalConnectionFlood` | `traffic_by_dst_1min` (`flow_count` per dst) |
 | `disk_usage` | `EvalDiskUsage` | `system.disks` (percent threshold via `ThresholdCount`) |
-| `link_capacity` | `EvalLinkCapacity` | `traffic_by_link_hourly` vs `links.capacity_mbps` (util% via `ThresholdCount`) |
+| `link_capacity` | `EvalLinkCapacity` | `traffic_by_link_hourly` vs `links.capacity_mbps` (util% via `ThresholdCount`): p95 of the **busier direction** over complete hours |
 | `anomaly` | `EvalAnomaly` | `traffic_by_link_hourly` — median + k·MAD over same-hour-of-week history; k = `ThresholdCount`/10; target link via `TargetFilter` |
-| `custom` | not implemented in phase 1 | — |
+| `custom` | not implemented — rejected with 422 by the rules API | — |
 
 Rules that target a link (not an IP) carry the link tag via
 `AlertViolation.TargetLabel` — the alerts table dedups on the IPv6 `target_ip`
@@ -399,26 +429,57 @@ The full list with thresholds lives in `EnsureDefaultRules` in
 
 ### BGP integration
 
-`internal/bgp/Blocker` interface with `Announce` / `Withdraw` / `List`.
-Phase 1 ships only a `NoopBlocker` (logs but doesn't actually announce).
-Phase 2 will add ExaBGP / GoBGP backends for RFC 7999 blackholes. The
-`/alerts/{id}/block` endpoint already calls the blocker — drop in the
-implementation when ready.
+`internal/bgp/Blocker` interface with `Announce` / `Withdraw` / `List` /
+`Status`. Three implementations:
+
+- `ScriptBlocker` — API server, `BGP_ENABLED=true`: runs configurable
+  commands (`BGP_ANNOUNCE_CMD` / `BGP_WITHDRAW_CMD` / `BGP_STATUS_CMD`,
+  gobgp CLI by default) with the RFC 7999 community, persists blocks in
+  `bgp_blocks`, auto-withdraws on expiry. Backs `/bgp/*` and
+  `/alerts/{id}/block`.
+- `RemoteBlocker` — collector, `BGP_API_URL`: the alert engine's
+  `auto_block` action proxies to the API's `/bgp/blocks`.
+- `NoopBlocker` — log-only fallback when BGP is off or `ScriptBlocker`
+  init fails (the router then also clears `FeatureBGP`).
+
+`/alerts/{id}/block` answers 409 rather than pretending when only the
+noop blocker is wired, and 422 for alerts without a single host target.
+Label-targeted alerts (link tags) are stored under synthetic `0100::/64`
+addresses (`labelTargetIP` in the engine) — never blackhole those.
 
 ## Time-series resolution rules
 
-Both `LinkTimeSeries` and `IPTimeSeries` have a "raw" branch that queries
-`flows_raw` directly with the autoStep bucket size, giving sub-5-min
-granularity for short windows. This avoids the artifacting you'd get
-otherwise from bucketing 5-min pre-aggregated data into 1-min slots.
+Every series / percentile query picks its **source table first**, then
+clamps the bucket width to that table's granularity (`store/step.go`):
 
-| Function | "Use raw" condition | Helper |
+| Plan | Raw `flows_raw` when | Otherwise |
 |---|---|---|
-| `LinkTimeSeries` | `to - from ≤ 3h` | `useRawTable()` |
-| `IPTimeSeries` | `to - from ≤ 6h` | `useRawTableForIP()` (more aggressive — IP-filtered scans are cheap) |
+| `linkSeriesPlan` (link series, LinksTrafficSeries, LinkPercentiles, load curve) | `to - from ≤ 3h` | `pickLinkTable` (5-min ≤90d, hourly ≤2y, daily) |
+| `asSeriesPlan` (AS series, ASP95, LinkASTimeSeries, TopASTrafficSeries) | `≤ 3h` | `pickASTable` |
+| `ipSeriesPlan` (IPTimeSeries) | `≤ 6h` (IP-filtered raw scans are cheap) | `traffic_by_ip` (5-min only) |
+| `capacityPlan` (LinksCapacity) | never | `pickLinkTable` |
 
-Both use `autoStep()` for the bucket size: 1 min for ≤3h, 2 min for ≤6h,
-5 min for ≤36h, 15 min / 30 min / 1 h beyond.
+Bucket = `max(autoStep(), tableGranularity(table))`. `autoStep()` alone is
+display-driven (1 min ≤3h, 2 min ≤6h, 5 min ≤36h, 15 / 30 min, 1 h) and
+used to be finer than the rows it bucketed: 120 s buckets over 5-min rows
+(3h–6h windows) read p95 2.5x too high, and the Capacity page's 60 s buckets
+over 5-min rows read utilisation up to 5x too high. The width used is
+returned as `meta.step_seconds`; `TestSeriesPlansNeverFinerThanSource`
+pins the invariant.
+
+## Capacity semantics
+
+A link is **full duplex**: utilisation is the busier direction against
+capacity, never in+out. `LinksCapacity` returns per-direction
+`current_*` (last **complete** bucket — the one containing `to`/now is
+still filling), `peak_*`, `p95_*`; `current_bps` / `p95_bps` are
+`max(in, out)`, `utilization_pct = p95_bps / capacity`,
+`peak_utilization_pct = max(peak_in, peak_out) / capacity`. Only whole
+buckets inside the window are used (`completeBuckets`). The trend /
+forecast is a linear regression over the **daily p95 of max(in, out)**
+from the 5-min rollup (last 90 whole days), x = real day numbers.
+`/link/{tag}` `utilization_pct`, the load curve and the `link_capacity`
+alert rule use the same busier-direction definition.
 
 ## Code conventions
 
@@ -440,6 +501,14 @@ Both use `autoStep()` for the bucket size: 1 min for ≤3h, 2 min for ≤6h,
 - **SQL**: in any query that aggregates a column it also filters on, use a
   table alias and qualify column references in `WHERE` / `GROUP BY` —
   ClickHouse alias scoping bites otherwise.
+- **SQL**: aggregate (and rank / LIMIT) first, then join names onto the
+  result — and only ever join `asNamesLatest` / `linksLatest`, never the raw
+  `as_names` / `links` tables (bug #15).
+- **SQL**: group and filter on typed `IPv6` columns; `toString()` only the
+  rows you return (after `LIMIT`).
+- **Tests**: `ASSTATS_IT_CLICKHOUSE=host:9000 go test ./internal/store -run
+  Integration` runs every read / alert query against a throwaway ClickHouse
+  with the migrations applied (skipped when unset).
 - **Docker**: `FROM --platform=$BUILDPLATFORM` + `TARGETARCH` for
   cross-compilation.
 
@@ -470,8 +539,10 @@ frontend lint + typecheck + build).
 
 1. **`isIPAddressInRange` with IPv4 CIDR vs IPv4-mapped IPv6 column**.
    Fixed in `buildCIDRFilter`. Symptom: alerts never fire on IPv4 traffic
-   even though the table has data. Always normalise CIDRs through
-   `normalizeCIDRForIPv6Column()`.
+   even though the table has data. Always build CIDR predicates through
+   `cidrBounds()` / `normalizeCIDRForIPv6Column()` (typed ranges, see the
+   Key decisions note); `TestIntegrationCIDRRangeMatchesIsIPAddressInRange`
+   and `TestCIDRBounds` pin the mapping.
 
 2. **ClickHouse alias shadowing the source column in `WHERE`**. Fixed in
    `SearchFlowLog`, `TopProtocols`, `TopPorts`. Symptom: HTTP 500 with
@@ -546,6 +617,26 @@ frontend lint + typecheck + build).
     datagram the decoder rejects, so it logged ~5,700 decode errors a day and
     drowned `asstats_decode_errors_total`. The collector serves `/healthz` on
     its metrics listener instead.
+
+15. **Plain `LEFT JOIN` on a `ReplacingMergeTree` inflates sums.** `as_names`
+    and `links` keep every inserted version until a background merge; a
+    plain (ALL) join matches each one, duplicating the fact rows. An AS
+    rename doubled that AS's bytes and a link colour edit doubled the link's
+    traffic until the merge (reproduced on 24.3). Join the deduplicated
+    `asNamesLatest` / `linksLatest` views (`store/names.go`) after
+    aggregating; `TestIntegrationNameJoinsDoNotInflate` pins it.
+
+16. **Bucketing finer than the source table.** Putting 5-minute rollup rows
+    into 60 s / 120 s buckets over-reads every bps and percentile by
+    granularity/step (up to 5x on Capacity). Always go through a
+    `seriesPlan` (`store/step.go`) and report its width as
+    `meta.step_seconds`.
+
+17. **Reading the bucket that is still filling.** The current minute of the
+    hot tables and the current 5-min / hourly rollup row are partial; dividing
+    them by the full width under-reads. Alert rules use complete minutes
+    (`completeMinutes`), capacity "current" uses the last complete bucket
+    (`completeBuckets`), `link_capacity` complete hours.
 
 ## Operational notes — ClickHouse
 

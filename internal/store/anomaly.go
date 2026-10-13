@@ -287,21 +287,25 @@ func (s *ClickHouseStore) AnomalyExplain(ctx context.Context, target string, fro
 	}
 
 	// Top source ASes.
+	// Names are joined after aggregation from the deduplicated view (names.go).
 	asRows, err := s.conn.Query(ctx, `
-		SELECT
-			f.src_as AS asn,
-			any(an.as_name) AS as_name,
-			toUInt64(sum(f.bytes * f.sampling_rate)) AS bytes,
-			toUInt64(sum(f.packets * f.sampling_rate)) AS packets
-		FROM flows_raw f
-		LEFT JOIN as_names an ON f.src_as = an.as_number
-		WHERE f.link_tag = @tag
-		  AND f.timestamp >= @from
-		  AND f.timestamp < @to
-		  AND f.src_as > 0
-		GROUP BY f.src_as
-		ORDER BY bytes DESC
-		LIMIT @limit
+		SELECT a.asn, an.as_name AS as_name, a.bytes, a.packets
+		FROM (
+			SELECT
+				f.src_as AS asn,
+				toUInt64(sum(f.bytes * f.sampling_rate)) AS bytes,
+				toUInt64(sum(f.packets * f.sampling_rate)) AS packets
+			FROM flows_raw f
+			WHERE f.link_tag = @tag
+			  AND f.timestamp >= @from
+			  AND f.timestamp < @to
+			  AND f.src_as > 0
+			GROUP BY f.src_as
+			ORDER BY bytes DESC
+			LIMIT @limit
+		) a
+		LEFT JOIN `+asNamesLatest+` an ON a.asn = an.as_number
+		ORDER BY a.bytes DESC, a.asn
 	`,
 		clickhouse.Named("tag", target),
 		clickhouse.Named("from", from),

@@ -48,10 +48,12 @@ func main() {
 		if prefixes, err := ripestat.FetchASPrefixes(cfg.LocalAS); err != nil {
 			log.Printf("warning: could not fetch prefixes for AS%d: %v", cfg.LocalAS, err)
 		} else {
-			localIPFilter = ripestat.PrefixesToSQL("ip_address", prefixes)
 			for _, p := range prefixes {
 				localPrefixStrs = append(localPrefixStrs, p.String())
 			}
+			// Typed range predicates on the IPv6 column (IPv4 mapped to
+			// ::ffff:…), built once here and reused on every request.
+			localIPFilter = store.CIDRRangeSQL("t.ip_address", localPrefixStrs)
 			log.Printf("Loaded %d local prefixes for IP filtering", len(prefixes))
 		}
 	}
