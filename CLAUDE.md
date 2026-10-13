@@ -51,7 +51,9 @@ in `frontend/`.
   concatenation for user input.
 - **TanStack Query** on the frontend for every API call. Never raw
   `useEffect` for data fetching.
-- **Dark-first** NOC-inspired UI, JetBrains Mono with `tabular-nums`.
+- **"Ledger" UI** — Archivo (variable width, `tabular-nums`), rules instead of
+  boxes, colour only for abnormal states (amber = watch, red = incident). A
+  narrow cut (`.font-ip`) for IPs/prefixes; monospace only for code/tokens.
 
 ## Collector pipeline
 
