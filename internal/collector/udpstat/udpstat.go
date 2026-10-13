@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log"
 	"net"
+	"runtime"
 )
 
 // ErrUnsupported is returned where the platform offers no cheap way to read
@@ -27,13 +28,17 @@ func SetReadBuffer(conn *net.UDPConn, size int, name string) int {
 		log.Printf("%s: requested UDP read buffer %d bytes (effective size unknown: %v)", name, size, err)
 		return 0
 	}
-	// Linux reports twice the granted size (half is reserved for bookkeeping),
-	// so a granted request reads back >= size.
-	if got < size {
-		log.Printf("warning: %s: UDP read buffer is %d bytes, requested %d — raise net.core.rmem_max (sysctl) or expect drops on bursts",
-			name, got, size)
-	} else {
-		log.Printf("%s: UDP read buffer %d bytes (requested %d)", name, got, size)
+	// Linux stores and reports twice the granted size (half is reserved for
+	// bookkeeping): a fully granted request reads back as 2×size.
+	granted := got
+	if runtime.GOOS == "linux" {
+		granted = got / 2
 	}
-	return got
+	if granted < size {
+		log.Printf("warning: %s: UDP read buffer capped at %d bytes, %d requested — raise net.core.rmem_max (sysctl) or expect drops on bursts",
+			name, granted, size)
+	} else {
+		log.Printf("%s: UDP read buffer %d bytes", name, granted)
+	}
+	return granted
 }

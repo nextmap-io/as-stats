@@ -108,11 +108,12 @@ var PipelineQueueCapacity = promauto.NewGaugeVec(prometheus.GaugeOpts{
 	Help: "Capacity of a collector pipeline channel.",
 }, []string{"queue"})
 
-// UDPReceiveBuffer is the socket receive buffer the kernel actually granted.
-// Linux silently caps the request at net.core.rmem_max.
+// UDPReceiveBuffer is the socket receive buffer the kernel actually granted
+// (on Linux, half the SO_RCVBUF readback). Linux silently caps the request at
+// net.core.rmem_max.
 var UDPReceiveBuffer = promauto.NewGaugeVec(prometheus.GaugeOpts{
 	Name: "asstats_udp_receive_buffer_bytes",
-	Help: "Effective UDP socket receive buffer size, as reported by the kernel.",
+	Help: "UDP socket receive buffer size granted by the kernel.",
 }, []string{"listener"})
 
 // UDPSocketDrops is the kernel's cumulative drop count for a listener socket
