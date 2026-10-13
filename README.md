@@ -307,9 +307,13 @@ auto-refresh.
 ### BGP blackhole hook
 
 The `/alerts/{id}/block` endpoint calls a `Blocker` interface defined in
-`internal/bgp/`. Phase 1 ships a `NoopBlocker` that just logs — wire in your
-own implementation (ExaBGP, GoBGP, vendor-specific REST) to push RFC 7999
-blackhole communities to your edge.
+`internal/bgp/`. With `BGP_ENABLED=true` the API runs a `ScriptBlocker` that
+executes your announce / withdraw / status commands (gobgp CLI by default,
+or BIRD / FRR via `BGP_ANNOUNCE_CMD` & co.) to push RFC 7999 blackhole
+communities to your edge; the collector's `auto_block` rules reach it through
+`BGP_API_URL`. Without it the endpoint answers **409** instead of pretending
+to block, and alerts that have no single host target (link capacity,
+anomaly, disk usage, subnet flood) answer **422**.
 
 ## Hardware sizing
 
@@ -332,7 +336,7 @@ lightweight (a few MB to a few GB per day).
 
 | Table | Granularity | Retention |
 |---|---|---|
-| `flows_raw` | per flow | 7 days |
+| `flows_raw` | per flow | 3 days |
 | `traffic_by_as` / `traffic_by_link` | 5 min | 90 days |
 | `*_hourly` rollups | 1 hour | 2 years |
 | `*_daily` rollups | 1 day | 5 years |
@@ -411,13 +415,15 @@ All endpoints under `/api/v1/`. Common query params: `period`
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/overview` | Dashboard counters |
-| `GET` | `/status` | Active routers, flow rate, DB size |
+| `GET` | `/status` | Active routers, flow rate, DB size (over the selected window) |
+| `GET` | `/status/live` | Cheap health probe: per-router ok / stale / missing over the last 10 min, disk usage |
 | `GET` | `/top/as` | Top ASes by volume |
 | `GET` | `/top/ip` | Top IPs (filterable to internal / external) |
 | `GET` | `/top/prefix` | Top prefixes (same scopes) |
 | `GET` | `/as/{asn}` | AS detail with v4 / v6 charts and top peers |
 | `GET` | `/ip/{ip}` | IP detail with sub-5-min resolution on short windows |
 | `GET` | `/links` | Per-link traffic summary |
+| `GET` | `/links/capacity` | Per-link utilisation (busier direction vs capacity, p95 / peak / current) and saturation forecast |
 | `GET` | `/link/{tag}` | Link detail with top AS chart |
 | `GET` | `/dns/ptr?ip=X` | Reverse DNS lookup |
 | `GET` | `/search?q=X` | Search by AS / IP / prefix / name |
