@@ -66,7 +66,7 @@ func (h *Handler) AlertsSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, Response{Data: map[string]any{
-		"total":      total,
+		"total":       total,
 		"by_severity": counts,
 	}})
 }

@@ -695,7 +695,7 @@ func (s *ClickHouseStore) IPTopAS(ctx context.Context, ip string, p QueryParams)
 				sum(t.packets) AS total_packets,
 				sum(t.flow_count) AS total_flows
 			FROM traffic_by_ip_as t
-			WHERE (toString(t.ip_address) = @ip OR toString(t.ip_address) = concat('::ffff:', @ip))
+			WHERE t.ip_address = toIPv6(@ip)
 			  AND t.ts >= @from AND t.ts < @to
 			  %s %s
 			GROUP BY t.as_number
@@ -743,15 +743,15 @@ func (s *ClickHouseStore) IPPeerIPs(ctx context.Context, ip string, p QueryParam
 		FROM (
 			SELECT dst_ip AS peer_ip, bytes, packets, sampling_rate
 			FROM flows_raw
-			WHERE (toString(src_ip) = @ip OR toString(src_ip) = concat('::ffff:', @ip))
+			WHERE src_ip = toIPv6(@ip)
 			  AND timestamp >= @from AND timestamp < @to
 			UNION ALL
 			SELECT src_ip AS peer_ip, bytes, packets, sampling_rate
 			FROM flows_raw
-			WHERE (toString(dst_ip) = @ip OR toString(dst_ip) = concat('::ffff:', @ip))
+			WHERE dst_ip = toIPv6(@ip)
 			  AND timestamp >= @from AND timestamp < @to
 		)
-		GROUP BY ip
+		GROUP BY peer_ip
 		ORDER BY total_bytes DESC
 		LIMIT @limit
 	`
@@ -778,12 +778,18 @@ func (s *ClickHouseStore) IPPeerIPs(ctx context.Context, ip string, p QueryParam
 	return results, nil
 }
 
+// The IP detail queries compare the typed column to toIPv6(@ip) — which maps
+// an IPv4 string onto ::ffff:a.b.c.d itself — instead of
+// `toString(col) = @ip OR toString(col) = concat('::ffff:', @ip)`, which
+// stringified every scanned row twice and could not use the bloom-filter /
+// primary-key indexes. Callers must pass a parseable IP (the handler checks).
+
 // IPInfo returns the AS number, AS name, and prefix for an IP from recent flows.
 func (s *ClickHouseStore) IPInfo(ctx context.Context, ip string) (asn uint32, asName string, prefix string, err error) {
 	// Find the most common AS + prefix for this IP in recent flows
 	query := `
 		SELECT src_as, src_prefix, count() c FROM flows_raw
-		WHERE (toString(src_ip) = @ip OR toString(src_ip) = concat('::ffff:', @ip))
+		WHERE src_ip = toIPv6(@ip)
 		  AND src_as > 0 AND timestamp >= now() - INTERVAL 1 DAY
 		GROUP BY src_as, src_prefix ORDER BY c DESC LIMIT 1
 	`
@@ -793,7 +799,7 @@ func (s *ClickHouseStore) IPInfo(ctx context.Context, ip string) (asn uint32, as
 		// Try dst side
 		query2 := `
 			SELECT dst_as, dst_prefix, count() c FROM flows_raw
-			WHERE (toString(dst_ip) = @ip OR toString(dst_ip) = concat('::ffff:', @ip))
+			WHERE dst_ip = toIPv6(@ip)
 			  AND dst_as > 0 AND timestamp >= now() - INTERVAL 1 DAY
 			GROUP BY dst_as, dst_prefix ORDER BY c DESC LIMIT 1
 		`
@@ -857,7 +863,7 @@ func (s *ClickHouseStore) IPTimeSeries(ctx context.Context, ip string, p QueryPa
 				sumIf(packets, direction = 'in') AS packets_in,
 				sumIf(packets, direction = 'out') AS packets_out
 			FROM traffic_by_ip t
-			WHERE (toString(t.ip_address) = @ip OR toString(t.ip_address) = concat('::ffff:', @ip))
+			WHERE t.ip_address = toIPv6(@ip)
 			  AND t.ts >= @from AND t.ts < @to
 			  %s
 			GROUP BY period

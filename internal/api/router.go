@@ -189,6 +189,16 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Get("/status", h.Status)
 			r.Get("/status/live", h.StatusLive)
 
+			// AS / IP / link detail. Keyed by URI like the rest of the
+			// group: none of these handlers reads the caller's identity, and
+			// they are the heaviest pages (flows_raw scans, 5–8 queries).
+			r.Get("/as/{asn}", h.ASDetail)
+			r.Get("/as/{asn}/peers", h.ASPeers)
+			r.Get("/as/{asn}/ips", h.ASTopIPs)
+			r.Get("/ip/{ip}", h.IPDetail)
+			r.Get("/link/{tag}", h.LinkDetail)
+			r.Get("/link/{tag}/load-curve", h.LinkLoadCurve)
+
 			// Port stats (gated by FEATURE_PORT_STATS)
 			if cfg.FeaturePortStats {
 				r.Get("/top/protocol", h.TopProtocols)
@@ -240,18 +250,6 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 				r.Delete("/bgp/blocks/{ip}", h.DeleteBGPBlock)
 			})
 		}
-
-		// AS detail
-		r.Get("/as/{asn}", h.ASDetail)
-		r.Get("/as/{asn}/peers", h.ASPeers)
-		r.Get("/as/{asn}/ips", h.ASTopIPs)
-
-		// IP detail
-		r.Get("/ip/{ip}", h.IPDetail)
-
-		// Link detail (not cached — specific to one link)
-		r.Get("/link/{tag}", h.LinkDetail)
-		r.Get("/link/{tag}/load-curve", h.LinkLoadCurve)
 
 		// DNS
 		r.Get("/dns/ptr", h.DNSPtr)

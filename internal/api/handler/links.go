@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nextmap-io/as-stats/internal/model"
@@ -29,6 +30,9 @@ func (h *Handler) Links(w http.ResponseWriter, r *http.Request) {
 }
 
 // LinkDetail handles GET /api/v1/link/{tag}
+//
+// The page's five queries are independent and run concurrently; the series
+// and the top-AS table are fatal, the rest degrade to zero values.
 func (h *Handler) LinkDetail(w http.ResponseWriter, r *http.Request) {
 	tag := chi.URLParam(r, "tag")
 	if tag == "" {
@@ -37,31 +41,38 @@ func (h *Handler) LinkDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p := parseQueryParams(r)
-
-	ts, err := h.Store.LinkTimeSeries(r.Context(), tag, p)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	topAS, _, err := h.Store.LinkTopAS(r.Context(), tag, p)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	// p50/p95/p99 of per-bucket bytes (Module D). p95_in/p95_out come from
-	// the same pass — the separate LinkP95 query computed the identical value.
-	inPct, outPct, _ := h.Store.LinkPercentiles(r.Context(), tag, p)
+	ctx := r.Context()
 	step := store.LinkSeriesStepSeconds(p.From, p.To)
 
+	var (
+		wg            sync.WaitGroup
+		ts            []model.TrafficPoint
+		topAS         []model.ASTraffic
+		tsErr, topErr error
+		inPct, outPct model.Percentiles
+		asSeries      []model.ASTrafficDetail
+		capacityMbps  uint32
+	)
+	wg.Go(func() { ts, tsErr = h.Store.LinkTimeSeries(ctx, tag, p) })
+	wg.Go(func() { topAS, _, topErr = h.Store.LinkTopAS(ctx, tag, p) })
+	// p50/p95/p99 of per-bucket bytes (Module D). p95_in/p95_out come from
+	// the same pass — the separate LinkP95 query computed the identical value.
+	wg.Go(func() { inPct, outPct, _ = h.Store.LinkPercentiles(ctx, tag, p) })
 	// Per-AS time series on this link
-	asSeries, _ := h.Store.LinkASTimeSeries(r.Context(), tag, p)
+	wg.Go(func() { asSeries, _ = h.Store.LinkASTimeSeries(ctx, tag, p) })
+	wg.Go(func() { capacityMbps, _ = h.Store.LinkCapacityMbps(ctx, tag) })
+	wg.Wait()
+
+	for _, err := range []error{tsErr, topErr} {
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 
 	// Capacity + utilization. A link is full duplex, so utilization_pct is the
 	// p95 of the BUSIER direction against capacity — the same definition as
 	// the Capacity page — never in+out. Nil when capacity is unset.
-	capacityMbps, _ := h.Store.LinkCapacityMbps(r.Context(), tag)
 	var utilizationPct *float64
 	if capacityMbps > 0 && step > 0 {
 		busier := max(inPct.P95, outPct.P95)

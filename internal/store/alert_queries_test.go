@@ -39,12 +39,12 @@ func TestBuildCIDRFilter_ValidCIDRs(t *testing.T) {
 
 func TestBuildCIDRFilter_InvalidEntriesSkipped(t *testing.T) {
 	prefixes := []string{
-		"10.0.0.0/8",                                  // valid CIDR
-		"' OR 1=1; DROP TABLE flows_raw; --",          // SQL injection attempt
-		"192.168.1.1",                                 // bare IP — should be accepted
-		"not-an-ip",                                   // garbage — should be skipped
-		"10.0.0.0/99",                                 // invalid CIDR mask
-		"172.16.0.0/12",                               // valid CIDR
+		"10.0.0.0/8",                         // valid CIDR
+		"' OR 1=1; DROP TABLE flows_raw; --", // SQL injection attempt
+		"192.168.1.1",                        // bare IP — should be accepted
+		"not-an-ip",                          // garbage — should be skipped
+		"10.0.0.0/99",                        // invalid CIDR mask
+		"172.16.0.0/12",                      // valid CIDR
 	}
 	clause, args := buildCIDRFilter("src_ip", "x_", prefixes)
 

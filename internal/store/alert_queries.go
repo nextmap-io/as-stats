@@ -345,7 +345,7 @@ func (s *ClickHouseStore) TopSourcesForTarget(ctx context.Context, targetIP net.
 		SELECT toString(src_ip) AS src
 		FROM flows_raw
 		WHERE timestamp >= now() - INTERVAL @window SECOND
-		  AND toString(dst_ip) = @target
+		  AND dst_ip = toIPv6(@target)
 		GROUP BY src_ip
 		ORDER BY sum(bytes * sampling_rate) DESC
 		LIMIT @limit
@@ -622,6 +622,7 @@ func normalizeCIDRForIPv6Column(s string) (string, bool) {
 	}
 	return "", false
 }
+
 // EvalSubnetFlood detects carpet-bombing attacks by aggregating traffic to a
 // configurable subnet level before applying thresholds. A carpet bomb
 // distributes the attack across an entire /24 so no single IP breaches the

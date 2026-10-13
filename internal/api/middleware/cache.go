@@ -33,7 +33,7 @@ type cacheEntry struct {
 //
 // The key is deliberately identity-free: it is only mounted on routes whose
 // output depends purely on the request URI (overview / top-N / links /
-// heatmap / changes / status). None of them consult
+// heatmap / changes / status / AS, IP and link detail). None of them consult
 // the authenticated principal, and
 // admin and viewer see byte-identical bodies, so one user's response can never
 // be served as another's. Adding an identity-sensitive route to the cached
