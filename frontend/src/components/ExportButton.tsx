@@ -96,7 +96,7 @@ export function ExportButton<T>({ rows, columns, filename, disabled, className }
           />
           <div
             role="menu"
-            className="absolute right-0 mt-1 z-50 min-w-[9rem] rounded border border-border bg-card shadow-lg py-1 animate-fade-in"
+            className="absolute right-0 mt-1 z-50 min-w-[9rem] rounded border border-border bg-card shadow-md py-1"
           >
             <button
               type="button"

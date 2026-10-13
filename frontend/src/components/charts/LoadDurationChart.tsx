@@ -9,7 +9,7 @@ import {
   ReferenceLine,
 } from "recharts"
 import type { LoadCurve } from "@/lib/types"
-import { useChartColors } from "@/hooks/useChartColors"
+import { axisTick, tooltipBoxStyle, useChartColors } from "@/hooks/useChartColors"
 import { formatBitsPerSec } from "@/lib/utils"
 
 interface LoadDurationChartProps {
@@ -40,27 +40,25 @@ export function LoadDurationChart({ curve, capacityBps, height = 300, title }: L
   const yMax = domainMax > 0 ? domainMax * 1.05 : 1
 
   return (
-    <div className="animate-fade-in overflow-hidden">
-      {title && (
-        <h3 className="text-[10px] font-medium text-muted-foreground mb-1 uppercase tracking-wider">{title}</h3>
-      )}
+    <div className="overflow-hidden">
+      {title && <h3 className="mb-1 text-[13px] text-foreground-secondary">{title}</h3>}
       <ResponsiveContainer width="100%" height={height}>
         <AreaChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} opacity={0.5} />
+          <CartesianGrid vertical={false} stroke={chartColors.grid} />
           <XAxis
             dataKey="pct"
             type="number"
             domain={[0, 100]}
-            tick={{ fontSize: 8, fill: chartColors.text }}
-            tickLine={{ stroke: chartColors.grid }}
-            axisLine={{ stroke: chartColors.grid }}
+            tick={axisTick(chartColors)}
+            tickLine={false}
+            axisLine={{ stroke: chartColors.ink }}
             tickFormatter={(v) => `${Math.round(Number(v))}%`}
             ticks={[0, 25, 50, 75, 100]}
           />
           <YAxis
             type="number"
             domain={[0, yMax]}
-            tick={{ fontSize: 8, fill: chartColors.text }}
+            tick={axisTick(chartColors)}
             tickLine={false}
             axisLine={false}
             tickFormatter={(v) => formatBitsPerSec(Number(v))}
@@ -69,38 +67,31 @@ export function LoadDurationChart({ curve, capacityBps, height = 300, title }: L
           {capacityBps != null && capacityBps > 0 && (
             <ReferenceLine
               y={capacityBps}
-              stroke="#e74c3c"
-              strokeDasharray="4 2"
+              stroke={chartColors.ink}
+              strokeDasharray="4 3"
               strokeWidth={1}
               label={{
                 value: `capacity: ${formatBitsPerSec(capacityBps)}`,
                 position: "insideTopRight",
-                fontSize: 8,
-                fill: "#e74c3c",
+                fontSize: 12,
+                fill: chartColors.ink,
               }}
             />
           )}
           <Tooltip
-            cursor={{ stroke: "hsl(215 12% 50%)", strokeOpacity: 0.3 }}
-            contentStyle={{
-              backgroundColor: chartColors.tooltipBg,
-              border: `1px solid ${chartColors.tooltipBorder}`,
-              borderRadius: 4,
-              fontSize: 10,
-              boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
-              padding: "5px 8px",
-            }}
+            cursor={{ stroke: chartColors.text, strokeOpacity: 0.4 }}
+            contentStyle={tooltipBoxStyle(chartColors)}
             itemStyle={{ padding: 0, color: chartColors.tooltipText }}
-            labelStyle={{ color: chartColors.text, marginBottom: 2, fontSize: 9 }}
+            labelStyle={{ color: chartColors.text, marginBottom: 2 }}
             labelFormatter={(v) => `${Math.round(Number(v))}% of time`}
             formatter={(value) => [formatBitsPerSec(Number(value)), "Throughput"]}
           />
           <Area
             type="stepAfter"
             dataKey="bps"
-            stroke="hsl(174 72% 46%)"
-            fill="hsl(174 72% 46%)"
-            fillOpacity={0.5}
+            stroke={chartColors.outbound}
+            fill={chartColors.outbound}
+            fillOpacity={0.35}
             strokeWidth={1}
             dot={false}
             isAnimationActive={false}

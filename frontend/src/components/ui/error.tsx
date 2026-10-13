@@ -9,8 +9,8 @@ interface ErrorDisplayProps {
 
 export function ErrorDisplay({ error, onRetry, title = "Something went wrong" }: ErrorDisplayProps) {
   return (
-    <Card className="border-destructive/30 bg-destructive/5 animate-fade-in">
-      <CardContent className="p-6">
+    <Card className="border-destructive" role="alert">
+      <CardContent className="py-4">
         <div className="flex items-start gap-3">
           <AlertTriangle className="size-5 text-destructive shrink-0 mt-0.5" />
           <div className="space-y-1 min-w-0">
@@ -20,7 +20,7 @@ export function ErrorDisplay({ error, onRetry, title = "Something went wrong" }:
           {onRetry && (
             <button
               onClick={onRetry}
-              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border border-border bg-card hover:bg-accent transition-colors"
+              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border border-input hover:bg-accent transition-colors"
               aria-label="Retry"
             >
               <RefreshCw className="size-3" />
@@ -46,10 +46,10 @@ interface EmptyStateProps {
 
 export function EmptyState({ message, hint, icon, action }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground animate-fade-in">
+    <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
       {icon && <div className="mb-3 opacity-40">{icon}</div>}
       <p className="text-sm">{message}</p>
-      {hint && <p className="mt-1 text-xs text-muted-foreground/70">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
       {action && <div className="mt-4">{action}</div>}
     </div>
   )

@@ -143,13 +143,13 @@ export function DataTable<T>({
 
   return (
     <div
-      className={cn("overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5", viewport != null && "overflow-y-auto")}
+      className={cn("overflow-x-auto", viewport != null && "overflow-y-auto")}
       style={viewport != null ? { maxHeight: viewport } : undefined}
       onScroll={virtualize ? (e) => setScrollTop(e.currentTarget.scrollTop) : undefined}
     >
-      <table className={cn("w-full", compact ? "text-[11px]" : "text-xs", tableClassName)}>
-        <thead className="sticky top-0 z-10 bg-card">
-          <tr className="border-b border-border">
+      <table className={cn("w-full", compact ? "text-[13px]" : "text-sm", tableClassName)}>
+        <thead className="sticky top-0 z-10 bg-background">
+          <tr className="border-b border-foreground">
             {columns.map((col) => {
               const active = col.sortable && sortKey === col.key
               return (
@@ -161,7 +161,7 @@ export function DataTable<T>({
                   }
                   onClick={col.sortable ? () => toggleSort(col) : undefined}
                   className={cn(
-                    "bg-card pb-2 pt-0.5 align-bottom font-medium text-muted-foreground whitespace-nowrap",
+                    "bg-background pb-2 pt-0.5 align-bottom text-[13px] font-normal text-muted-foreground whitespace-nowrap",
                     col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "text-left",
                     col.sortable && "cursor-pointer select-none hover:text-foreground transition-colors",
                     col.hideOnMobile && "hidden sm:table-cell",
@@ -203,7 +203,7 @@ export function DataTable<T>({
               <tr
                 key={rowKey(row, index)}
                 className={cn(
-                  "border-b border-border/50 last:border-0 hover:bg-muted/50 transition-colors",
+                  "border-b border-border-soft last:border-0 hover:bg-accent/60",
                   rowClassName,
                 )}
               >
@@ -213,7 +213,7 @@ export function DataTable<T>({
                     className={cn(
                       cellPad,
                       col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "text-left",
-                      col.numeric && "font-mono tabular-nums",
+                      col.numeric && "tabular-nums",
                       col.hideOnMobile && "hidden sm:table-cell",
                       col.className,
                     )}
@@ -243,7 +243,7 @@ export function DataTable<T>({
  */
 export function PercentBar({
   pct,
-  barClassName = "bg-primary",
+  barClassName = "bg-foreground-secondary",
 }: {
   pct: number
   barClassName?: string
@@ -251,8 +251,8 @@ export function PercentBar({
   const clamped = Math.min(Math.max(pct || 0, 0), 100)
   return (
     <div className="flex items-center justify-end gap-2">
-      <div className="w-16 bg-muted rounded-full h-1.5">
-        <div className={cn("h-1.5 rounded-full", barClassName)} style={{ width: `${clamped}%` }} />
+      <div className="h-1.5 w-16 rounded-[1px] bg-border-soft">
+        <div className={cn("h-1.5 rounded-[1px]", barClassName)} style={{ width: `${clamped}%` }} />
       </div>
       <span className="w-12 text-right tabular-nums">{formatPercent(pct || 0)}</span>
     </div>
