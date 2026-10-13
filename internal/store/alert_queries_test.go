@@ -88,3 +88,18 @@ func TestBuildCIDRFilter_NamingPrefixes(t *testing.T) {
 		t.Errorf("expected 2 args each, got A=%d B=%d", len(argsA), len(argsB))
 	}
 }
+
+func TestAlertWindowCompleteMinutes(t *testing.T) {
+	for in, want := range map[uint32]uint32{0: 60, 30: 60, 60: 60, 61: 60, 119: 60, 120: 120, 300: 300, 330: 300} {
+		if got := alertWindow(in); got != want {
+			t.Errorf("alertWindow(%d) = %d, want %d", in, got, want)
+		}
+	}
+	// The partial current minute must be excluded, and the window must end
+	// on the same minute boundary it is measured from.
+	got := completeMinutes("t.ts")
+	want := "t.ts >= toStartOfMinute(now()) - INTERVAL @window SECOND AND t.ts < toStartOfMinute(now())"
+	if got != want {
+		t.Fatalf("completeMinutes = %q", got)
+	}
+}

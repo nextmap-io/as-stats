@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"testing"
@@ -339,6 +340,53 @@ func TestIntegrationReadPathSmoke(t *testing.T) {
 	}
 	if _, err := s.LiveStatus(ctx); err != nil {
 		t.Errorf("LiveStatus: %v", err)
+	}
+	// Alert-engine queries over the hot tables, with a local-prefix filter.
+	// A fresh flow two minutes ago (a complete minute) towards a local IPv4
+	// address, so the hot-table queries have something to find even when the
+	// bulk test data is older than their windows.
+	if err := s.conn.Exec(ctx, `INSERT INTO flows_raw (timestamp, router_ip, link_tag, src_ip, dst_ip, src_as, dst_as, protocol, bytes, packets, sampling_rate, direction)
+		VALUES (now() - 120, toIPv6('::ffff:192.0.2.1'), 'link1', toIPv6('::ffff:203.0.113.77'), toIPv6('::ffff:198.51.100.77'), 1500, 0, 17, 1500, 1, 1000, 'in')`); err != nil {
+		t.Fatalf("insert hot fixture: %v", err)
+	}
+	local := []string{"198.51.96.0/19", "203.0.113.0/24", "2001:db8::/32"}
+	vin, err := s.EvalVolumeInbound(ctx, 1, 0, 300, local)
+	if err != nil {
+		t.Errorf("EvalVolumeInbound: %v", err)
+	} else if len(vin) == 0 {
+		t.Errorf("EvalVolumeInbound: no rows over a 1 bps threshold — filter or window broken")
+	}
+	if _, err := s.EvalSynFlood(ctx, 1, 120, local); err != nil {
+		t.Errorf("EvalSynFlood: %v", err)
+	}
+	if _, err := s.EvalAmplification(ctx, 1, 1, 120, local); err != nil {
+		t.Errorf("EvalAmplification: %v", err)
+	}
+	if _, err := s.EvalProtocolFlood(ctx, 17, 1, 120, local); err != nil {
+		t.Errorf("EvalProtocolFlood: %v", err)
+	}
+	if _, err := s.EvalConnectionFlood(ctx, 1, 120, local); err != nil {
+		t.Errorf("EvalConnectionFlood: %v", err)
+	}
+	if _, err := s.EvalPortScan(ctx, 1, 120, local); err != nil {
+		t.Errorf("EvalPortScan: %v", err)
+	}
+	if _, err := s.EvalVolumeOutbound(ctx, 1, 0, 120, local); err != nil {
+		t.Errorf("EvalVolumeOutbound: %v", err)
+	}
+	if _, err := s.EvalSubnetFlood(ctx, 1, 0, 24, 120, local); err != nil {
+		t.Errorf("EvalSubnetFlood: %v", err)
+	}
+	if _, err := s.EvalSMTPAbuse(ctx, 1, 0, 120, local); err != nil {
+		t.Errorf("EvalSMTPAbuse: %v", err)
+	}
+	if lt, err := s.LiveThreats(ctx, 300, 10, local); err != nil {
+		t.Errorf("LiveThreats: %v", err)
+	} else if len(lt) == 0 {
+		t.Errorf("LiveThreats: no rows")
+	}
+	if _, err := s.TopSourcesForTarget(ctx, net.ParseIP("198.51.100.0"), 600, 5); err != nil {
+		t.Errorf("TopSourcesForTarget: %v", err)
 	}
 	if _, err := s.EvalLinkCapacity(ctx, 0, 3600); err != nil {
 		t.Errorf("EvalLinkCapacity: %v", err)

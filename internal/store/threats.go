@@ -35,9 +35,9 @@ func (s *ClickHouseStore) LiveThreats(ctx context.Context, windowSeconds uint32,
 		limit = 200
 	}
 
-	where := []string{"ts >= now() - INTERVAL @window SECOND"}
+	where := []string{completeMinutes("ts")}
 	args := []any{
-		clickhouse.Named("window", windowSeconds),
+		clickhouse.Named("window", alertWindow(windowSeconds)),
 		clickhouse.Named("limit", limit),
 	}
 	if len(localPrefixes) > 0 {
