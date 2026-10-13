@@ -241,7 +241,7 @@ func main() {
 	// delivers them via SMTP on the schedule stored in report_schedules.
 	if cfg.FeatureReports {
 		log.Printf("FEATURE_REPORTS=true — starting report scheduler (SMTP %s:%d)", cfg.SMTP.Host, cfg.SMTP.Port)
-		gen, err := reports.NewGenerator(chStore)
+		gen, err := reports.NewGenerator(chStore, reports.WithExcludeAS(cfg.LocalAS))
 		if err != nil {
 			log.Printf("warning: could not init report generator: %v", err)
 		} else {
