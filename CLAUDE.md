@@ -65,13 +65,13 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
               │          │          │                    │          │
               └──────────┴──────────┴────────┬───────────┴──────────┘
                                              ▼
-                              flows channel (batchSize×4 buffer)
+                              flows channel (batchSize buffer)  
                                              │
                                   [Enricher, 1 goroutine]
                                   - (router_ip, snmp_ifindex) → link tag + direction
                                   - private AS → LOCAL_AS prefix remap
                                              │
-                              enriched channel (batchSize×4 buffer)
+                              enriched channel (batchSize buffer)  
                                              │
                                   [BatchWriter, 1 goroutine]
                                   - accumulates up to COLLECTOR_BATCH_SIZE
@@ -89,12 +89,34 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
   `sync.RWMutex` — link config reloaded every 60s without blocking
   decoders.
 - **BatchWriter**: 1 goroutine. Buffers and writes in batches. Tracks
-  metrics (flows received / written, errors, batch timing).
+  metrics (flows received / written, errors, batch timing). One INSERT may be
+  in flight while the next batch fills (at most two batches held). Each INSERT
+  is bounded by `COLLECTOR_FLUSH_TIMEOUT` (30s) and is **never retried** — a
+  failed INSERT can be partially committed across the MVs, so a retry would
+  double count; the batch is dropped and counted instead.
+- **Flush cadence**: defaults are 15s / 50,000 flows (time-driven at our
+  rates). Every INSERT fans out to ~20 MVs and creates ~21 parts, so flushing
+  every 5s kept ClickHouse busy merging; 15–30s measured −83% parts.
+- **Shutdown** cascades: listeners close → decoders drain → `flows` closes →
+  enricher drains and closes `enriched` → writer flushes. `Run` waits for the
+  writer, bounded by `COLLECTOR_SHUTDOWN_TIMEOUT` (40s); compose sets
+  `stop_grace_period: 60s` so Docker does not SIGKILL mid-flush.
+- **Link matching** honours NetFlow/IPFIX field 61 (flowDirection): a record
+  is credited to the link on the side it was observed (egress → output
+  interface), falling back to the other side. Without it, input+output
+  monitors on the same uplink double count every flow.
+- **Sampling**: per-record rate field first, then the rate announced in
+  v9/IPFIX options data for that sampler / exporter, then
+  `COLLECTOR_SAMPLING_OVERRIDE`, then 1. Options records are never emitted as
+  flows.
 - **Backpressure**: all channels are buffered. If ClickHouse is slow,
   channels fill up and UDP packets are dropped at the socket level —
   acceptable for sampled data.
 - **Template cache**: global, keyed by `(router_ip, source_id, template_id)`.
-  Templates expire after 30 minutes. Cisco IOS-XE with source port 0
+  Templates do not expire by age — a re-send replaces the entry (an age
+  expiry could drop a template just before its refresh); a size cap bounds
+  the cache. Data sets with no known template are counted per router in
+  `asstats_flowsets_dropped_no_template_total`. Cisco IOS-XE with source port 0
   requires a `NOTRACK` iptables rule to bypass conntrack.
 
 ### Scaling
