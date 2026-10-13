@@ -390,7 +390,13 @@ The ingest counters worth alerting on:
 
 | Metric | Meaning |
 |---|---|
-| `asstats_flows_received_total{protocol}` | Flows decoded from routers |
+| `asstats_flows_received_total{protocol}` | Flows decoded from routers (`netflow5`, `netflow9`, `ipfix`, `sflow`) |
+| `asstats_flowsets_dropped_no_template_total{router}` | v9/IPFIX data sets dropped because the exporter's template is not known yet (normal for one template refresh after a restart) |
+| `asstats_sampling_rate{router}` | Sampling rate applied to each exporter's latest flows |
+| `asstats_udp_socket_drops{listener}` | Datagrams the kernel dropped before the collector read them (Linux; use `increase()`) |
+| `asstats_udp_receive_buffer_bytes{listener}` | Receive buffer actually granted — capped by `net.core.rmem_max` |
+| `asstats_pipeline_queue_length{queue}` / `_capacity` | Fill level of the internal channels; a queue stuck at capacity is the bottleneck |
+| `asstats_flows_both_interfaces_linked_total` | Flows whose input and output interfaces are both configured links |
 | `asstats_flows_written_total` | Flows committed to ClickHouse |
 | `asstats_batch_write_errors_total` | Batch INSERTs that failed |
 | `asstats_flows_dropped_total` | Flows discarded because their batch failed |

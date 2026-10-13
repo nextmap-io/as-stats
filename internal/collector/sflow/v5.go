@@ -33,6 +33,7 @@ type Listener struct {
 	addr    string
 	conn    *net.UDPConn
 	workers int
+	packets chan packet
 	// decoders tracks the decoder goroutines, which are the only senders on the
 	// flows channel — see Wait.
 	decoders sync.WaitGroup

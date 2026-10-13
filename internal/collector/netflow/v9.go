@@ -3,7 +3,6 @@ package netflow
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
 	"net"
 	"time"
 
@@ -108,14 +107,14 @@ func parseV9Templates(data []byte, routerKey [16]byte, sourceID uint32) {
 		// wedge the decoder goroutine in an infinite allocating loop on the next
 		// data set referencing it. Drop it instead of trusting the exporter.
 		if totalLen <= 0 {
-			log.Printf("v9: ignoring template %d from source %d: zero-length record", templateID, sourceID)
+			templateLog.Printf("v9: ignoring template %d from source %d: zero-length record", templateID, sourceID)
 			continue
 		}
 
 		// Logged only when new or changed: routers re-send every template
 		// periodically, which used to log a line per template per refresh.
 		if globalTemplateCache.Set(routerKey, sourceID, tmpl) {
-			log.Printf("v9: cached template %d from %s source %d (%d fields, %d bytes/record)",
+			templateLog.Printf("v9: cached template %d from %s source %d (%d fields, %d bytes/record)",
 				templateID, net.IP(routerKey[:]), sourceID, fieldCount, totalLen)
 		}
 	}
@@ -159,11 +158,11 @@ func parseV9OptionsTemplates(data []byte, routerKey [16]byte, sourceID uint32) {
 
 		// Same infinite-loop guard as data templates.
 		if tmpl.TotalLen <= 0 {
-			log.Printf("v9: ignoring options template %d from source %d: zero-length record", templateID, sourceID)
+			templateLog.Printf("v9: ignoring options template %d from source %d: zero-length record", templateID, sourceID)
 			continue
 		}
 		if globalTemplateCache.Set(routerKey, sourceID, tmpl) {
-			log.Printf("v9: cached options template %d from %s source %d (%d scope + %d option fields)",
+			templateLog.Printf("v9: cached options template %d from %s source %d (%d scope + %d option fields)",
 				templateID, net.IP(routerKey[:]), sourceID, tmpl.ScopeFields, fieldCount-tmpl.ScopeFields)
 		}
 	}

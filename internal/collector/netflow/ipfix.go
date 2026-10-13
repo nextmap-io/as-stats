@@ -3,7 +3,6 @@ package netflow
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
 	"net"
 	"time"
 
@@ -127,12 +126,12 @@ func parseIPFIXTemplates(data []byte, routerKey [16]byte, domainID uint32) {
 		// advances by the record length). Refuse the template rather than the
 		// packets.
 		if tmpl.TotalLen <= 0 {
-			log.Printf("ipfix: ignoring template %d from domain %d: zero-length record", templateID, domainID)
+			templateLog.Printf("ipfix: ignoring template %d from domain %d: zero-length record", templateID, domainID)
 			continue
 		}
 		// Logged only when new or changed (templates are re-sent periodically).
 		if globalTemplateCache.Set(routerKey, domainID, tmpl) {
-			log.Printf("ipfix: cached template %d from %s domain %d (%d fields, %d bytes/record)",
+			templateLog.Printf("ipfix: cached template %d from %s domain %d (%d fields, %d bytes/record)",
 				templateID, net.IP(routerKey[:]), domainID, fieldCount, tmpl.TotalLen)
 		}
 	}
@@ -175,11 +174,11 @@ func parseIPFIXOptionsTemplates(data []byte, routerKey [16]byte, domainID uint32
 
 		// Same infinite-loop guard as the regular template path.
 		if tmpl.TotalLen <= 0 {
-			log.Printf("ipfix: ignoring options template %d from domain %d: zero-length record", templateID, domainID)
+			templateLog.Printf("ipfix: ignoring options template %d from domain %d: zero-length record", templateID, domainID)
 			continue
 		}
 		if globalTemplateCache.Set(routerKey, domainID, tmpl) {
-			log.Printf("ipfix: cached options template %d from %s domain %d (%d scope + %d option fields)",
+			templateLog.Printf("ipfix: cached options template %d from %s domain %d (%d scope + %d option fields)",
 				templateID, net.IP(routerKey[:]), domainID, scopeCount, totalFieldCount-scopeCount)
 		}
 	}

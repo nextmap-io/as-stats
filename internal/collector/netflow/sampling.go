@@ -2,7 +2,6 @@ package netflow
 
 import (
 	"encoding/binary"
-	"log"
 	"math"
 	"net"
 	"sync"
@@ -228,7 +227,7 @@ func learnSampling(rec []byte, tmpl *Template, routerKey [16]byte, sourceID uint
 	}
 	k := samplingKey{routerKey, sourceID, info.samplerID}
 	if globalSampling.set(k, r) {
-		log.Printf("%s: router %s source %d sampler %d announces sampling 1:%d",
+		templateLog.Printf("%s: router %s source %d sampler %d announces sampling 1:%d",
 			proto, net.IP(routerKey[:]), sourceID, info.samplerID, r)
 	}
 }

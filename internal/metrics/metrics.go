@@ -86,6 +86,44 @@ var FlowSetsNoTemplate = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "v9/IPFIX data sets dropped because their template is unknown (sets, not flows).",
 }, []string{"router"})
 
+// SamplingRate is the 1-in-N sampling rate applied to the last packet decoded
+// from each exporter. A change here changes every byte count derived from that
+// router, so it is worth graphing next to traffic.
+var SamplingRate = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "asstats_sampling_rate",
+	Help: "Sampling rate (1-in-N) applied to the most recent flows of each exporter.",
+}, []string{"router"})
+
+// PipelineQueueLength / PipelineQueueCapacity expose the fill level of the
+// collector's internal channels, sampled every few seconds. A queue pinned at
+// capacity locates the bottleneck: packets → decoders, flows → enricher,
+// enriched → batch writer / ClickHouse.
+var PipelineQueueLength = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "asstats_pipeline_queue_length",
+	Help: "Items currently queued in a collector pipeline channel.",
+}, []string{"queue"})
+
+var PipelineQueueCapacity = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "asstats_pipeline_queue_capacity",
+	Help: "Capacity of a collector pipeline channel.",
+}, []string{"queue"})
+
+// UDPReceiveBuffer is the socket receive buffer the kernel actually granted.
+// Linux silently caps the request at net.core.rmem_max.
+var UDPReceiveBuffer = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "asstats_udp_receive_buffer_bytes",
+	Help: "Effective UDP socket receive buffer size, as reported by the kernel.",
+}, []string{"listener"})
+
+// UDPSocketDrops is the kernel's cumulative drop count for a listener socket
+// (Linux only): datagrams lost because the receive buffer was full, before
+// the collector could read them. Use increase() on it like a counter; it
+// resets when the socket is reopened.
+var UDPSocketDrops = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "asstats_udp_socket_drops",
+	Help: "Datagrams dropped by the kernel on a listener socket since it was opened (Linux).",
+}, []string{"listener"})
+
 // ── Collector: alert engine ─────────────────────────────────────────────────
 
 var AlertEvaluations = promauto.NewCounterVec(prometheus.CounterOpts{

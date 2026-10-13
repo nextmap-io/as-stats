@@ -10,6 +10,7 @@ import (
 	"github.com/nextmap-io/as-stats/internal/collector/sflow"
 	"github.com/nextmap-io/as-stats/internal/collector/writer"
 	"github.com/nextmap-io/as-stats/internal/config"
+	"github.com/nextmap-io/as-stats/internal/metrics"
 	"github.com/nextmap-io/as-stats/internal/model"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
@@ -90,9 +91,68 @@ func (c *Collector) Run(ctx context.Context) error {
 		log.Printf("sFlow listener started on %s", c.cfg.ListenSFlow)
 	}
 
+	go c.reportPipelineStats(ctx)
+
 	<-ctx.Done()
 	c.shutdown(writerDone)
 	return nil
+}
+
+// statsInterval is how often channel fill levels and kernel socket drops are
+// sampled into Prometheus gauges.
+const statsInterval = 5 * time.Second
+
+// socketStats is what reportPipelineStats needs from a UDP listener.
+type socketStats interface {
+	QueueStats() (length, capacity int)
+	SocketDrops() (uint64, error)
+}
+
+func (c *Collector) reportPipelineStats(ctx context.Context) {
+	type source struct {
+		name   string
+		l      socketStats
+		warned bool
+	}
+	var sources []*source
+	if c.cfg.ListenNetFlow != "" {
+		sources = append(sources, &source{name: "netflow", l: c.nfListen})
+	}
+	if c.cfg.ListenSFlow != "" {
+		sources = append(sources, &source{name: "sflow", l: c.sfListen})
+	}
+
+	ticker := time.NewTicker(statsInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		setQueue("flows", len(c.flows), cap(c.flows))
+		setQueue("enriched", len(c.enriched), cap(c.enriched))
+		for _, s := range sources {
+			n, capacity := s.l.QueueStats()
+			setQueue(s.name+"_packets", n, capacity)
+
+			drops, err := s.l.SocketDrops()
+			if err != nil {
+				if !s.warned {
+					log.Printf("%s: kernel socket drops unavailable: %v", s.name, err)
+					s.warned = true
+				}
+				continue
+			}
+			metrics.UDPSocketDrops.WithLabelValues(s.name).Set(float64(drops))
+		}
+	}
+}
+
+func setQueue(name string, length, capacity int) {
+	metrics.PipelineQueueLength.WithLabelValues(name).Set(float64(length))
+	metrics.PipelineQueueCapacity.WithLabelValues(name).Set(float64(capacity))
 }
 
 // defaultShutdownTimeout applies when the config leaves ShutdownTimeout unset.
