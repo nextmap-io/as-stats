@@ -1,6 +1,7 @@
 import { useMemo } from "react"
 import { Link, useSearchParams } from "react-router-dom"
-import { useMovers, useTalkers } from "@/hooks/useApi"
+import { useMovers, useTalkers, useTrafficHeatmap } from "@/hooks/useApi"
+import { TrafficHeatmap } from "@/components/charts/TrafficHeatmap"
 import { useFilters } from "@/hooks/useFilters"
 import { useFeatureFlags } from "@/hooks/useFeatures"
 import { useUnit } from "@/hooks/useUnit"
@@ -58,11 +59,11 @@ function EntityCell({
         <ASRef
           asn={entityKey}
           search={filterSearch}
-          className="text-primary hover:underline font-mono shrink-0"
-          groupClassName="font-mono text-muted-foreground shrink-0"
+          className="text-primary hover:underline shrink-0"
+          groupClassName="text-muted-foreground shrink-0"
         />
         {label && !isPrivateASGroup(entityKey) && (
-          <span className="text-muted-foreground truncate text-[11px]">{label}</span>
+          <span className="text-muted-foreground truncate text-[13px]">{label}</span>
         )}
       </span>
     )
@@ -71,7 +72,7 @@ function EntityCell({
     return (
       <Link
         to={`/ip/${entityKey}${filterSearch}`}
-        className="text-primary hover:underline font-mono text-[11px] block truncate max-w-[260px]"
+        className="text-primary hover:underline text-[13px] block truncate max-w-[260px]"
       >
         <IPWithPTR ip={entityKey} />
       </Link>
@@ -82,13 +83,13 @@ function EntityCell({
     return (
       <span className="inline-flex items-baseline gap-2">
         {hasCountry(code) && <span aria-hidden>{countryFlag(code)}</span>}
-        <span className="font-mono">{code}</span>
-        <span className="text-muted-foreground truncate text-[11px]">{label || countryName(code)}</span>
+        <span className="">{code}</span>
+        <span className="text-muted-foreground truncate text-[13px]">{label || countryName(code)}</span>
       </span>
     )
   }
   // prefix | port — plain monospaced identity
-  return <span className="font-mono text-[11px]">{entityKey}</span>
+  return <span className="text-[13px]">{entityKey}</span>
 }
 
 export function Changes() {
@@ -167,7 +168,7 @@ export function Changes() {
         sortValue: (m) => m.delta,
         render: (m) => {
           const up = m.delta > 0
-          const cls = up ? "text-success" : m.delta < 0 ? "text-destructive" : "text-muted-foreground"
+          const cls = m.delta === 0 ? "text-muted-foreground" : up ? "text-foreground" : "text-foreground-secondary"
           const Icon = up ? ArrowUp : ArrowDown
           const sign = up ? "+" : "-"
           return (
@@ -178,7 +179,7 @@ export function Changes() {
                 {formatTraffic(Math.abs(m.delta), periodSeconds)}
               </span>
               {m.previous > 0 && (
-                <span className="text-[10px] opacity-70">
+                <span className="text-xs opacity-70">
                   ({up ? "+" : ""}
                   {formatPercent(m.pct)})
                 </span>
@@ -215,10 +216,10 @@ export function Changes() {
         render: (t) => (
           <span
             className={cn(
-              "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+              "inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium  ",
               t.status === "new"
-                ? "bg-success/15 text-success border border-success/30"
-                : "bg-warning/15 text-warning border border-warning/30",
+                ? "border border-foreground text-foreground"
+                : "border border-border text-muted-foreground",
             )}
           >
             {t.status === "new" ? "New" : "Gone"}
@@ -248,22 +249,22 @@ export function Changes() {
   ]
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">What changed</h1>
-        <span className="text-[10px] text-muted-foreground">
-          Current window vs. the immediately-prior equal-length window
+    <div className="space-y-8">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h1 className="text-2xl font-semibold">What changed</h1>
+        <span className="text-[13px] text-muted-foreground">
+          This window against the equal-length window just before it
         </span>
       </div>
 
       {/* Top movers */}
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader>
           <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-sm">Top movers</CardTitle>
+            <CardTitle>Top movers</CardTitle>
             <div className="flex items-center gap-2">
               <div
-                className="flex gap-0.5 rounded border border-input bg-muted/30 p-0.5"
+                className="inline-flex gap-0.5 rounded border border-input p-0.5"
                 role="group"
                 aria-label="Movers dimension"
               >
@@ -274,7 +275,7 @@ export function Changes() {
                     onClick={() => setDim("mdim", d.value)}
                     aria-pressed={activeMoverDim === d.value}
                     className={cn(
-                      "px-2 py-0.5 text-[11px] font-medium rounded transition-colors",
+                      "px-2 py-0.5 text-[13px] font-medium rounded transition-colors",
                       activeMoverDim === d.value
                         ? "bg-primary text-primary-foreground"
                         : "text-muted-foreground hover:text-foreground hover:bg-accent",
@@ -305,12 +306,12 @@ export function Changes() {
 
       {/* New / disappeared talkers */}
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader>
           <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-sm">New / disappeared talkers</CardTitle>
+            <CardTitle>New and disappeared talkers</CardTitle>
             <div className="flex items-center gap-2">
               <div
-                className="flex gap-0.5 rounded border border-input bg-muted/30 p-0.5"
+                className="inline-flex gap-0.5 rounded border border-input p-0.5"
                 role="group"
                 aria-label="Talkers dimension"
               >
@@ -321,7 +322,7 @@ export function Changes() {
                     onClick={() => setDim("tdim", d.value)}
                     aria-pressed={tdim === d.value}
                     className={cn(
-                      "px-2 py-0.5 text-[11px] font-medium rounded transition-colors",
+                      "px-2 py-0.5 text-[13px] font-medium rounded transition-colors",
                       tdim === d.value
                         ? "bg-primary text-primary-foreground"
                         : "text-muted-foreground hover:text-foreground hover:bg-accent",
@@ -349,6 +350,87 @@ export function Changes() {
           </QueryBoundary>
         </CardContent>
       </Card>
+
+      <WeeklyPattern />
     </div>
+  )
+}
+
+const HEATMAP_WEEKS = [4, 8, 12, 26] as const
+
+/**
+ * WeeklyPattern (moved here from the home page): a day × hour heatmap. Each of
+ * the 7×24 cells only means something once several weeks of samples land in
+ * it, so it uses its own multi-week lookback (?hweeks=, default 12) instead of
+ * the global time range, while still honouring the link / direction filters.
+ * `to` is snapped to the hour to keep the query key stable between renders.
+ */
+function WeeklyPattern() {
+  const { filters, bounds } = useFilters()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const raw = Number(searchParams.get("hweeks"))
+  const weeks = (HEATMAP_WEEKS as readonly number[]).includes(raw) ? raw : 12
+  const heatmapFilters = useMemo(() => {
+    const hour = Math.floor(bounds.to / 3_600_000) * 3_600_000
+    return {
+      ...filters,
+      period: undefined,
+      from: new Date(hour - weeks * 7 * 86_400_000).toISOString(),
+      to: new Date(hour).toISOString(),
+    }
+  }, [filters, bounds.to, weeks])
+  const heatmap = useTrafficHeatmap(heatmapFilters)
+
+  const setWeeks = (w: number) =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (w === 12) next.delete("hweeks")
+        else next.set("hweeks", String(w))
+        return next
+      },
+      { replace: true },
+    )
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <CardTitle>Weekly pattern</CardTitle>
+            <p className="mt-0.5 text-[13px] text-muted-foreground">
+              Throughput by day of week and hour, over the last {weeks} weeks. It ignores the time range above.
+            </p>
+          </div>
+          <div className="inline-flex overflow-hidden rounded border border-input" role="group" aria-label="Heatmap lookback">
+            {HEATMAP_WEEKS.map((w) => (
+              <button
+                key={w}
+                type="button"
+                onClick={() => setWeeks(w)}
+                aria-pressed={weeks === w}
+                title={`Aggregate the last ${w} weeks`}
+                className={cn(
+                  "px-2.5 py-1 text-[13px]",
+                  weeks === w ? "bg-accent font-semibold text-foreground" : "text-foreground-secondary hover:text-foreground",
+                )}
+              >
+                {w} weeks
+              </button>
+            ))}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <QueryBoundary
+          query={heatmap}
+          isEmpty={(d) => !d.data?.cells?.length || d.data.cells.every((c) => c.mean_bps === 0 && c.peak_bps === 0)}
+          loadingRows={7}
+          loadingCols={12}
+        >
+          {(data) => <TrafficHeatmap cells={data.data.cells} />}
+        </QueryBoundary>
+      </CardContent>
+    </Card>
   )
 }
