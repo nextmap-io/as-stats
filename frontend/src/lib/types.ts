@@ -168,6 +168,8 @@ export interface QueryFilters {
   compare?: string
   /** Anomaly explainability target (Module E): the link tag to decompose. */
   target?: string
+  /** Live Threats: 1 lists every busy host, not only abnormal ones. */
+  all?: number
 }
 
 export interface ASDetailData {
@@ -778,6 +780,78 @@ export interface LiveThreat {
   worst_pct: number
   worst_rule?: string
   status: ThreatStatus
+}
+
+// ─── Live Threats v2 (GET /threats/live, object envelope) ─────────────────
+// Each host is compared with its own usual level (same hour of day over the
+// previous 7 days). Servers before this contract return LiveThreat[] instead;
+// lib/threats.ts normalises both shapes.
+
+export type ThreatDirection = "in" | "out"
+export type ThreatLevel = "normal" | "watch" | "incident"
+
+export interface ThreatNow {
+  bps: number
+  pps: number
+  flows_per_sec: number
+  tcp_pps: number
+  udp_pps: number
+  icmp_pps: number
+  syn_pps: number
+  avg_packet_bytes: number
+  /** in: unique source IPs; out: unique destination IPs. */
+  peers: number
+  /** in: unique source ports; out: unique destination ports. */
+  peer_ports: number
+}
+
+export interface ThreatBaseline {
+  /** Minutes of history found; 0 means the host has no history ("new"). */
+  samples: number
+  bps_p50: number
+  bps_p95: number
+  pps_p50: number
+  pps_p95: number
+}
+
+export interface ThreatSeriesPoint {
+  t: string
+  bps: number
+  pps: number
+}
+
+export interface ThreatPortShare {
+  port: number
+  protocol: number
+  pct: number
+}
+
+export interface ThreatSignature {
+  kind: string
+  top_ports?: ThreatPortShare[]
+}
+
+export interface ThreatRow {
+  ip: string
+  level: ThreatLevel
+  score: number
+  now: ThreatNow
+  baseline: ThreatBaseline
+  ratio: number
+  /** First minute of the current run above p95, "" when not above. */
+  since: string
+  series: ThreatSeriesPoint[]
+  signatures: ThreatSignature[]
+  closest_rule: string
+  rule_pct: number
+}
+
+export interface LiveThreatsData {
+  direction: ThreatDirection
+  window_seconds: number
+  checked: number
+  normal: number
+  rows: ThreatRow[]
 }
 
 // =============================================================================

@@ -30,6 +30,8 @@ import type {
   LinkTraffic,
   LiveStatus,
   LiveThreat,
+  LiveThreatsData,
+  ThreatDirection,
   MoversResponse,
   Overview,
   PortTraffic,
@@ -203,8 +205,15 @@ export const api = {
   alerts: (status?: string, limit?: number) =>
     fetchAPI<Alert[]>("/alerts", { ...(status && { status }), ...(limit && { limit }) } as QueryFilters),
   alertsSummary: () => fetchAPI<AlertsSummary>("/alerts/summary"),
-  liveThreats: (window?: number, limit?: number) =>
-    fetchAPI<LiveThreat[]>("/threats/live", { ...(window && { window }), ...(limit && { limit }) } as QueryFilters),
+  // Servers before the baseline contract answer with a bare LiveThreat[];
+  // lib/threats.ts normalises both shapes.
+  liveThreats: (p: { direction: ThreatDirection; window: number; limit?: number; all?: boolean }) =>
+    fetchAPI<LiveThreatsData | LiveThreat[]>("/threats/live", {
+      direction: p.direction,
+      window: String(p.window),
+      ...(p.limit && { limit: p.limit }),
+      ...(p.all && { all: 1 }),
+    }),
 
   // ─── Anomaly explainability (Module E) ───────────────────
   // Decomposes a link's traffic over the window into its top contributing
