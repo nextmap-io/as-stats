@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState, type ReactNode } from "react"
 import { Link } from "react-router-dom"
-import { api, isApiError } from "@/lib/api"
+import { api } from "@/lib/api"
+import { blockErrorMessage } from "@/lib/block"
 import { useFeatureFlags } from "@/hooks/useFeatures"
 import { hostTarget } from "@/lib/home"
 import { formatAlertMetric } from "@/lib/format"
@@ -205,13 +206,6 @@ function SeverityCard({ severity, count }: { severity: AlertSeverity; count: num
       <p className={cn("mt-1 font-display text-4xl leading-none", lit ? config.color : "text-muted-foreground")}>{count}</p>
     </div>
   )
-}
-
-function blockErrorMessage(err: Error): string {
-  if (isApiError(err, 409)) return "BGP blackholing is not enabled on this server."
-  if (isApiError(err, 422)) return "This alert does not target a single IP address, so there is nothing to blackhole."
-  if (isApiError(err, 403)) return "Only administrators can blackhole an address."
-  return err.message
 }
 
 function SeverityBadge({ severity }: { severity: AlertSeverity }) {

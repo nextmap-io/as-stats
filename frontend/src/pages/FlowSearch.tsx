@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Link } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { api } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatBytes, formatNumber } from "@/lib/utils"
@@ -26,12 +26,39 @@ const PERIODS = [
   { value: "30d", label: "30d" },
 ]
 
+/**
+ * Filters passed in the URL by other pages (Live Threats links here with
+ * ?dst_ip=…&from=…&to=…). When present, the search runs straight away.
+ */
+function filtersFromURL(params: URLSearchParams): FlowSearchFilters | null {
+  const out: FlowSearchFilters = { limit: 100 }
+  let any = false
+  for (const key of ["src_ip", "dst_ip"] as const) {
+    const v = params.get(key)?.trim()
+    if (v) {
+      out[key] = v
+      any = true
+    }
+  }
+  const from = params.get("from")
+  const to = params.get("to")
+  if (from && to && !Number.isNaN(Date.parse(from)) && !Number.isNaN(Date.parse(to))) {
+    out.from = from
+    out.to = to
+  } else {
+    out.period = "1h"
+  }
+  return any ? out : null
+}
+
 export function FlowSearch() {
-  const [filters, setFilters] = useState<FlowSearchFilters>({
+  const [searchParams] = useSearchParams()
+  const [initial] = useState(() => filtersFromURL(searchParams))
+  const [filters, setFilters] = useState<FlowSearchFilters>(initial ?? {
     period: "1h",
     limit: 100,
   })
-  const [submitted, setSubmitted] = useState<FlowSearchFilters | null>(null)
+  const [submitted, setSubmitted] = useState<FlowSearchFilters | null>(initial)
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["flow-search", submitted],
@@ -82,7 +109,7 @@ export function FlowSearch() {
                   <button
                     key={p.value}
                     type="button"
-                    onClick={() => update("period", p.value)}
+                    onClick={() => setFilters(f => ({ ...f, period: p.value, from: undefined, to: undefined }))}
                     className={`px-2.5 py-1 text-xs rounded transition-colors ${
                       filters.period === p.value
                         ? "bg-primary text-primary-foreground"
@@ -93,6 +120,13 @@ export function FlowSearch() {
                   </button>
                 ))}
               </div>
+              {filters.from && filters.to && (
+                <span className="text-[13px] text-foreground-secondary">
+                  {new Date(filters.from).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  {"–"}
+                  {new Date(filters.to).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
             </div>
 
             {/* Source / Destination grids */}
