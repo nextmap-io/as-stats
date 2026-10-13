@@ -25,7 +25,7 @@ export function ASRef({
   if (isPrivateASGroup(asn)) {
     return (
       <span
-        className={groupClassName ?? "font-mono text-muted-foreground"}
+        className={groupClassName ?? "text-muted-foreground"}
         title="Private-use ASNs (64512-65534, 4200000000-4294967294) collapsed into one row"
       >
         {PRIVATE_AS_GROUP_NAME}

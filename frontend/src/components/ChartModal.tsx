@@ -45,25 +45,26 @@ export function ChartModal({ open, onClose, title, activePeriod, onPeriodChange,
         type="button"
         aria-label="Close modal"
         onClick={onClose}
-        className="absolute inset-0 w-full h-full bg-black/70 backdrop-blur-sm border-0 p-0"
+        className="absolute inset-0 w-full h-full bg-black/50 border-0 p-0"
       />
 
-      <div className="relative w-[95vw] max-w-6xl max-h-[90vh] bg-card border border-border rounded-lg shadow-2xl overflow-auto">
+      <div className="relative w-[95vw] max-w-6xl max-h-[90vh] overflow-auto rounded border border-border bg-card shadow-md">
         {/* Header with title + period selector */}
-        <div className="flex items-center gap-4 px-5 pt-4 pb-2 border-b border-border/50">
-          {title && <h2 className="text-sm font-semibold mr-auto">{title}</h2>}
+        <div className="flex flex-wrap items-center gap-4 border-b border-border px-5 pb-3 pt-4">
+          {title && <h2 className="mr-auto text-[15px] font-semibold">{title}</h2>}
 
           {onPeriodChange && (
-            <div className="flex gap-0.5">
+            <div className="flex gap-0.5" role="group" aria-label="Time range">
               {PERIODS.map(p => (
                 <button
                   key={p}
                   type="button"
                   onClick={() => onPeriodChange(p)}
-                  className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
+                  aria-pressed={activePeriod === p}
+                  className={`rounded px-2 py-1 text-sm ${
                     activePeriod === p
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                      ? "bg-primary font-semibold text-primary-foreground"
+                      : "text-foreground-secondary hover:bg-accent hover:text-foreground"
                   }`}
                 >
                   {p}
@@ -84,10 +85,10 @@ export function ChartModal({ open, onClose, title, activePeriod, onPeriodChange,
 
         {/* Stats bar */}
         {stats && stats.length > 0 && (
-          <div className="flex flex-wrap gap-x-5 gap-y-1 px-5 py-2 text-xs border-b border-border/30">
+          <div className="flex flex-wrap gap-x-6 gap-y-1 border-b border-border px-5 py-2 text-sm">
             {stats.map(s => (
               <div key={s.label} className="flex items-baseline gap-1.5">
-                <span className="text-muted-foreground">{s.label}:</span>
+                <span className="text-muted-foreground">{s.label}</span>
                 <span className={`font-semibold ${s.color || ""}`}>{s.value}</span>
               </div>
             ))}

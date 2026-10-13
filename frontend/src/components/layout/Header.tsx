@@ -3,16 +3,19 @@ import { Link, useLocation, useNavigate } from "react-router-dom"
 import { useTheme } from "@/hooks/useTheme"
 import { useUnit } from "@/hooks/useUnit"
 import { useDensity } from "@/hooks/useDensity"
-import { useHealthStatus } from "@/hooks/useApi"
+import { useAlertsSummary, useLiveStatus } from "@/hooks/useApi"
 import { useFeatureFlags } from "@/hooks/useFeatures"
 import { useCurrentUser } from "@/hooks/useAuth"
-import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
-import { Search, Sun, Moon, Monitor, Activity, Menu, X, LogOut, Bell, ChevronDown, Rows2, Rows3 } from "lucide-react"
+import { describeRouters } from "@/lib/status"
+import type { LiveStatus } from "@/lib/types"
+import { Search, Sun, Moon, Monitor, Menu, X, LogOut, Bell, ChevronDown, Rows2, Rows3 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 type NavItem = { to: string; label: string }
 type NavGroup = { label: string; items: NavItem[] }
+
+const UNIT_LABEL = { bps: "b/s", pps: "p/s", bytes: "bytes" } as const
 
 export function Header() {
   const { theme, setTheme } = useTheme()
@@ -67,13 +70,6 @@ export function Header() {
   const { data: userData } = useCurrentUser(features.auth)
   const user = userData?.data
 
-  const { data: statusData } = useHealthStatus()
-  const routerCount = statusData?.data?.routers?.length || 0
-  const isHealthy = routerCount > 0
-  const statusTitle = statusData?.data?.routers
-    ?.map(r => `${r.router_ip}: ${r.flow_count} flows`)
-    .join("\n") || "No data"
-
   // With AUTH_ENABLED=false the server mounts no auth middleware and no role can
   // ever resolve, yet every endpoint is open — so admin-only nav must still show.
   const isAdmin = !features.auth || user?.role === "admin"
@@ -107,7 +103,7 @@ export function Header() {
     groups.push({
       label: "Forensics",
       items: [
-        { to: "/flows", label: "Flow Search" },
+        { to: "/flows", label: "Flow search" },
         { to: "/conversations", label: "Conversations" },
       ],
     })
@@ -115,11 +111,11 @@ export function Header() {
 
   const security: NavItem[] = []
   if (features.alerts) {
-    security.push({ to: "/live", label: "Live Threats" })
+    security.push({ to: "/live", label: "Live threats" })
     security.push({ to: "/alerts", label: "Alerts" })
   }
   if (features.bgp) {
-    security.push({ to: "/bgp", label: "BGP Blocks" })
+    security.push({ to: "/bgp", label: "BGP blocks" })
   }
   if (security.length) groups.push({ label: "Security", items: security })
 
@@ -130,14 +126,7 @@ export function Header() {
   if (isAdmin || features.alerts) system.push({ to: "/admin", label: "Admin" })
   if (system.length) groups.push({ label: "System", items: system })
 
-  // Active alerts count for the badge
-  const { data: alertsSummary } = useQuery({
-    queryKey: ["alerts-summary"],
-    queryFn: () => api.alertsSummary(),
-    refetchInterval: 30_000,
-    enabled: features.alerts,
-    retry: false,
-  })
+  const { data: alertsSummary } = useAlertsSummary(features.alerts)
   const activeAlerts = alertsSummary?.data?.total || 0
   const criticalAlerts = alertsSummary?.data?.by_severity?.critical || 0
 
@@ -167,21 +156,25 @@ export function Header() {
     }
   }, [openMenu])
 
+  const toolButton =
+    "inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded border border-input px-2 text-[13px] text-foreground-secondary hover:text-foreground hover:bg-accent"
+
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
-      <div className="flex h-12 items-center gap-3 px-4 lg:px-6">
-        <Link to="/" className="flex items-center gap-2 text-primary font-semibold tracking-tight shrink-0">
-          <Activity className="size-4" />
-          <span className="text-sm">AS-Stats</span>
+    <header className="sticky top-0 z-50 border-b border-border bg-card">
+      <div className="mx-auto flex h-14 max-w-[1400px] items-center gap-4 px-4 sm:px-6 lg:px-8">
+        <Link to="/" className="flex shrink-0 items-baseline gap-2">
+          <span className="text-lg font-bold tracking-tight" style={{ fontStretch: "125%" }}>
+            AS-Stats
+          </span>
+          {features.local_as ? (
+            <span className="hidden text-[13px] text-muted-foreground sm:inline">AS{features.local_as}</span>
+          ) : null}
         </Link>
-        <span
-          className={`size-2 rounded-full shrink-0 ${isHealthy ? "bg-success" : "bg-destructive"} animate-pulse`}
-          title={statusTitle}
-        />
+        <HealthDot />
 
         {/* Desktop nav: a Dashboard link plus grouped dropdown menus. No overflow
             container here — a scroll ancestor would clip the dropdown panels. */}
-        <nav ref={navRef} className="hidden md:flex items-center gap-0.5 ml-4" aria-label="Main navigation">
+        <nav ref={navRef} className="ml-2 hidden h-full items-stretch lg:flex" aria-label="Main navigation">
           <NavLink to="/" active={isActive(location.pathname, "/")}>
             Dashboard
           </NavLink>
@@ -200,15 +193,15 @@ export function Header() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
-          <form onSubmit={handleSearch} className="relative hidden sm:block">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+          <form onSubmit={handleSearch} className="relative hidden sm:block" role="search">
+            <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
             <input
               type="search"
-              placeholder="AS, IP, prefix..."
+              placeholder="AS number, IP or prefix"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              aria-label="Search AS numbers, IP addresses, or prefixes"
-              className="h-8 w-40 lg:w-56 rounded border border-input bg-muted/50 pl-7 pr-3 text-xs placeholder:text-muted-foreground/60 outline-none focus-visible:ring-1 focus-visible:ring-ring transition-all"
+              aria-label="Search AS numbers, IP addresses or prefixes"
+              className="h-8 w-44 rounded border border-input bg-background pl-8 pr-3 text-[13px] placeholder:text-muted-foreground outline-none focus-visible:border-ring xl:w-60"
             />
           </form>
 
@@ -216,19 +209,20 @@ export function Header() {
             <Link
               to="/alerts"
               className={cn(
-                "relative inline-flex size-8 items-center justify-center rounded border transition-colors",
-                criticalAlerts > 0
-                  ? "border-destructive/50 bg-destructive/20 text-destructive hover:bg-destructive/30 animate-pulse"
-                  : activeAlerts > 0
-                    ? "border-warning/50 bg-warning/20 text-warning hover:bg-warning/30"
-                    : "border-input bg-muted/50 hover:bg-accent",
+                toolButton,
+                criticalAlerts > 0 && "border-destructive text-destructive hover:text-destructive",
               )}
-              aria-label={`Alerts (${activeAlerts} active)`}
+              aria-label={`Alerts: ${activeAlerts} active${criticalAlerts > 0 ? `, ${criticalAlerts} critical` : ""}`}
               title={`${activeAlerts} active alert${activeAlerts !== 1 ? "s" : ""}${criticalAlerts > 0 ? ` (${criticalAlerts} critical)` : ""}`}
             >
-              <Bell className="size-3.5" />
+              <Bell className="size-3.5" aria-hidden />
               {activeAlerts > 0 && (
-                <span className="absolute -top-1 -right-1 inline-flex min-w-[14px] h-[14px] items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[9px] font-bold px-1 leading-none">
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 text-xs font-semibold leading-[18px]",
+                    criticalAlerts > 0 ? "bg-destructive text-destructive-foreground" : "bg-primary text-primary-foreground",
+                  )}
+                >
                   {activeAlerts > 99 ? "99+" : activeAlerts}
                 </span>
               )}
@@ -236,80 +230,86 @@ export function Header() {
           )}
 
           <button
+            type="button"
             onClick={toggleUnit}
-            className="inline-flex h-8 items-center justify-center rounded border border-input bg-muted/50 hover:bg-accent transition-colors px-2 text-[10px] font-bold tabular-nums tracking-tight"
-            aria-label={`Switch unit (current: ${unit})`}
-            title={`Showing ${unit} — click to cycle`}
+            className={toolButton}
+            aria-label={`Traffic unit: ${UNIT_LABEL[unit]}. Click to switch.`}
+            title="Switch between bits per second, packets per second and bytes"
           >
-            {unit}
+            {UNIT_LABEL[unit]}
           </button>
 
           <button
+            type="button"
             onClick={toggleDensity}
-            className="inline-flex size-8 items-center justify-center rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
-            aria-label={`Table density: ${density} — click to toggle`}
+            className={cn(toolButton, "hidden sm:inline-flex")}
+            aria-label={`Table density: ${density}. Click to switch.`}
             aria-pressed={density === "compact"}
-            title={`Density: ${density} — click to toggle`}
+            title={`Table density: ${density}`}
           >
-            {density === "compact" ? <Rows2 className="size-3.5" /> : <Rows3 className="size-3.5" />}
+            {density === "compact" ? <Rows2 className="size-3.5" aria-hidden /> : <Rows3 className="size-3.5" aria-hidden />}
           </button>
 
           <button
+            type="button"
             onClick={cycleTheme}
-            className="inline-flex size-8 items-center justify-center rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
-            aria-label={`Switch theme (current: ${theme})`}
+            className={toolButton}
+            aria-label={`Colour theme: ${theme}. Click to switch.`}
+            title={`Theme: ${theme}`}
           >
-            <ThemeIcon className="size-3.5" />
+            <ThemeIcon className="size-3.5" aria-hidden />
           </button>
 
           {user && (
             <button
+              type="button"
               onClick={() => {
-                api.logout().then(() => {
+                void api.logout().then(() => {
                   window.location.href = "/auth/login"
                 })
               }}
-              className="inline-flex h-8 items-center gap-1.5 rounded border border-input bg-muted/50 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 transition-colors px-2"
-              title={`${user.name || user.email} — click to logout`}
-              aria-label="Logout"
+              className={toolButton}
+              title={`Signed in as ${user.name || user.email}. Click to sign out.`}
+              aria-label="Sign out"
             >
-              <LogOut className="size-3.5" />
-              <span className="hidden lg:inline text-xs">{user.name || user.email}</span>
+              <LogOut className="size-3.5" aria-hidden />
+              <span className="hidden xl:inline">{user.name || user.email}</span>
             </button>
           )}
 
           <button
+            type="button"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="inline-flex md:hidden size-8 items-center justify-center rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
-            aria-label="Toggle navigation menu"
+            className={cn(toolButton, "lg:hidden")}
+            aria-label="Navigation menu"
             aria-expanded={mobileMenuOpen}
           >
-            {mobileMenuOpen ? <X className="size-3.5" /> : <Menu className="size-3.5" />}
+            {mobileMenuOpen ? <X className="size-4" aria-hidden /> : <Menu className="size-4" aria-hidden />}
           </button>
         </div>
       </div>
 
       {mobileMenuOpen && (
-        <nav className="md:hidden border-t border-border bg-background p-3 animate-fade-in" aria-label="Mobile navigation">
-          <form onSubmit={handleSearch} className="relative mb-3 sm:hidden">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+        <nav className="border-t border-border bg-card px-4 py-3 lg:hidden" aria-label="Mobile navigation">
+          <form onSubmit={handleSearch} className="relative mb-3 sm:hidden" role="search">
+            <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
             <input
               type="search"
-              placeholder="Search AS, IP, prefix..."
+              placeholder="AS number, IP or prefix"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              aria-label="Search"
-              className="h-8 w-full rounded border border-input bg-muted/50 pl-7 pr-3 text-xs outline-none"
+              aria-label="Search AS numbers, IP addresses or prefixes"
+              className="h-9 w-full rounded border border-input bg-background pl-8 pr-3 text-sm outline-none focus-visible:border-ring"
             />
           </form>
-          <div className="flex flex-col gap-3">
-            <MobileLink to="/" label="Dashboard" pathname={location.pathname} onNavigate={() => setMobileMenuOpen(false)} />
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
+            <div>
+              <MobileLink to="/" label="Dashboard" pathname={location.pathname} onNavigate={() => setMobileMenuOpen(false)} />
+            </div>
             {groups.map(group => (
               <div key={group.label}>
-                <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
-                  {group.label}
-                </div>
-                <div className="flex flex-col gap-0.5">
+                <div className="pb-1 text-[13px] text-muted-foreground">{group.label}</div>
+                <div className="flex flex-col">
                   {group.items.map(item => (
                     <MobileLink
                       key={item.to}
@@ -327,6 +327,46 @@ export function Header() {
       )}
     </header>
   )
+}
+
+// HealthDot: green only when every router is reporting, amber when one is
+// late, red when one is silent or none report, grey while unknown. It never
+// animates — a pulsing "healthy" dot trains people to ignore it.
+function HealthDot() {
+  const { data, dataUpdatedAt, isError } = useLiveStatus()
+  const level = healthLevel(data, isError)
+  const label = {
+    ok: "All routers reporting",
+    warn: "A router is late",
+    bad: "Flow collection problem",
+    unknown: "Collection status unknown",
+  }[level]
+  const detail = data ? describeRouters(data, dataUpdatedAt) : isError ? "Status endpoint unavailable" : "Loading"
+  return (
+    <Link
+      to="/status"
+      className="inline-flex size-6 shrink-0 items-center justify-center rounded"
+      title={`${label}\n${detail}`}
+      aria-label={`${label}. ${detail.replaceAll("\n", "; ")}`}
+    >
+      <span
+        className={cn(
+          "size-2 rounded-full",
+          level === "ok" && "bg-success",
+          level === "warn" && "bg-warning-mark",
+          level === "bad" && "bg-destructive",
+          level === "unknown" && "bg-muted-foreground/50",
+        )}
+      />
+    </Link>
+  )
+}
+
+function healthLevel(data: LiveStatus | undefined, isError: boolean): "ok" | "warn" | "bad" | "unknown" {
+  if (!data) return isError ? "bad" : "unknown"
+  if (data.healthy) return "ok"
+  if (!data.routers.length || data.routers.some(r => r.state === "missing")) return "bad"
+  return "warn"
 }
 
 // NavMenu renders one top-level dropdown: a trigger button plus a panel of
@@ -349,26 +389,26 @@ function NavMenu({
 }) {
   const active = group.items.some(i => isActive(pathname, i.to))
   return (
-    <div className="relative" onMouseEnter={onHover}>
+    <div className="relative flex" onMouseEnter={onHover}>
       <button
         type="button"
         onClick={onToggle}
         aria-haspopup="true"
         aria-expanded={open}
         className={cn(
-          "inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded transition-colors",
-          active || open
-            ? "bg-primary/10 text-primary"
-            : "text-muted-foreground hover:text-foreground hover:bg-accent",
+          "inline-flex items-center gap-1 border-b-2 px-2.5 pt-0.5 text-sm",
+          active
+            ? "border-foreground font-semibold text-foreground"
+            : "border-transparent text-foreground-secondary hover:text-foreground",
         )}
       >
         {group.label}
-        <ChevronDown className={cn("size-3 transition-transform", open && "rotate-180")} aria-hidden />
+        <ChevronDown className={cn("size-3.5 opacity-60", open && "rotate-180")} aria-hidden />
       </button>
       {open && (
         <div
           role="menu"
-          className="absolute left-0 top-full mt-1 z-50 min-w-[180px] rounded border border-border bg-card p-1 shadow-lg animate-fade-in"
+          className="absolute left-0 top-full z-50 min-w-[190px] rounded-b border border-t-0 border-border bg-popover py-1 shadow-md"
         >
           {group.items.map(item => (
             <Link
@@ -377,10 +417,10 @@ function NavMenu({
               role="menuitem"
               onClick={onClose}
               className={cn(
-                "block px-3 py-1.5 text-xs font-medium rounded transition-colors",
+                "block px-3.5 py-1.5 text-sm",
                 isActive(pathname, item.to)
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                  ? "font-semibold text-foreground"
+                  : "text-foreground-secondary hover:bg-accent hover:text-foreground",
               )}
               aria-current={isActive(pathname, item.to) ? "page" : undefined}
             >
@@ -409,10 +449,8 @@ function MobileLink({
       to={to}
       onClick={onNavigate}
       className={cn(
-        "px-3 py-2 text-xs font-medium rounded transition-colors",
-        isActive(pathname, to)
-          ? "bg-primary/10 text-primary"
-          : "text-muted-foreground hover:text-foreground hover:bg-accent",
+        "py-1.5 text-sm",
+        isActive(pathname, to) ? "font-semibold text-foreground" : "text-foreground-secondary hover:text-foreground",
       )}
       aria-current={isActive(pathname, to) ? "page" : undefined}
     >
@@ -426,10 +464,10 @@ function NavLink({ to, active, children }: { to: string; active: boolean; childr
     <Link
       to={to}
       className={cn(
-        "px-2.5 py-1 text-xs font-medium rounded transition-colors",
+        "inline-flex items-center border-b-2 px-2.5 pt-0.5 text-sm",
         active
-          ? "bg-primary/10 text-primary"
-          : "text-muted-foreground hover:text-foreground hover:bg-accent"
+          ? "border-foreground font-semibold text-foreground"
+          : "border-transparent text-foreground-secondary hover:text-foreground",
       )}
       aria-current={active ? "page" : undefined}
     >

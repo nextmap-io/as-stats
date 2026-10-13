@@ -62,15 +62,15 @@ export function FlowSearch() {
   return (
     <div className="space-y-4">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Flow Search</h1>
-        <span className="text-[10px] text-muted-foreground">
+        <h1 className="text-2xl font-semibold">Flow Search</h1>
+        <span className="text-xs text-muted-foreground">
           Forensic search over the flow log (max 30 days)
         </span>
       </div>
 
       <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Filters</CardTitle>
+        <CardHeader>
+          <CardTitle>Filters</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-3">
@@ -98,14 +98,14 @@ export function FlowSearch() {
             {/* Source / Destination grids */}
             <div className="grid gap-3 lg:grid-cols-2">
               <div className="space-y-2">
-                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Source</div>
+                <div className="text-xs font-medium text-muted-foreground">Source</div>
                 <Field label="IP / CIDR">
                   <input
                     type="text"
                     value={filters.src_ip || ""}
                     onChange={e => update("src_ip", e.target.value)}
                     placeholder="10.0.0.1 or 10.0.0.0/24"
-                    className="flex-1 h-7 px-2 rounded border border-input bg-muted/30 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
+                    className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   />
                 </Field>
                 <Field label="AS">
@@ -114,7 +114,7 @@ export function FlowSearch() {
                     value={filters.src_as || ""}
                     onChange={e => update("src_as", e.target.value ? Number(e.target.value) : undefined)}
                     placeholder="13335"
-                    className="w-28 h-7 px-2 rounded border border-input bg-muted/30 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
+                    className="w-28 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   />
                 </Field>
                 <Field label="Port">
@@ -123,7 +123,7 @@ export function FlowSearch() {
                     value={filters.src_port || ""}
                     onChange={e => update("src_port", e.target.value ? Number(e.target.value) : undefined)}
                     placeholder="any"
-                    className="w-24 h-7 px-2 rounded border border-input bg-muted/30 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
+                    className="w-24 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     min={1}
                     max={65535}
                   />
@@ -131,14 +131,14 @@ export function FlowSearch() {
               </div>
 
               <div className="space-y-2">
-                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Destination</div>
+                <div className="text-xs font-medium text-muted-foreground">Destination</div>
                 <Field label="IP / CIDR">
                   <input
                     type="text"
                     value={filters.dst_ip || ""}
                     onChange={e => update("dst_ip", e.target.value)}
                     placeholder="1.1.1.1"
-                    className="flex-1 h-7 px-2 rounded border border-input bg-muted/30 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
+                    className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   />
                 </Field>
                 <Field label="AS">
@@ -147,7 +147,7 @@ export function FlowSearch() {
                     value={filters.dst_as || ""}
                     onChange={e => update("dst_as", e.target.value ? Number(e.target.value) : undefined)}
                     placeholder="13335"
-                    className="w-28 h-7 px-2 rounded border border-input bg-muted/30 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
+                    className="w-28 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   />
                 </Field>
                 <Field label="Port">
@@ -156,7 +156,7 @@ export function FlowSearch() {
                     value={filters.dst_port || ""}
                     onChange={e => update("dst_port", e.target.value ? Number(e.target.value) : undefined)}
                     placeholder="e.g. 443"
-                    className="w-24 h-7 px-2 rounded border border-input bg-muted/30 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
+                    className="w-24 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     min={1}
                     max={65535}
                   />
@@ -170,7 +170,7 @@ export function FlowSearch() {
                 <select
                   value={filters.protocol || 0}
                   onChange={e => update("protocol", Number(e.target.value) || undefined)}
-                  className="h-7 px-2 rounded border border-input bg-muted/30 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   {PROTOCOLS.map(p => (
                     <option key={p.value} value={p.value}>{p.label}</option>
@@ -181,7 +181,7 @@ export function FlowSearch() {
                 <select
                   value={filters.ip_version || 0}
                   onChange={e => update("ip_version", e.target.value ? Number(e.target.value) as 4 | 6 : undefined)}
-                  className="h-7 px-2 rounded border border-input bg-muted/30 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <option value={0}>All</option>
                   <option value={4}>IPv4</option>
@@ -194,7 +194,7 @@ export function FlowSearch() {
                   value={filters.min_bytes || ""}
                   onChange={e => update("min_bytes", e.target.value ? Number(e.target.value) : undefined)}
                   placeholder="0"
-                  className="w-28 h-7 px-2 rounded border border-input bg-muted/30 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
+                  className="w-28 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   min={0}
                 />
               </Field>
@@ -203,7 +203,7 @@ export function FlowSearch() {
                   type="number"
                   value={filters.limit || 100}
                   onChange={e => update("limit", Number(e.target.value))}
-                  className="w-20 h-7 px-2 rounded border border-input bg-muted/30 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
+                  className="w-20 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   min={1}
                   max={1000}
                 />
@@ -223,7 +223,7 @@ export function FlowSearch() {
               <button
                 type="button"
                 onClick={handleReset}
-                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded border border-input bg-background hover:bg-accent transition-colors"
               >
                 <X className="size-3" />
                 Reset
@@ -232,7 +232,7 @@ export function FlowSearch() {
                 type="button"
                 onClick={handleExport}
                 disabled={!submitted || results.length === 0}
-                className="ml-auto inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors disabled:opacity-50"
+                className="ml-auto inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded border border-input bg-background hover:bg-accent transition-colors disabled:opacity-50"
                 title="Export current search as CSV (max 100k rows)"
               >
                 <Download className="size-3" />
@@ -255,13 +255,13 @@ export function FlowSearch() {
 
       {submitted && !error && (
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <div className="flex items-baseline justify-between">
-              <CardTitle className="text-sm">
+              <CardTitle>
                 Results {isLoading ? "(loading...)" : `(${formatNumber(results.length)})`}
               </CardTitle>
               {results.length >= (submitted.limit || 100) && (
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   Limit reached — refine filters or increase limit
                 </span>
               )}
@@ -273,8 +273,8 @@ export function FlowSearch() {
             ) : results.length === 0 ? (
               <p className="text-muted-foreground text-xs">No flows match your filters</p>
             ) : (
-              <div className="overflow-x-auto -mx-4 px-4">
-                <table className="w-full text-xs">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border">
                       <th className="pb-1.5 text-left font-medium text-muted-foreground">Source</th>
@@ -288,26 +288,26 @@ export function FlowSearch() {
                   </thead>
                   <tbody>
                     {results.map((e) => (
-                      <tr key={`${e.src_ip}-${e.src_port}-${e.dst_ip}-${e.dst_port}-${e.protocol}`} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
-                        <td className="py-1 font-mono text-[10px] max-w-[260px]">
+                      <tr key={`${e.src_ip}-${e.src_port}-${e.dst_ip}-${e.dst_port}-${e.protocol}`} className="border-b border-border-soft last:border-0 hover:bg-accent/60">
+                        <td className="py-1 font-ip text-xs max-w-[260px]">
                           <Link to={`/ip/${e.src_ip}`} className="text-primary hover:underline">
                             <IPWithPTR ip={e.src_ip} />
                           </Link>
                           {e.src_port > 0 && <span className="text-muted-foreground">:{e.src_port}</span>}
                           {e.src_as > 0 && (
-                            <span className="block text-[9px] text-muted-foreground">
+                            <span className="block text-xs text-muted-foreground">
                               <Link to={`/as/${e.src_as}`} className="hover:underline">AS{e.src_as}</Link>
                             </span>
                           )}
                         </td>
                         <td className="py-1 text-muted-foreground">→</td>
-                        <td className="py-1 font-mono text-[10px] max-w-[260px]">
+                        <td className="py-1 font-ip text-xs max-w-[260px]">
                           <Link to={`/ip/${e.dst_ip}`} className="text-primary hover:underline">
                             <IPWithPTR ip={e.dst_ip} />
                           </Link>
                           {e.dst_port > 0 && <span className="text-muted-foreground">:{e.dst_port}</span>}
                           {e.dst_as > 0 && (
-                            <span className="block text-[9px] text-muted-foreground">
+                            <span className="block text-xs text-muted-foreground">
                               <Link to={`/as/${e.dst_as}`} className="hover:underline">AS{e.dst_as}</Link>
                             </span>
                           )}
@@ -316,13 +316,13 @@ export function FlowSearch() {
                           <span className="inline-flex items-center gap-1">
                             <ProtocolBadge protocol={e.protocol_name || String(e.protocol)} />
                             {e.service && (
-                              <span className="text-[9px] text-muted-foreground">{e.service}</span>
+                              <span className="text-xs text-muted-foreground">{e.service}</span>
                             )}
                           </span>
                         </td>
-                        <td className="py-1 text-right font-mono">{formatBytes(e.bytes)}</td>
-                        <td className="py-1 text-right font-mono text-muted-foreground hidden sm:table-cell">{formatNumber(e.packets)}</td>
-                        <td className="py-1 text-right font-mono text-muted-foreground hidden sm:table-cell">{formatNumber(e.flow_count)}</td>
+                        <td className="py-1 text-right">{formatBytes(e.bytes)}</td>
+                        <td className="py-1 text-right text-muted-foreground hidden sm:table-cell">{formatNumber(e.packets)}</td>
+                        <td className="py-1 text-right text-muted-foreground hidden sm:table-cell">{formatNumber(e.flow_count)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -333,7 +333,7 @@ export function FlowSearch() {
               <button
                 type="button"
                 onClick={() => refetch()}
-                className="mt-2 text-[10px] text-muted-foreground hover:text-foreground"
+                className="mt-2 text-xs text-muted-foreground hover:text-foreground"
               >
                 Refresh
               </button>
@@ -348,7 +348,7 @@ export function FlowSearch() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex items-center gap-2">
-      <span className="text-[10px] text-muted-foreground w-16 shrink-0">{label}</span>
+      <span className="text-xs text-muted-foreground w-16 shrink-0">{label}</span>
       {children}
     </label>
   )
@@ -368,7 +368,7 @@ function ProtocolBadge({ protocol }: { protocol: string }) {
   else if (common.includes(protocol)) color = "bg-muted/50 text-foreground"
 
   return (
-    <span className={`px-1.5 py-0.5 text-[9px] font-mono rounded ${color}`}>
+    <span className={`px-1.5 py-0.5 text-xs rounded ${color}`}>
       {protocol}
     </span>
   )

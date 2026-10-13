@@ -10,16 +10,19 @@ import type { AsymmetryClass } from "@/lib/types"
  * traffic-out tokens so the meaning is consistent with the charts.
  */
 
+// The class is computed from the AS's side of the exchange (see ourView in
+// lib/asn.ts): an eyeball network receives far more than it sends, so from
+// your side it is mostly OUTBOUND, and a content network mostly INBOUND.
 const CLASS_STYLES: Record<AsymmetryClass, string> = {
-  eyeball: "border-traffic-in/40 text-traffic-in bg-traffic-in/10",
-  content: "border-traffic-out/40 text-traffic-out bg-traffic-out/10",
-  balanced: "border-border text-muted-foreground bg-muted/40",
+  eyeball: "border-traffic-out/50 text-traffic-out",
+  content: "border-traffic-in/50 text-traffic-in",
+  balanced: "border-border text-muted-foreground",
 }
 
 const CLASS_TITLES: Record<AsymmetryClass, string> = {
-  eyeball: "Eyeball — mostly inbound (access / broadband)",
-  content: "Content — mostly outbound (hosting / CDN)",
-  balanced: "Balanced — roughly symmetric in/out",
+  eyeball: "Eyeball network (access, broadband): it receives far more from you than it sends",
+  content: "Content network (hosting, CDN): it sends you far more than it receives",
+  balanced: "Balanced: roughly as much in as out",
 }
 
 export function AsymmetryBadge({ cls }: { cls: AsymmetryClass | undefined }) {
@@ -28,7 +31,7 @@ export function AsymmetryBadge({ cls }: { cls: AsymmetryClass | undefined }) {
     <span
       title={CLASS_TITLES[cls]}
       className={cn(
-        "inline-block rounded border px-1.5 py-0.5 text-[10px] font-medium capitalize leading-none",
+        "inline-block rounded border px-1.5 py-0.5 text-xs font-medium capitalize leading-none",
         CLASS_STYLES[cls],
       )}
     >
@@ -40,6 +43,8 @@ export function AsymmetryBadge({ cls }: { cls: AsymmetryClass | undefined }) {
 /**
  * Two-segment bar showing inbound vs outbound byte share, with a numeric
  * summary on hover. Falls back to a dash when neither side has traffic.
+ * `bytesIn` / `bytesOut` are from YOUR network's side: pass AS totals through
+ * ourView() first.
  */
 export function RatioBar({ bytesIn, bytesOut }: { bytesIn: number; bytesOut: number }) {
   const total = bytesIn + bytesOut
@@ -48,14 +53,14 @@ export function RatioBar({ bytesIn, bytesOut }: { bytesIn: number; bytesOut: num
   const outPct = 100 - inPct
   return (
     <div
-      className="flex items-center gap-2"
+      className="inline-flex items-center gap-2 pl-3"
       title={`In ${formatBytes(bytesIn)} / Out ${formatBytes(bytesOut)}`}
     >
-      <div className="flex h-1.5 w-20 overflow-hidden rounded-full bg-muted">
+      <div className="flex h-1.5 w-20 overflow-hidden rounded-[1px] bg-muted">
         <div className="h-1.5 bg-traffic-in" style={{ width: `${inPct}%` }} />
         <div className="h-1.5 bg-traffic-out" style={{ width: `${outPct}%` }} />
       </div>
-      <span className="tabular-nums text-[10px] text-muted-foreground">
+      <span className="tabular-nums text-xs text-muted-foreground">
         <span className="text-traffic-in">{Math.round(inPct)}</span>
         <span className="mx-0.5">/</span>
         <span className="text-traffic-out">{Math.round(outPct)}</span>

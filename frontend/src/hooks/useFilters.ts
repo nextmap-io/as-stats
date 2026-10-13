@@ -109,14 +109,6 @@ function useRelativeClock(): number {
   return now
 }
 
-function bucketFor(periodSeconds: number): number {
-  if (periodSeconds <= 10800) return 60 // <= 3h: 1 min
-  if (periodSeconds <= 21600) return 120 // <= 6h: 2 min
-  if (periodSeconds <= 129600) return 300 // <= 36h: 5 min
-  if (periodSeconds <= 604800) return 3600 // <= 7d: 1h
-  return 86400 // > 7d: 24h
-}
-
 export function useFilters() {
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -236,8 +228,8 @@ export function useFilters() {
   // Time bounds for the current period (for chart X domain).
   const timeBounds = useMemo<TimeBounds>(() => ({ from: bounds.from, to: bounds.to }), [bounds])
 
-  // Bucket interval in seconds (matches backend autoStep).
-  const bucketSeconds = useMemo(() => bucketFor(periodSeconds), [periodSeconds])
+  // There is deliberately no client-side bucket width here: per-bucket bytes
+  // are converted with the server's meta.step_seconds (see lib/rate.ts).
 
   return {
     filters,
@@ -248,7 +240,6 @@ export function useFilters() {
     filterSearch,
     period,
     periodSeconds,
-    bucketSeconds,
     timeBounds,
     bounds,
   }

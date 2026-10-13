@@ -73,21 +73,21 @@ export function LiveThreats() {
   }
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-4">
       <div className="flex items-baseline justify-between flex-wrap gap-2">
-        <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2">
+        <h1 className="text-2xl font-semibold flex items-center gap-2">
           <Activity className="size-4" />
           Live Threats
           {isFetching && (
-            <span className="size-1.5 rounded-full bg-primary animate-pulse" aria-label="refreshing" />
+            <span className="size-1.5 rounded-full bg-primary" aria-label="refreshing" />
           )}
         </h1>
         <div className="flex items-center gap-3">
           <Link
             to="/alerts"
-            className="text-[10px] text-muted-foreground hover:text-foreground uppercase tracking-widest"
+            className="text-xs text-muted-foreground hover:text-foreground"
           >
-            View triggered alerts →
+            View triggered alerts
           </Link>
         </div>
       </div>
@@ -113,7 +113,7 @@ export function LiveThreats() {
               key={w.value}
               onClick={() => setWindowSec(w.value)}
               className={cn(
-                "px-2 py-1 text-[10px] font-medium rounded transition-colors",
+                "px-2 py-1 text-xs font-medium rounded transition-colors",
                 windowSec === w.value
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground"
@@ -123,7 +123,7 @@ export function LiveThreats() {
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer">
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
           <input
             type="checkbox"
             checked={hideOk}
@@ -135,7 +135,7 @@ export function LiveThreats() {
       </div>
 
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader>
           <CardTitle>
             Top destinations · last {WINDOWS.find((w) => w.value === windowSec)?.label}
           </CardTitle>
@@ -152,8 +152,8 @@ export function LiveThreats() {
               }
             />
           ) : (
-            <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
-              <table className="w-full text-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
                     <SortableTH label="Status" align="left" sortKey="status" current={sortKey} dir={sortDir} onSort={onSort} />
@@ -170,7 +170,7 @@ export function LiveThreats() {
                     <tr
                       key={t.target_ip}
                       className={cn(
-                        "border-b border-border/40 last:border-0 hover:bg-accent/50 transition-colors",
+                        "border-b border-border-soft last:border-0 hover:bg-accent/50 transition-colors",
                         t.status === "critical" && "bg-destructive/5"
                       )}
                     >
@@ -178,19 +178,19 @@ export function LiveThreats() {
                         <StatusBadge status={t.status} pct={t.worst_pct} />
                       </td>
                       <td className="py-1.5">
-                        <Link to={`/ip/${t.target_ip}`} className="text-primary hover:underline font-mono text-[11px]">
+                        <Link to={`/ip/${t.target_ip}`} className="text-primary hover:underline font-ip text-[13px]">
                           <IPWithPTR ip={t.target_ip} />
                         </Link>
                       </td>
-                      <td className="py-1.5 text-right font-mono">{formatBps(t.bps)}</td>
-                      <td className="py-1.5 text-right font-mono">{formatPps(t.pps)}</td>
-                      <td className="py-1.5 text-right font-mono hidden sm:table-cell">
+                      <td className="py-1.5 text-right">{formatBps(t.bps)}</td>
+                      <td className="py-1.5 text-right">{formatPps(t.pps)}</td>
+                      <td className="py-1.5 text-right hidden sm:table-cell">
                         {t.syn_pps > 0 ? formatPps(t.syn_pps) : <span className="text-muted-foreground">—</span>}
                       </td>
-                      <td className="py-1.5 text-right font-mono hidden sm:table-cell">
+                      <td className="py-1.5 text-right hidden sm:table-cell">
                         {t.unique_src_ips > 0 ? t.unique_src_ips.toLocaleString() : <span className="text-muted-foreground">—</span>}
                       </td>
-                      <td className="py-1.5 text-right text-[10px] text-muted-foreground">
+                      <td className="py-1.5 text-right text-xs text-muted-foreground">
                         {t.worst_rule || <span className="opacity-50">—</span>}
                       </td>
                     </tr>
@@ -208,24 +208,24 @@ export function LiveThreats() {
 function StatusCard({ status, count }: { status: ThreatStatus; count: number }) {
   const config = {
     critical: {
-      title: "CRITICAL",
+      title: "Critical",
       label: "≥ threshold",
       color: "text-destructive",
       bg: "bg-destructive/10 border-destructive/30",
       icon: ShieldAlert,
     },
     warn: {
-      title: "WARN",
+      title: "Watch",
       label: "≥ 50% threshold",
       color: "text-warning",
       bg: "bg-warning/10 border-warning/30",
       icon: AlertTriangle,
     },
     ok: {
-      title: "OK",
+      title: "Normal",
       label: "below 50%",
-      color: "text-success",
-      bg: "bg-success/10 border-success/30",
+      color: "text-foreground",
+      bg: "",
       icon: CheckCircle2,
     },
   }[status]
@@ -236,16 +236,18 @@ function StatusCard({ status, count }: { status: ThreatStatus; count: number }) 
   // implementation packed everything into a single CardContent with custom
   // padding which produced inconsistent vertical positioning.
   return (
-    <Card className={cn(config.bg, count > 0 && status === "critical" && "animate-pulse")}>
+    // Dark cockpit: a count only takes its colour when it is non-zero and
+    // abnormal; "Normal" never lights up.
+    <Card>
       <CardHeader className="pb-1">
-        <div className="flex items-center justify-between">
-          <CardTitle className={config.color}>{config.title}</CardTitle>
-          <Icon className={cn("size-4", config.color)} />
+        <div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+          <Icon className={cn("size-3.5", count > 0 && status !== "ok" && config.color)} aria-hidden />
+          <CardTitle className="text-[13px] font-normal text-muted-foreground">{config.title}</CardTitle>
         </div>
       </CardHeader>
       <CardContent>
-        <p className={cn("text-2xl font-bold tabular-nums leading-none", config.color)}>{count}</p>
-        <p className="text-[9px] text-muted-foreground mt-1.5">{config.label}</p>
+        <p className={cn("font-display text-4xl leading-none", count > 0 && status !== "ok" ? config.color : "text-foreground")}>{count}</p>
+        <p className="mt-1.5 text-[13px] text-muted-foreground">{config.label}</p>
       </CardContent>
     </Card>
   )
@@ -307,15 +309,15 @@ function SortableTH({
 
 function StatusBadge({ status, pct }: { status: ThreatStatus; pct: number }) {
   const styles = {
-    critical: "bg-destructive/20 text-destructive border-destructive/40",
-    warn: "bg-warning/20 text-warning border-warning/40",
-    ok: "bg-success/20 text-success border-success/40",
+    critical: "bg-destructive text-destructive-foreground border-destructive font-semibold",
+    warn: "bg-warning-muted text-warning border-transparent font-semibold",
+    ok: "border-transparent text-muted-foreground",
   }[status]
-  const label = status === "ok" ? "OK" : `${Math.round(pct)}%`
+  const label = status === "ok" ? "normal" : `${Math.round(pct)}%`
   return (
     <span
       className={cn(
-        "px-1.5 py-0.5 text-[9px] font-medium rounded border uppercase tracking-wide tabular-nums",
+        "rounded-sm border px-1.5 py-0.5 text-xs tabular-nums",
         styles
       )}
     >

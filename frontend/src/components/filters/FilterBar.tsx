@@ -21,6 +21,19 @@ const windowedPresets = [
   { label: "This week", value: "week" },
 ]
 
+const WINDOW_FORMAT = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+})
+
+// "12 Oct, 12:47 – 13 Oct, 12:47": the active window, so a relative preset
+// still says which instants it covers.
+function formatWindow(bounds: { from: number; to: number }): string {
+  return `${WINDOW_FORMAT.format(bounds.from)} – ${WINDOW_FORMAT.format(bounds.to)}`
+}
+
 // Convert an epoch-ms instant to the value a <input type="datetime-local">
 // expects (local wall-clock, "YYYY-MM-DDTHH:mm").
 function toLocalInput(ms: number): string {
@@ -34,20 +47,21 @@ export function FilterBar() {
   const [copied, setCopied] = useState(false)
 
   return (
-    <div className="border-b border-border bg-muted/20">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-3 py-1.5">
+    <div className="border-b border-border">
+      <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-8">
+        <div className="flex h-11 items-center gap-3">
           {/* Only the presets scroll horizontally on narrow screens. The Custom
               popover must live OUTSIDE this overflow container: setting
               overflow-x also forces overflow-y to `auto`, which would clip the
               popover as it opens downward (it looked like "Custom does nothing"). */}
           <div className="flex items-center gap-3 overflow-x-auto scrollbar-none min-w-0">
-            <FilterGroup label="Period">
+            <FilterGroup label="Time range">
               {relativePresets.map((p) => (
                 <FilterButton key={p.value} active={period === p.value} onClick={() => setPeriod(p.value)}>
                   {p.label}
                 </FilterButton>
               ))}
+              <span className="mx-1.5 h-4 w-px shrink-0 bg-border" aria-hidden="true" />
               {windowedPresets.map((p) => (
                 <FilterButton key={p.value} active={period === p.value} onClick={() => setPeriod(p.value)}>
                   {p.label}
@@ -55,8 +69,6 @@ export function FilterBar() {
               ))}
             </FilterGroup>
           </div>
-
-          <div className="h-4 w-px bg-border shrink-0" aria-hidden="true" />
 
           <CustomRange
             open={customOpen}
@@ -69,6 +81,9 @@ export function FilterBar() {
             }}
           />
 
+          <span className="ml-auto hidden whitespace-nowrap text-[13px] text-muted-foreground md:inline">
+            {formatWindow(bounds)}
+          </span>
           <CopyLinkButton bounds={bounds} copied={copied} setCopied={setCopied} />
         </div>
       </div>
@@ -115,14 +130,14 @@ function CustomRange({
         aria-haspopup="dialog"
         aria-expanded={open}
         className={cn(
-          "inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded transition-all",
+          "inline-flex items-center gap-1.5 rounded px-2 py-1 text-sm whitespace-nowrap",
           active
-            ? "bg-primary text-primary-foreground shadow-sm"
-            : "text-muted-foreground hover:text-foreground hover:bg-accent",
+            ? "bg-primary font-semibold text-primary-foreground"
+            : "text-foreground-secondary hover:bg-accent hover:text-foreground",
         )}
       >
-        <CalendarRange className="size-3" aria-hidden />
-        Custom
+        <CalendarRange className="size-3.5" aria-hidden />
+        Custom…
       </button>
       {/* Mounts fresh each open so the inputs seed from the active window via
           useState initializers — no seeding effect required. */}
@@ -154,38 +169,40 @@ function CustomRangePopover({
     <div
       role="dialog"
       aria-label="Custom time range"
-      className="absolute left-0 top-full mt-1 z-50 w-64 rounded border border-border bg-card p-3 shadow-lg animate-fade-in"
+      className="absolute left-0 top-full mt-1 z-50 w-72 rounded border border-border bg-popover p-4 shadow-md"
     >
-      <label className="block text-[10px] font-medium text-muted-foreground uppercase tracking-widest mb-1">
+      <label htmlFor="custom-range-from" className="mb-1 block text-[13px] text-foreground-secondary">
         From
       </label>
       <input
+        id="custom-range-from"
         type="datetime-local"
         value={from}
         onChange={(e) => setFrom(e.target.value)}
-        className="mb-2 h-8 w-full rounded border border-input bg-muted/50 px-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="mb-3 h-8 w-full rounded border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring"
       />
-      <label className="block text-[10px] font-medium text-muted-foreground uppercase tracking-widest mb-1">
+      <label htmlFor="custom-range-to" className="mb-1 block text-[13px] text-foreground-secondary">
         To
       </label>
       <input
+        id="custom-range-to"
         type="datetime-local"
         value={to}
         onChange={(e) => setTo(e.target.value)}
-        className="mb-3 h-8 w-full rounded border border-input bg-muted/50 px-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="mb-4 h-8 w-full rounded border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring"
       />
       <div className="flex justify-end gap-2">
         <button
           type="button"
           onClick={onCancel}
-          className="px-2.5 py-1 text-xs rounded border border-input hover:bg-accent transition-colors"
+          className="rounded border border-input px-3 py-1 text-sm hover:bg-accent"
         >
           Cancel
         </button>
         <button
           type="button"
           onClick={apply}
-          className="px-2.5 py-1 text-xs rounded bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+          className="rounded bg-primary px-3 py-1 text-sm font-semibold text-primary-foreground hover:opacity-90"
         >
           Apply
         </button>
@@ -227,10 +244,10 @@ function CopyLinkButton({
     <button
       type="button"
       onClick={copy}
-      className="ml-auto inline-flex shrink-0 items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+      className="inline-flex shrink-0 items-center gap-1.5 rounded px-2 py-1 text-[13px] text-foreground-secondary hover:bg-accent hover:text-foreground max-md:ml-auto"
       title="Copy a shareable link with the current window frozen to absolute timestamps"
     >
-      {copied ? <Check className="size-3 text-success" aria-hidden /> : <Link2 className="size-3" aria-hidden />}
+      {copied ? <Check className="size-3.5 text-success" aria-hidden /> : <Link2 className="size-3.5" aria-hidden />}
       {copied ? "Copied" : "Copy link"}
     </button>
   )
@@ -238,9 +255,8 @@ function CopyLinkButton({
 
 function FilterGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-1.5 shrink-0" role="group" aria-label={label}>
-      <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">{label}</span>
-      <div className="flex gap-0.5">{children}</div>
+    <div className="flex shrink-0 items-center gap-0.5" role="group" aria-label={label}>
+      {children}
     </div>
   )
 }
@@ -256,12 +272,13 @@ function FilterButton({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={cn(
-        "px-2 py-0.5 text-[11px] font-medium rounded transition-all whitespace-nowrap",
+        "rounded px-2 py-1 text-sm whitespace-nowrap",
         active
-          ? "bg-primary text-primary-foreground shadow-sm"
-          : "text-muted-foreground hover:text-foreground hover:bg-accent",
+          ? "bg-primary font-semibold text-primary-foreground"
+          : "text-foreground-secondary hover:bg-accent hover:text-foreground",
       )}
       aria-pressed={active}
     >
