@@ -128,6 +128,61 @@ func TestIntegrationNameJoinsDoNotInflate(t *testing.T) {
 	}
 }
 
+// TestIntegrationASRemoteIPsMatchesFlowsRaw checks that the traffic_by_ip
+// rewrite returns exactly what the old flows_raw scan returned, on a window
+// aligned to the 5-minute buckets.
+func TestIntegrationASRemoteIPsMatchesFlowsRaw(t *testing.T) {
+	s := itStore(t)
+	ctx := context.Background()
+	to := time.Now().UTC().Truncate(5 * time.Minute)
+	from := to.Add(-2 * time.Hour)
+
+	var asn uint32
+	if err := s.conn.QueryRow(ctx, `
+		SELECT src_as FROM flows_raw WHERE timestamp >= @from AND timestamp < @to AND src_as > 0
+		GROUP BY src_as ORDER BY count() DESC LIMIT 1`,
+		clickhouse.Named("from", from), clickhouse.Named("to", to)).Scan(&asn); err != nil {
+		t.Skipf("no flows in window: %v", err)
+	}
+
+	rows, err := s.conn.Query(ctx, `
+		SELECT replaceRegexpOne(toString(src_ip), '^::ffff:', '') AS ip,
+			sum(bytes * sampling_rate), sum(packets * sampling_rate), count()
+		FROM flows_raw
+		WHERE src_as = @asn AND timestamp >= @from AND timestamp < @to
+		GROUP BY ip`,
+		clickhouse.Named("asn", asn), clickhouse.Named("from", from), clickhouse.Named("to", to))
+	if err != nil {
+		t.Fatal(err)
+	}
+	type agg struct{ b, p, f uint64 }
+	want := map[string]agg{}
+	for rows.Next() {
+		var ip string
+		var a agg
+		if err := rows.Scan(&ip, &a.b, &a.p, &a.f); err != nil {
+			t.Fatal(err)
+		}
+		want[ip] = a
+	}
+	_ = rows.Close()
+
+	got, err := s.ASRemoteIPs(ctx, asn, QueryParams{From: from, To: to, Limit: 1_000_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("AS%d: %d IPs, flows_raw has %d", asn, len(got), len(want))
+	}
+	for _, r := range got {
+		w, ok := want[r.IP]
+		if !ok || w.b != r.Bytes || w.p != r.Packets || w.f != r.Flows {
+			t.Fatalf("AS%d %s: got %d/%d/%d, flows_raw %+v (present=%v)", asn, r.IP, r.Bytes, r.Packets, r.Flows, w, ok)
+		}
+	}
+	t.Logf("AS%d: %d remote IPs identical", asn, len(got))
+}
+
 // TestIntegrationReadPathSmoke runs every read query over a spread of windows
 // so a SQL error in any table/step branch fails here rather than in prod.
 func TestIntegrationReadPathSmoke(t *testing.T) {

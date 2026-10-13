@@ -108,7 +108,8 @@ func (h *Handler) ASTopIPs(w http.ResponseWriter, r *http.Request) {
 
 	var ips []model.IPTraffic
 	if scope == "external" {
-		// Remote IPs: query flows_raw for actual IPs belonging to this AS
+		// Remote IPs: source addresses whose flows carried this src_as
+		// (traffic_by_ip rollup, no flows_raw scan).
 		ips, err = h.Store.ASRemoteIPs(r.Context(), asn, p)
 	} else {
 		// Internal IPs: our IPs that communicate with this AS

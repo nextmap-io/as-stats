@@ -487,21 +487,37 @@ func (s *ClickHouseStore) ASTotals(ctx context.Context, asn uint32, p QueryParam
 	return
 }
 
-// ASRemoteIPs returns the top remote IPs belonging to a given AS.
-// Queries flows_raw directly since aggregation tables don't store remote IPs.
+// ASRemoteIPs returns the top remote IPs belonging to a given AS: every source
+// address whose flows carried src_as = asn.
+//
+// It reads traffic_by_ip rather than flows_raw: traffic_by_ip_out_mv books
+// every flow under (src_ip, src_as) with bytes already × sampling_rate and
+// flow_count = count(), so direction = 'out' AND as_number = asn is exactly
+// the old `flows_raw WHERE src_as = asn GROUP BY src_ip` — verified
+// row-for-row on 24.3 over aligned windows, before and after OPTIMIZE FINAL.
+// It was scanning 4.5 GiB of flows_raw (4.5 s) per AS page in production.
+// Differences: bounds snap to the 5-minute buckets, history reaches the
+// traffic_by_ip TTL (14d) instead of flows_raw's, and since as_number is not
+// in that table's sorting key, an IP seen under two ASNs in the same bucket
+// keeps one of them after a merge (rare: an address has one origin AS).
 func (s *ClickHouseStore) ASRemoteIPs(ctx context.Context, asn uint32, p QueryParams) ([]model.IPTraffic, error) {
 	query := `
-		SELECT
-			replaceRegexpOne(toString(src_ip), '^::ffff:', '') AS ip,
-			sum(bytes * sampling_rate) AS total_bytes,
-			sum(packets * sampling_rate) AS total_packets,
-			count() AS total_flows
-		FROM flows_raw
-		WHERE src_as = @asn
-		  AND timestamp >= @from AND timestamp < @to
-		GROUP BY ip
-		ORDER BY total_bytes DESC
-		LIMIT @limit
+		SELECT toString(a.ip_addr) AS ip, a.total_bytes, a.total_packets, a.total_flows
+		FROM (
+			SELECT
+				t.ip_address AS ip_addr,
+				sum(t.bytes) AS total_bytes,
+				sum(t.packets) AS total_packets,
+				sum(t.flow_count) AS total_flows
+			FROM traffic_by_ip t
+			WHERE t.as_number = @asn
+			  AND t.direction = 'out'
+			  AND t.ts >= @from AND t.ts < @to
+			GROUP BY t.ip_address
+			ORDER BY total_bytes DESC
+			LIMIT @limit
+		) a
+		ORDER BY a.total_bytes DESC, a.ip_addr
 	`
 
 	rows, err := s.conn.Query(ctx, query,
@@ -521,6 +537,7 @@ func (s *ClickHouseStore) ASRemoteIPs(ctx context.Context, asn uint32, p QueryPa
 		if err := rows.Scan(&r.IP, &r.Bytes, &r.Packets, &r.Flows); err != nil {
 			return nil, err
 		}
+		r.IP = cleanIPv4Mapped(r.IP)
 		r.ASNumber = asn
 		results = append(results, r)
 	}
