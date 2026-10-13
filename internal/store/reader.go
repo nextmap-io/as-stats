@@ -73,26 +73,35 @@ func (s *ClickHouseStore) TopAS(ctx context.Context, p QueryParams) ([]model.AST
 	// F1: sort column comes from a hardcoded whitelist, never the raw param.
 	orderCol := orderColumnForMetric(p.Metric)
 
+	// Aggregate, rank and LIMIT first; names are joined onto the page only
+	// (see names.go for why the join must not see raw as_names rows).
 	asExpr := groupedAS("t.as_number")
 	query := fmt.Sprintf(`
 		SELECT
-			%[1]s AS as_num,
+			a.as_num,
 			%[2]s AS as_name,
-			any(an.country) AS country,
-			sum(t.bytes) AS total_bytes,
-			sum(t.packets) AS total_packets,
-			sum(t.flow_count) AS total_flows,
-			sum(t.bytes) / greatest(sum(t.packets), 1) AS avg_pkt_size,
-			sumIf(t.bytes, t.direction = 'in') AS bytes_in,
-			sumIf(t.bytes, t.direction = 'out') AS bytes_out
-		FROM traffic_by_as t
-		LEFT JOIN as_names an ON t.as_number = an.as_number
-		WHERE t.ts >= @from AND t.ts < @to
-		%[3]s %[4]s %[5]s
-		GROUP BY as_num
-		ORDER BY %[6]s DESC
-		LIMIT @limit OFFSET @offset
-	`, asExpr, groupedASName(asExpr, "any(an.as_name)"), dirFilter, linkFilter, excludeAS, orderCol)
+			an.country AS country,
+			a.total_bytes, a.total_packets, a.total_flows, a.avg_pkt_size,
+			a.bytes_in, a.bytes_out
+		FROM (
+			SELECT
+				%[1]s AS as_num,
+				sum(t.bytes) AS total_bytes,
+				sum(t.packets) AS total_packets,
+				sum(t.flow_count) AS total_flows,
+				sum(t.bytes) / greatest(sum(t.packets), 1) AS avg_pkt_size,
+				sumIf(t.bytes, t.direction = 'in') AS bytes_in,
+				sumIf(t.bytes, t.direction = 'out') AS bytes_out
+			FROM traffic_by_as t
+			WHERE t.ts >= @from AND t.ts < @to
+			%[3]s %[4]s %[5]s
+			GROUP BY as_num
+			ORDER BY %[6]s DESC
+			LIMIT @limit OFFSET @offset
+		) a
+		LEFT JOIN %[7]s an ON a.as_num = an.as_number
+		ORDER BY a.%[6]s DESC, a.as_num
+	`, asExpr, groupedASName("a.as_num", "an.as_name"), dirFilter, linkFilter, excludeAS, orderCol, asNamesLatest)
 
 	args := append([]any{
 		clickhouse.Named("from", p.From),
@@ -163,23 +172,33 @@ func (s *ClickHouseStore) TopIP(ctx context.Context, p QueryParams) ([]model.IPT
 
 	orderCol := orderColumnForMetric(p.Metric)
 
+	// Group on the typed IPv6 column and stringify only the LIMITed page:
+	// toString() per row before GROUP BY was most of this query's cost (it
+	// hashed ~10M strings). Names are joined after aggregation (names.go).
 	query := fmt.Sprintf(`
 		SELECT
-			toString(t.ip_address) AS ip,
-			t.as_number,
-			any(an.as_name) AS as_name,
-			sum(t.bytes) AS total_bytes,
-			sum(t.packets) AS total_packets,
-			sum(t.flow_count) AS total_flows,
-			sum(t.bytes) / greatest(sum(t.packets), 1) AS avg_pkt_size
-		FROM traffic_by_ip t
-		LEFT JOIN as_names an ON t.as_number = an.as_number
-		WHERE t.ts >= @from AND t.ts < @to
-		%s %s %s
-		GROUP BY ip, t.as_number
-		ORDER BY %s DESC
-		LIMIT @limit OFFSET @offset
-	`, dirFilter, linkFilter, ipFilter, orderCol)
+			toString(a.ip_addr) AS ip,
+			a.as_number,
+			an.as_name AS as_name,
+			a.total_bytes, a.total_packets, a.total_flows, a.avg_pkt_size
+		FROM (
+			SELECT
+				t.ip_address AS ip_addr,
+				t.as_number AS as_number,
+				sum(t.bytes) AS total_bytes,
+				sum(t.packets) AS total_packets,
+				sum(t.flow_count) AS total_flows,
+				sum(t.bytes) / greatest(sum(t.packets), 1) AS avg_pkt_size
+			FROM traffic_by_ip t
+			WHERE t.ts >= @from AND t.ts < @to
+			%[1]s %[2]s %[3]s
+			GROUP BY t.ip_address, t.as_number
+			ORDER BY %[4]s DESC
+			LIMIT @limit OFFSET @offset
+		) a
+		LEFT JOIN %[5]s an ON a.as_number = an.as_number
+		ORDER BY a.%[4]s DESC, a.ip_addr
+	`, dirFilter, linkFilter, ipFilter, orderCol, asNamesLatest)
 
 	args := append([]any{
 		clickhouse.Named("from", p.From),
@@ -250,21 +269,28 @@ func (s *ClickHouseStore) TopPrefix(ctx context.Context, p QueryParams) ([]model
 
 	query := fmt.Sprintf(`
 		SELECT
-			%s AS grouped_prefix,
-			t.as_number,
-			any(an.as_name) AS as_name,
-			sum(t.bytes) AS total_bytes,
-			sum(t.packets) AS total_packets,
-			sum(t.flow_count) AS total_flows,
-			sum(t.bytes) / greatest(sum(t.packets), 1) AS avg_pkt_size
-		FROM traffic_by_prefix t
-		LEFT JOIN as_names an ON t.as_number = an.as_number
-		WHERE t.ts >= @from AND t.ts < @to
-		%s %s %s
-		GROUP BY grouped_prefix, t.as_number
-		ORDER BY %s DESC
-		LIMIT @limit OFFSET @offset
-	`, prefixExpr, dirFilter, linkFilter, prefixFilter, orderCol)
+			a.grouped_prefix,
+			a.as_number,
+			an.as_name AS as_name,
+			a.total_bytes, a.total_packets, a.total_flows, a.avg_pkt_size
+		FROM (
+			SELECT
+				%[1]s AS grouped_prefix,
+				t.as_number AS as_number,
+				sum(t.bytes) AS total_bytes,
+				sum(t.packets) AS total_packets,
+				sum(t.flow_count) AS total_flows,
+				sum(t.bytes) / greatest(sum(t.packets), 1) AS avg_pkt_size
+			FROM traffic_by_prefix t
+			WHERE t.ts >= @from AND t.ts < @to
+			%[2]s %[3]s %[4]s
+			GROUP BY grouped_prefix, t.as_number
+			ORDER BY %[5]s DESC
+			LIMIT @limit OFFSET @offset
+		) a
+		LEFT JOIN %[6]s an ON a.as_number = an.as_number
+		ORDER BY a.%[5]s DESC, a.grouped_prefix
+	`, prefixExpr, dirFilter, linkFilter, prefixFilter, orderCol, asNamesLatest)
 
 	args := append([]any{
 		clickhouse.Named("from", p.From),
@@ -505,20 +531,23 @@ func (s *ClickHouseStore) ASRemoteIPs(ctx context.Context, asn uint32, p QueryPa
 // ASPeers returns ASes seen in the same flows as the given AS.
 func (s *ClickHouseStore) ASPeers(ctx context.Context, asn uint32, p QueryParams) ([]model.ASTraffic, error) {
 	query := `
-		SELECT
-			dst_as AS as_number,
-			any(an.as_name) AS as_name,
-			sum(bytes * sampling_rate) AS total_bytes,
-			sum(packets * sampling_rate) AS total_packets,
-			count() AS total_flows
-		FROM flows_raw f
-		LEFT JOIN as_names an ON dst_as = an.as_number
-		WHERE src_as = @asn
-		  AND timestamp >= @from AND timestamp < @to
-		  AND dst_as > 0 AND dst_as != @asn
-		GROUP BY as_number
-		ORDER BY total_bytes DESC
-		LIMIT @limit
+		SELECT a.as_number, an.as_name AS as_name, a.total_bytes, a.total_packets, a.total_flows
+		FROM (
+			SELECT
+				f.dst_as AS as_number,
+				sum(f.bytes * f.sampling_rate) AS total_bytes,
+				sum(f.packets * f.sampling_rate) AS total_packets,
+				count() AS total_flows
+			FROM flows_raw f
+			WHERE f.src_as = @asn
+			  AND f.timestamp >= @from AND f.timestamp < @to
+			  AND f.dst_as > 0 AND f.dst_as != @asn
+			GROUP BY f.dst_as
+			ORDER BY total_bytes DESC
+			LIMIT @limit
+		) a
+		LEFT JOIN ` + asNamesLatest + ` an ON a.as_number = an.as_number
+		ORDER BY a.total_bytes DESC, a.as_number
 	`
 
 	rows, err := s.conn.Query(ctx, query,
@@ -587,19 +616,24 @@ func (s *ClickHouseStore) ASTopIPs(ctx context.Context, asn uint32, p QueryParam
 	// The table must be aliased `t`: dirFilter/linkFilter and LocalIPFilter are
 	// all built against `t.<column>`, so an unaliased FROM turns any link- or
 	// direction-filtered request into an "unknown identifier t.link_tag" error.
+	// Typed GROUP BY, toString() on the LIMITed rows only.
 	query := fmt.Sprintf(`
-		SELECT
-			toString(t.ip_address) AS ip,
-			sum(t.bytes) AS total_bytes,
-			sum(t.packets) AS total_packets,
-			sum(t.flow_count) AS total_flows
-		FROM traffic_by_ip_as t
-		WHERE t.as_number = @asn
-		  AND t.ts >= @from AND t.ts < @to
-		  %s %s %s
-		GROUP BY ip
-		ORDER BY total_bytes DESC
-		LIMIT @limit
+		SELECT toString(a.ip_addr) AS ip, a.total_bytes, a.total_packets, a.total_flows
+		FROM (
+			SELECT
+				t.ip_address AS ip_addr,
+				sum(t.bytes) AS total_bytes,
+				sum(t.packets) AS total_packets,
+				sum(t.flow_count) AS total_flows
+			FROM traffic_by_ip_as t
+			WHERE t.as_number = @asn
+			  AND t.ts >= @from AND t.ts < @to
+			  %s %s %s
+			GROUP BY t.ip_address
+			ORDER BY total_bytes DESC
+			LIMIT @limit
+		) a
+		ORDER BY a.total_bytes DESC, a.ip_addr
 	`, dirFilter, linkFilter, localFilter)
 
 	args := append([]any{
@@ -636,21 +670,24 @@ func (s *ClickHouseStore) IPTopAS(ctx context.Context, ip string, p QueryParams)
 	linkFilter, linkArgs := buildLinkFilter(p.LinkTags)
 
 	query := fmt.Sprintf(`
-		SELECT
-			t.as_number,
-			any(an.as_name) AS as_name,
-			sum(t.bytes) AS total_bytes,
-			sum(t.packets) AS total_packets,
-			sum(t.flow_count) AS total_flows
-		FROM traffic_by_ip_as t
-		LEFT JOIN as_names an ON t.as_number = an.as_number
-		WHERE (toString(t.ip_address) = @ip OR toString(t.ip_address) = concat('::ffff:', @ip))
-		  AND t.ts >= @from AND t.ts < @to
-		  %s %s
-		GROUP BY t.as_number
-		ORDER BY total_bytes DESC
-		LIMIT @limit
-	`, dirFilter, linkFilter)
+		SELECT a.as_number, an.as_name AS as_name, a.total_bytes, a.total_packets, a.total_flows
+		FROM (
+			SELECT
+				t.as_number AS as_number,
+				sum(t.bytes) AS total_bytes,
+				sum(t.packets) AS total_packets,
+				sum(t.flow_count) AS total_flows
+			FROM traffic_by_ip_as t
+			WHERE (toString(t.ip_address) = @ip OR toString(t.ip_address) = concat('::ffff:', @ip))
+			  AND t.ts >= @from AND t.ts < @to
+			  %s %s
+			GROUP BY t.as_number
+			ORDER BY total_bytes DESC
+			LIMIT @limit
+		) a
+		LEFT JOIN %s an ON a.as_number = an.as_number
+		ORDER BY a.total_bytes DESC, a.as_number
+	`, dirFilter, linkFilter, asNamesLatest)
 
 	args := append([]any{
 		clickhouse.Named("ip", ip),
@@ -832,17 +869,19 @@ func useRawTableForIP(from, to time.Time) bool {
 // LinkList returns all known links with their aggregated traffic.
 func (s *ClickHouseStore) LinkList(ctx context.Context, p QueryParams) ([]model.LinkTraffic, error) {
 	query := `
-		SELECT
-			t.link_tag,
-			any(l.description) AS description,
-			any(l.capacity_mbps) AS capacity_mbps,
-			sum(t.bytes_in) AS bytes_in,
-			sum(t.bytes_out) AS bytes_out
-		FROM traffic_by_link t
-		LEFT JOIN links l ON t.link_tag = l.tag
-		WHERE t.ts >= @from AND t.ts < @to
-		GROUP BY t.link_tag
-		ORDER BY (bytes_in + bytes_out) DESC
+		SELECT a.link_tag, l.description AS description, l.capacity_mbps AS capacity_mbps,
+			a.bytes_in, a.bytes_out
+		FROM (
+			SELECT
+				t.link_tag AS link_tag,
+				sum(t.bytes_in) AS bytes_in,
+				sum(t.bytes_out) AS bytes_out
+			FROM traffic_by_link t
+			WHERE t.ts >= @from AND t.ts < @to
+			GROUP BY t.link_tag
+		) a
+		LEFT JOIN ` + linksLatest + ` l ON a.link_tag = l.tag
+		ORDER BY (a.bytes_in + a.bytes_out) DESC, a.link_tag
 	`
 
 	rows, err := s.conn.Query(ctx, query,
@@ -920,11 +959,16 @@ func (s *ClickHouseStore) LinkASTimeSeries(ctx context.Context, tag string, p Qu
 	// Get top 10 AS on this link, private-use ASNs collapsed as in LinkTopAS.
 	asExpr := groupedAS("t.as_number")
 	topQuery := fmt.Sprintf(`
-		SELECT %[1]s AS as_num, %[2]s AS as_name, sum(t.bytes) AS total_bytes
-		FROM %[3]s t LEFT JOIN as_names an ON t.as_number = an.as_number
-		WHERE t.link_tag = @tag AND t.ts >= @from AND t.ts < @to
-		GROUP BY as_num ORDER BY total_bytes DESC LIMIT 10
-	`, asExpr, groupedASName(asExpr, "any(an.as_name)"), table)
+		SELECT a.as_num, %[2]s AS as_name, a.total_bytes
+		FROM (
+			SELECT %[1]s AS as_num, sum(t.bytes) AS total_bytes
+			FROM %[3]s t
+			WHERE t.link_tag = @tag AND t.ts >= @from AND t.ts < @to
+			GROUP BY as_num ORDER BY total_bytes DESC LIMIT 10
+		) a
+		LEFT JOIN %[4]s an ON a.as_num = an.as_number
+		ORDER BY a.total_bytes DESC, a.as_num
+	`, asExpr, groupedASName("a.as_num", "an.as_name"), table, asNamesLatest)
 
 	rows, err := s.conn.Query(ctx, topQuery,
 		clickhouse.Named("tag", tag),
@@ -1044,21 +1088,24 @@ func (s *ClickHouseStore) LinkTopAS(ctx context.Context, tag string, p QueryPara
 	// entities and would otherwise disagree with the dashboard.
 	asExpr := groupedAS("t.as_number")
 	query := fmt.Sprintf(`
-		SELECT
-			%[1]s AS as_num,
-			%[2]s AS as_name,
-			sum(t.bytes) AS total_bytes,
-			sum(t.packets) AS total_packets,
-			sum(t.flow_count) AS total_flows
-		FROM traffic_by_as t
-		LEFT JOIN as_names an ON t.as_number = an.as_number
-		WHERE t.link_tag = @tag
-		  AND t.ts >= @from AND t.ts < @to
-		  %[3]s
-		GROUP BY as_num
-		ORDER BY total_bytes DESC
-		LIMIT @limit
-	`, asExpr, groupedASName(asExpr, "any(an.as_name)"), dirFilter)
+		SELECT a.as_num, %[2]s AS as_name, a.total_bytes, a.total_packets, a.total_flows
+		FROM (
+			SELECT
+				%[1]s AS as_num,
+				sum(t.bytes) AS total_bytes,
+				sum(t.packets) AS total_packets,
+				sum(t.flow_count) AS total_flows
+			FROM traffic_by_as t
+			WHERE t.link_tag = @tag
+			  AND t.ts >= @from AND t.ts < @to
+			  %[3]s
+			GROUP BY as_num
+			ORDER BY total_bytes DESC
+			LIMIT @limit
+		) a
+		LEFT JOIN %[4]s an ON a.as_num = an.as_number
+		ORDER BY a.total_bytes DESC, a.as_num
+	`, asExpr, groupedASName("a.as_num", "an.as_name"), dirFilter, asNamesLatest)
 
 	args := append([]any{
 		clickhouse.Named("tag", tag),
@@ -1129,11 +1176,13 @@ func (s *ClickHouseStore) Overview(ctx context.Context, p QueryParams) (*model.O
 
 // SearchAS searches for ASes by number or name.
 func (s *ClickHouseStore) SearchAS(ctx context.Context, query string, limit int) ([]model.ASInfo, error) {
+	// Deduplicated view: an unmerged rename would otherwise list the AS twice
+	// (and match on its stale name).
 	sqlQuery := `
-		SELECT as_number, as_name, country
-		FROM as_names
-		WHERE toString(as_number) LIKE @q OR lower(as_name) LIKE @q
-		ORDER BY as_number
+		SELECT n.as_number, n.as_name, n.country
+		FROM ` + asNamesLatest + ` n
+		WHERE toString(n.as_number) LIKE @q OR lower(n.as_name) LIKE @q
+		ORDER BY n.as_number
 		LIMIT @limit
 	`
 
@@ -1318,34 +1367,42 @@ func (s *ClickHouseStore) TopASTrafficSeries(ctx context.Context, p QueryParams)
 	if plan.Raw() {
 		// From flows_raw, consider both src_as and dst_as
 		topQuery = fmt.Sprintf(`
-			SELECT t.as_number, %[1]s AS as_name, sum(t.total_bytes) AS total_bytes FROM (
-				SELECT %[2]s AS as_number, sum(bytes * sampling_rate) AS total_bytes
-				FROM flows_raw WHERE timestamp >= @from AND timestamp < @to AND src_as > 0 %[4]s %[6]s
-				GROUP BY as_number
-				UNION ALL
-				SELECT %[3]s AS as_number, sum(bytes * sampling_rate) AS total_bytes
-				FROM flows_raw WHERE timestamp >= @from AND timestamp < @to AND dst_as > 0 %[5]s %[6]s
-				GROUP BY as_number
-			) t
-			LEFT JOIN as_names an ON t.as_number = an.as_number
-			GROUP BY t.as_number
-			ORDER BY total_bytes DESC
-			LIMIT @limit
+			SELECT a.as_number, %[1]s AS as_name, a.total_bytes
+			FROM (
+				SELECT t.as_number AS as_number, sum(t.total_bytes) AS total_bytes FROM (
+					SELECT %[2]s AS as_number, sum(bytes * sampling_rate) AS total_bytes
+					FROM flows_raw WHERE timestamp >= @from AND timestamp < @to AND src_as > 0 %[4]s %[6]s
+					GROUP BY as_number
+					UNION ALL
+					SELECT %[3]s AS as_number, sum(bytes * sampling_rate) AS total_bytes
+					FROM flows_raw WHERE timestamp >= @from AND timestamp < @to AND dst_as > 0 %[5]s %[6]s
+					GROUP BY as_number
+				) t
+				GROUP BY t.as_number
+				ORDER BY total_bytes DESC
+				LIMIT @limit
+			) a
+			LEFT JOIN %[7]s an ON a.as_number = an.as_number
+			ORDER BY a.total_bytes DESC, a.as_number
 		`,
-			groupedASName("t.as_number", "any(an.as_name)"),
+			groupedASName("a.as_number", "an.as_name"),
 			groupedAS("src_as"), groupedAS("dst_as"),
-			excludeSrcAS, excludeDstAS, ipvFilter)
+			excludeSrcAS, excludeDstAS, ipvFilter, asNamesLatest)
 	} else {
 		asExpr := groupedAS("t.as_number")
 		topQuery = fmt.Sprintf(`
-			SELECT %[1]s AS as_num, %[2]s AS as_name, sum(t.bytes) AS total_bytes
-			FROM %[3]s t
-			LEFT JOIN as_names an ON t.as_number = an.as_number
-			WHERE t.ts >= @from AND t.ts < @to %[4]s %[5]s
-			GROUP BY as_num
-			ORDER BY total_bytes DESC
-			LIMIT @limit
-		`, asExpr, groupedASName(asExpr, "any(an.as_name)"), plan.Table, excludeAS, ipvFilter)
+			SELECT a.as_num, %[2]s AS as_name, a.total_bytes
+			FROM (
+				SELECT %[1]s AS as_num, sum(t.bytes) AS total_bytes
+				FROM %[3]s t
+				WHERE t.ts >= @from AND t.ts < @to %[4]s %[5]s
+				GROUP BY as_num
+				ORDER BY total_bytes DESC
+				LIMIT @limit
+			) a
+			LEFT JOIN %[6]s an ON a.as_num = an.as_number
+			ORDER BY a.total_bytes DESC, a.as_num
+		`, asExpr, groupedASName("a.as_num", "an.as_name"), plan.Table, excludeAS, ipvFilter, asNamesLatest)
 	}
 
 	topArgs := append([]any{
@@ -1634,40 +1691,46 @@ func (s *ClickHouseStore) LinksTrafficSeries(ctx context.Context, p QueryParams)
 	if plan.Raw() {
 		// Use flows_raw for per-minute granularity
 		query = fmt.Sprintf(`
-			SELECT
-				toStartOfInterval(t.timestamp, INTERVAL %d SECOND) AS period,
-				t.link_tag,
-				any(l.description) AS description,
-				sumIf(t.bytes * t.sampling_rate, t.direction = 'in') AS bytes_in,
-				sumIf(t.bytes * t.sampling_rate, t.direction = 'out') AS bytes_out,
-				sumIf(t.packets * t.sampling_rate, t.direction = 'in') AS packets_in,
-				sumIf(t.packets * t.sampling_rate, t.direction = 'out') AS packets_out
-			FROM flows_raw t
-			LEFT JOIN links l ON t.link_tag = l.tag
-			WHERE t.timestamp >= @from AND t.timestamp < @to
-			  AND t.link_tag != ''
-			  %s
-			GROUP BY period, t.link_tag
-			ORDER BY period, t.link_tag
-		`, plan.Secs(), ipvFilter)
+			SELECT a.period, a.link_tag, l.description AS description,
+				a.bytes_in, a.bytes_out, a.packets_in, a.packets_out
+			FROM (
+				SELECT
+					toStartOfInterval(t.timestamp, INTERVAL %d SECOND) AS period,
+					t.link_tag AS link_tag,
+					sumIf(t.bytes * t.sampling_rate, t.direction = 'in') AS bytes_in,
+					sumIf(t.bytes * t.sampling_rate, t.direction = 'out') AS bytes_out,
+					sumIf(t.packets * t.sampling_rate, t.direction = 'in') AS packets_in,
+					sumIf(t.packets * t.sampling_rate, t.direction = 'out') AS packets_out
+				FROM flows_raw t
+				WHERE t.timestamp >= @from AND t.timestamp < @to
+				  AND t.link_tag != ''
+				  %s
+				GROUP BY period, t.link_tag
+			) a
+			LEFT JOIN %s l ON a.link_tag = l.tag
+			ORDER BY a.period, a.link_tag
+		`, plan.Secs(), ipvFilter, linksLatest)
 	} else {
 		query = fmt.Sprintf(`
-			SELECT
-				toStartOfInterval(t.ts, INTERVAL %d SECOND) AS period,
-				t.link_tag,
-				any(l.description) AS description,
-				sum(t.bytes_in) AS bytes_in,
-				sum(t.bytes_out) AS bytes_out,
-				sum(t.packets_in) AS packets_in,
-				sum(t.packets_out) AS packets_out
-			FROM %s t
-			LEFT JOIN links l ON t.link_tag = l.tag
-			WHERE t.ts >= @from AND t.ts < @to
-			  AND t.link_tag != ''
-			  %s
-			GROUP BY period, t.link_tag
-			ORDER BY period, t.link_tag
-		`, plan.Secs(), plan.Table, ipvFilter)
+			SELECT a.period, a.link_tag, l.description AS description,
+				a.bytes_in, a.bytes_out, a.packets_in, a.packets_out
+			FROM (
+				SELECT
+					toStartOfInterval(t.ts, INTERVAL %d SECOND) AS period,
+					t.link_tag AS link_tag,
+					sum(t.bytes_in) AS bytes_in,
+					sum(t.bytes_out) AS bytes_out,
+					sum(t.packets_in) AS packets_in,
+					sum(t.packets_out) AS packets_out
+				FROM %s t
+				WHERE t.ts >= @from AND t.ts < @to
+				  AND t.link_tag != ''
+				  %s
+				GROUP BY period, t.link_tag
+			) a
+			LEFT JOIN %s l ON a.link_tag = l.tag
+			ORDER BY a.period, a.link_tag
+		`, plan.Secs(), plan.Table, ipvFilter, linksLatest)
 	}
 
 	args := append([]any{

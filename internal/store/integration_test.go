@@ -2,10 +2,12 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/nextmap-io/as-stats/internal/config"
 )
 
@@ -28,6 +30,102 @@ func itStore(t *testing.T) *ClickHouseStore {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	return s
+}
+
+// TestIntegrationNameJoinsDoNotInflate pins the ReplacingMergeTree join bug:
+// with two unmerged versions of an as_names / links row, a plain LEFT JOIN
+// doubled every sum over the joined fact rows.
+func TestIntegrationNameJoinsDoNotInflate(t *testing.T) {
+	s := itStore(t)
+	ctx := context.Background()
+	const asn = 64496 // RFC 5398 documentation ASN — never in generated data
+	// Unique per run: re-running must not count earlier runs' flows.
+	tag := fmt.Sprintf("it-dedup-%d", time.Now().UnixNano())
+	exec := func(q string) {
+		t.Helper()
+		if err := s.conn.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	exec("SYSTEM STOP MERGES as_names")
+	exec("SYSTEM STOP MERGES links")
+	t.Cleanup(func() {
+		_ = s.conn.Exec(ctx, "SYSTEM START MERGES as_names")
+		_ = s.conn.Exec(ctx, "SYSTEM START MERGES links")
+	})
+	exec("INSERT INTO as_names (as_number, as_name, country, updated_at) VALUES (64496, 'OLD', 'FR', now() - 10)")
+	exec("INSERT INTO as_names (as_number, as_name, country, updated_at) VALUES (64496, 'NEW', 'DE', now())")
+	exec(fmt.Sprintf("INSERT INTO links (tag, router_ip, description, capacity_mbps, updated_at) VALUES ('%s', toIPv6('::ffff:192.0.2.250'), 'old', 1000, now() - 10)", tag))
+	exec(fmt.Sprintf("INSERT INTO links (tag, router_ip, description, capacity_mbps, updated_at) VALUES ('%s', toIPv6('::ffff:192.0.2.250'), 'new', 1000, now())", tag))
+	// One flow: 1000 bytes × sampling 10 = 10000 bytes from AS64496 on the link.
+	ts := time.Now().UTC().Add(-20 * time.Minute).Truncate(time.Second)
+	if err := s.conn.Exec(ctx, `INSERT INTO flows_raw (timestamp, router_ip, link_tag, src_ip, dst_ip, src_as, dst_as, bytes, packets, sampling_rate, direction)
+		VALUES (@ts, toIPv6('::ffff:192.0.2.250'), @tag, toIPv6('::ffff:203.0.113.9'), toIPv6('::ffff:198.51.100.9'), 64496, 0, 1000, 1, 10, 'in')`,
+		clickhouse.Named("ts", ts), clickhouse.Named("tag", tag)); err != nil {
+		t.Fatalf("insert flow: %v", err)
+	}
+
+	p := QueryParams{From: ts.Add(-time.Hour), To: ts.Add(time.Hour), Limit: 1000}
+
+	top, _, err := s.LinkTopAS(ctx, tag, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(top) != 1 || top[0].ASNumber != asn || top[0].Bytes != 10000 || top[0].ASName != "NEW" {
+		t.Fatalf("LinkTopAS = %+v, want one AS64496 row named NEW with 10000 bytes", top)
+	}
+
+	pl := p
+	pl.LinkTags = []string{tag}
+	countries, _, err := s.TopCountry(ctx, pl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(countries) != 1 || countries[0].Country != "DE" || countries[0].Bytes != 10000 {
+		t.Fatalf("TopCountry = %+v, want DE with 10000 bytes", countries)
+	}
+
+	links, err := s.LinkList(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, l := range links {
+		if l.Tag == tag {
+			found = true
+			if l.BytesIn != 10000 || l.Description != "new" {
+				t.Fatalf("LinkList %s = %+v, want 10000 bytes in and description new", tag, l)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("LinkList: %s missing", tag)
+	}
+
+	series, err := s.LinksTrafficSeries(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ls := range series {
+		if ls.Tag != tag {
+			continue
+		}
+		var sum uint64
+		for _, pt := range ls.Points {
+			sum += pt.BytesIn
+		}
+		if sum != 10000 || ls.Description != "new" {
+			t.Fatalf("LinksTrafficSeries %s: %d bytes / %q, want 10000 / new", tag, sum, ls.Description)
+		}
+	}
+
+	hits, err := s.SearchAS(ctx, "64496", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].Name != "NEW" {
+		t.Fatalf("SearchAS = %+v, want a single NEW row", hits)
+	}
 }
 
 // TestIntegrationReadPathSmoke runs every read query over a spread of windows
