@@ -76,6 +76,10 @@ services:
       COLLECTOR_FLUSH_INTERVAL: "5s"
       COLLECTOR_WORKERS: "4"
       LOCAL_AS: "${LOCAL_AS:-}"
+    # SIGTERM drains the pipeline and flushes the last batch, bounded by
+    # COLLECTOR_SHUTDOWN_TIMEOUT (40s). Docker's default 10s grace would
+    # SIGKILL it mid-flush and lose up to one flush interval of flows.
+    stop_grace_period: 60s
     depends_on:
       migrate:
         condition: service_completed_successfully

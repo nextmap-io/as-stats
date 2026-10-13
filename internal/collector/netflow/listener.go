@@ -90,12 +90,9 @@ func (l *Listener) Start(ctx context.Context, flows chan<- *model.FlowRecord) er
 			routerIP := make(net.IP, len(remoteAddr.IP))
 			copy(routerIP, remoteAddr.IP)
 
-			select {
-			case packets <- packet{data: bufPtr, n: n, routerIP: routerIP}:
-			case <-ctx.Done():
-				l.bufPool.Put(bufPtr)
-				return
-			}
+			// No ctx escape here: a packet already read is handed to the
+			// decoders, which drain the channel until the socket is closed.
+			packets <- packet{data: bufPtr, n: n, routerIP: routerIP}
 		}
 	}()
 
@@ -116,12 +113,12 @@ func (l *Listener) Start(ctx context.Context, flows chan<- *model.FlowRecord) er
 				}
 				metrics.FlowsReceived.WithLabelValues("netflow").Add(float64(len(decoded)))
 
+				// Blocking on purpose, even after ctx is cancelled: the
+				// enricher keeps consuming until this channel is closed, which
+				// only happens once every decoder has returned. Bailing out on
+				// ctx here would drop flows that were already decoded.
 				for _, f := range decoded {
-					select {
-					case flows <- f:
-					case <-ctx.Done():
-						return
-					}
+					flows <- f
 				}
 			}
 		}()

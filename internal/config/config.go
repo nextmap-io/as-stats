@@ -61,6 +61,11 @@ type CollectorConfig struct {
 	Workers       int
 	LocalAS       uint32
 
+	// ShutdownTimeout bounds the drain on SIGTERM (decoders, enricher, final
+	// flush). Keep it below the container's stop grace period, or the runtime
+	// SIGKILLs the process mid-flush.
+	ShutdownTimeout time.Duration
+
 	// Flow log retention (only applied when the table exists; default 180 days)
 	FlowLogRetentionDays int
 
@@ -175,6 +180,11 @@ func LoadCollector() (*CollectorConfig, error) {
 		return nil, fmt.Errorf("invalid COLLECTOR_WORKERS: %w", err)
 	}
 
+	shutdownTimeout, err := time.ParseDuration(envOr("COLLECTOR_SHUTDOWN_TIMEOUT", "40s"))
+	if err != nil || shutdownTimeout <= 0 {
+		return nil, fmt.Errorf("invalid COLLECTOR_SHUTDOWN_TIMEOUT: %q", envOr("COLLECTOR_SHUTDOWN_TIMEOUT", "40s"))
+	}
+
 	localAS, _ := strconv.ParseUint(envOr("LOCAL_AS", "0"), 10, 32)
 
 	flowLogRetention, err := strconv.Atoi(envOr("FLOW_LOG_RETENTION_DAYS", "180"))
@@ -214,6 +224,7 @@ func LoadCollector() (*CollectorConfig, error) {
 		BatchSize:                  batchSize,
 		FlushInterval:              flushInterval,
 		Workers:                    workers,
+		ShutdownTimeout:            shutdownTimeout,
 		LocalAS:                    uint32(localAS),
 		FlowLogRetentionDays:       flowLogRetention,
 		RetentionReconcileInterval: reconcileInterval,

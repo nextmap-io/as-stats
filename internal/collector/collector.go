@@ -16,14 +16,14 @@ import (
 
 // Collector orchestrates flow collection, enrichment, and storage.
 type Collector struct {
-	cfg       *config.CollectorConfig
-	store     store.FlowWriter
-	enricher  *enricher.Enricher
-	writer    *writer.BatchWriter
-	nfListen  *netflow.Listener
-	sfListen  *sflow.Listener
-	flows     chan *model.FlowRecord
-	enriched  chan *model.FlowRecord
+	cfg      *config.CollectorConfig
+	store    store.FlowWriter
+	enricher *enricher.Enricher
+	writer   *writer.BatchWriter
+	nfListen *netflow.Listener
+	sfListen *sflow.Listener
+	flows    chan *model.FlowRecord
+	enriched chan *model.FlowRecord
 }
 
 // New creates a new Collector.
@@ -53,13 +53,20 @@ func (c *Collector) WriterMetrics() *writer.Metrics {
 	return &c.writer.Metrics
 }
 
-// Run starts all collector components. It blocks until the context is cancelled.
+// Run starts all collector components. It blocks until the context is
+// cancelled and the pipeline has drained, or the shutdown timeout expired.
 func (c *Collector) Run(ctx context.Context) error {
-	// Start the enrichment pipeline
-	go c.runEnricher(ctx)
+	go c.runEnricher()
 
-	// Start the batch writer
-	go c.writer.Run(ctx)
+	// The writer is deliberately not handed ctx: on shutdown it must keep
+	// consuming until the enricher closes its input, otherwise flows that were
+	// already decoded are lost on every clean restart. It stops when its input
+	// channel closes.
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		c.writer.Run(context.Background())
+	}()
 
 	// Start UDP listeners
 	if c.cfg.ListenNetFlow != "" {
@@ -77,8 +84,28 @@ func (c *Collector) Run(ctx context.Context) error {
 	}
 
 	<-ctx.Done()
+	c.shutdown(writerDone)
+	return nil
+}
 
-	log.Println("Stopping collector...")
+// defaultShutdownTimeout applies when the config leaves ShutdownTimeout unset.
+const defaultShutdownTimeout = 30 * time.Second
+
+// shutdown drains the pipeline stage by stage: the listeners stop reading, the
+// decoders finish the packets already queued, closing c.flows lets the
+// enricher drain and close c.enriched, and the writer flushes what it holds.
+// Each stage stops only once its input is closed, so no decoded flow is
+// dropped. The whole cascade is bounded so a wedged ClickHouse cannot hold the
+// process past the container's stop grace period.
+func (c *Collector) shutdown(writerDone <-chan struct{}) {
+	timeout := c.cfg.ShutdownTimeout
+	if timeout <= 0 {
+		timeout = defaultShutdownTimeout
+	}
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+
+	log.Println("Stopping collector: draining pipeline")
 	if err := c.nfListen.Close(); err != nil {
 		log.Printf("netflow listener close error: %v", err)
 	}
@@ -89,55 +116,40 @@ func (c *Collector) Run(ctx context.Context) error {
 	// The decoder goroutines are the only senders on c.flows, so the channel
 	// must not be closed until they have all stopped — otherwise a decoder
 	// mid-send panics with "send on closed channel" and kills the process on
-	// the way out. If they somehow do not settle, leave the channel open: the
-	// enricher and writer both exit on ctx anyway, and a leaked channel at
-	// shutdown is strictly better than a panic.
-	if waitForDecoders(c.nfListen, c.sfListen) {
-		close(c.flows)
-	} else {
-		log.Println("warning: decoders still running at shutdown, skipping flow channel close")
-	}
-
-	return nil
-}
-
-// shutdownDrainTimeout bounds how long we wait for in-flight decoders before
-// giving up on a clean channel close.
-const shutdownDrainTimeout = 5 * time.Second
-
-// waitForDecoders reports whether every listener's decoders finished within
-// shutdownDrainTimeout.
-func waitForDecoders(listeners ...interface{ Wait() }) bool {
-	done := make(chan struct{})
+	// the way out. If they do not settle in time, leave the channel open and
+	// give up: a leaked channel at exit is strictly better than a panic.
+	decodersDone := make(chan struct{})
 	go func() {
-		defer close(done)
-		for _, l := range listeners {
-			l.Wait()
-		}
+		defer close(decodersDone)
+		c.nfListen.Wait()
+		c.sfListen.Wait()
 	}()
-
-	timer := time.NewTimer(shutdownDrainTimeout)
-	defer timer.Stop()
 	select {
-	case <-done:
-		return true
-	case <-timer.C:
-		return false
+	case <-decodersDone:
+		close(c.flows)
+	case <-deadline.C:
+		log.Printf("warning: decoders still running after %s; about %d queued flows not written",
+			timeout, len(c.flows)+len(c.enriched))
+		return
+	}
+
+	select {
+	case <-writerDone:
+		log.Println("Collector pipeline drained")
+	case <-deadline.C:
+		log.Printf("warning: writer did not finish within %s; about %d queued flows not written",
+			timeout, len(c.flows)+len(c.enriched))
 	}
 }
 
-// runEnricher reads from the raw flows channel, enriches each flow,
-// and sends it to the enriched channel for the batch writer.
-func (c *Collector) runEnricher(ctx context.Context) {
+// runEnricher reads from the raw flows channel, enriches each flow, and sends
+// it to the enriched channel for the batch writer. It stops only once c.flows
+// is closed, then closes c.enriched so the writer flushes and exits.
+func (c *Collector) runEnricher() {
 	defer close(c.enriched)
 
 	for flow := range c.flows {
 		c.enricher.Enrich(flow)
-
-		select {
-		case c.enriched <- flow:
-		case <-ctx.Done():
-			return
-		}
+		c.enriched <- flow
 	}
 }

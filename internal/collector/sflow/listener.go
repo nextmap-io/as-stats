@@ -73,11 +73,9 @@ func (l *Listener) Start(ctx context.Context, flows chan<- *model.FlowRecord) er
 			routerIP := make(net.IP, len(remoteAddr.IP))
 			copy(routerIP, remoteAddr.IP)
 
-			select {
-			case packets <- packet{data: dataCopy, routerIP: routerIP}:
-			case <-ctx.Done():
-				return
-			}
+			// No ctx escape: the decoders drain this channel until the
+			// socket is closed, so a packet already read is not lost.
+			packets <- packet{data: dataCopy, routerIP: routerIP}
 		}
 	}()
 
@@ -95,12 +93,10 @@ func (l *Listener) Start(ctx context.Context, flows chan<- *model.FlowRecord) er
 				}
 				metrics.FlowsReceived.WithLabelValues("sflow").Add(float64(len(decoded)))
 
+				// Blocking on purpose (see the netflow listener): the
+				// enricher drains until this channel closes after shutdown.
 				for _, f := range decoded {
-					select {
-					case flows <- f:
-					case <-ctx.Done():
-						return
-					}
+					flows <- f
 				}
 			}
 		}()
