@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-10-13
+
+### Added
+- **New UI ("Ledger")**: Archivo with tabular figures, rules instead of boxed
+  cards, colour reserved for abnormal states. Light and dark themes.
+- **New home page**: a status strip where only abnormal items light up
+  (alerts, link load, ingestion, disk), total traffic on one mirrored chart
+  with a Both / IPv4 / IPv6 switch and a compare-previous overlay, links
+  against capacity (small charts scaled to each link's capacity), and top
+  networks on one shared scale. The day × hour heatmap moved to
+  Network › Changes.
+- `GET /api/v1/status/live`: cheap per-router health (last 10 minutes only)
+  and disk usage; drives the header health dot.
+- `meta.step_seconds` on every time-series / percentile response.
+- Collector: sampling rate read from NetFlow v9 / IPFIX options data, per
+  router / source / sampler, with `COLLECTOR_SAMPLING_OVERRIDE` as a fallback.
+- Collector metrics: per-router sampling rate, data sets dropped for lack of a
+  template, pipeline queue fill, UDP receive buffer and socket drops; protocol
+  label split into netflow5 / netflow9 / ipfix / sflow. pprof on the metrics
+  listener, only when the `/metrics` guard is configured.
+
+### Fixed
+- **p95 and utilisation were off by up to 24×**: buckets finer than the
+  source table (too high on 4–6 h windows) or rates computed with a guessed
+  bucket (too low on 36 h+). Buckets are now never finer than the table read,
+  and the UI converts with the step the API actually used.
+- **Link utilisation now uses the busier direction** (`max(in, out)`) instead
+  of `in + out`; "now" is the last complete bucket; the saturation forecast is
+  fitted on the daily p95. The `link_capacity` alert uses the same rules.
+- **Totals could double** while `as_names` / `links` held unmerged duplicate
+  rows (e.g. right after editing a link). Names are joined after aggregation,
+  on deduplicated rows.
+- **Collector restarts lost the buffered tail** (up to one flush of flows).
+  Shutdown now drains every stage and waits for the final INSERT
+  (`COLLECTOR_SHUTDOWN_TIMEOUT`, compose `stop_grace_period: 60s`).
+- Link double counting when an uplink has both input and output NetFlow
+  monitors: flowDirection (field 61) decides which interface is credited.
+- A NetFlow record with `IN_BYTES` and `OUT_BYTES=0` was stored with 0 bytes.
+- Prefixes were lost when the mask field preceded the address in a template;
+  invalid masks produced `<nil>/200`.
+- IPFIX options records (e.g. sampling announcements) were stored as flows.
+- sFlow expanded flow samples were parsed with the wrong layout and produced
+  no flows.
+- Alert rules evaluated the partial current minute, under-reading rates.
+- Block on an alert reported success when BGP was disabled; it now returns
+  409, and 422 for alerts that do not target a host. `custom` rules are
+  rejected (they were never evaluated).
+- Scheduled reports ranked the local AS first.
+- pps mode divided bytes; In/Out colours were inverted on parts of AS detail.
+- `user-scalable=no` blocked pinch-zoom.
+
+### Changed
+- Collector defaults: `COLLECTOR_FLUSH_INTERVAL` 15 s (was 5 s) and
+  `COLLECTOR_BATCH_SIZE` 50 000 — about −83 % parts and −74 % merge I/O. Each
+  INSERT is bounded by `COLLECTOR_FLUSH_TIMEOUT` (30 s) and never retried.
+  **If you pin `COLLECTOR_FLUSH_INTERVAL` in a compose override, update it.**
+- NetFlow templates no longer expire by age; a re-send replaces them.
+- Faster read paths: typed IPv6 range predicates for prefix filters
+  (~5× faster), `/as/{asn}/ips?scope=external` reads `traffic_by_ip` instead
+  of scanning `flows_raw`, concurrent and 30 s-cached AS / IP / link detail
+  pages.
+- `/overview` no longer returns `top_as` / `top_ip`; `/ip/{ip}` no longer
+  resolves PTR inline (use `/dns/ptr`).
+
 ## [3.0.2] - 2026-09-28
 
 ### Fixed
