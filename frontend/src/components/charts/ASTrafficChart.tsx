@@ -10,40 +10,27 @@ import {
 } from "recharts"
 import type { ASTrafficDetail } from "@/lib/types"
 import { useUnit } from "@/hooks/useUnit"
+import { axisTick, seriesColor, tooltipBoxStyle, useChartColors } from "@/hooks/useChartColors"
+import { formatTimeShort } from "./time"
 
-const AS_COLORS = [
-  "#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6",
-  "#1abc9c", "#e67e22", "#2980b9", "#e91e63", "#00bcd4",
-]
-
-function lighten(hex: string, amount = 0.35): string {
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  return `#${Math.round(r + (255 - r) * amount).toString(16).padStart(2, "0")}${Math.round(g + (255 - g) * amount).toString(16).padStart(2, "0")}${Math.round(b + (255 - b) * amount).toString(16).padStart(2, "0")}`
-}
 
 interface ASTrafficChartProps {
   data: ASTrafficDetail[]
   height?: number
   title?: string
   timeBounds?: { from: number; to: number }
+  /** Bucket width from the API (meta.step_seconds); inferred when absent. */
+  stepSeconds?: number
 }
 
-function formatTimeShort(ts: number, multiDay: boolean): string {
-  if (multiDay) {
-    const d = new Date(ts)
-    return `${d.getDate()}/${d.getMonth() + 1} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`
-  }
-  return new Date(ts).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" })
-}
 
 // Color assignment is done internally and exposed via the static array
 // Use getASColorsFromData in the parent component
 
 
-export function ASTrafficChart({ data, height = 300, title, timeBounds }: ASTrafficChartProps) {
-  const { formatTraffic, formatAxis } = useUnit()
+export function ASTrafficChart({ data, height = 300, title, timeBounds, stepSeconds }: ASTrafficChartProps) {
+  const { formatValue, formatAxis } = useUnit()
+  const chartColors = useChartColors()
   if (!data.length) return null
 
   // Compute step from all series
@@ -56,7 +43,7 @@ export function ASTrafficChart({ data, height = 300, title, timeBounds }: ASTraf
       }
     }
   }
-  const interval = minDiff === Infinity ? 300 : minDiff
+  const interval = stepSeconds && stepSeconds > 0 ? stepSeconds : minDiff === Infinity ? 300 : minDiff
   const stepMs = interval * 1000
 
   // Detect multi-day
@@ -78,8 +65,8 @@ export function ASTrafficChart({ data, height = 300, title, timeBounds }: ASTraf
   const colors: Record<number, { in: string; out: string }> = {}
   data.forEach((d, i) => {
     asLabels[d.as_number] = d.as_name || `AS${d.as_number}`
-    const base = AS_COLORS[i % AS_COLORS.length]
-    colors[d.as_number] = { in: base, out: lighten(base) }
+    const base = seriesColor(chartColors, i)
+    colors[d.as_number] = { in: base, out: base }
   })
 
   // Collect all unique timestamps
@@ -150,16 +137,16 @@ export function ASTrafficChart({ data, height = 300, title, timeBounds }: ASTraf
   const tickInterval = chartData.length > 0 ? Math.max(1, Math.floor(chartData.length / 8)) : 1
 
   return (
-    <div className="animate-fade-in overflow-hidden">
-      {title && <h3 className="text-[10px] font-medium text-muted-foreground mb-2 uppercase tracking-wider">{title}</h3>}
+    <div className="overflow-hidden">
+      {title && <h3 className="mb-1 text-[13px] text-foreground-secondary">{title}</h3>}
       <ResponsiveContainer width="100%" height={height}>
         <AreaChart data={chartData} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 85%)" opacity={0.5} />
-          <XAxis dataKey="time" tick={{ fontSize: 8, fill: "hsl(215 12% 50%)" }} tickLine={{ stroke: "hsl(220 15% 16%)" }} axisLine={{ stroke: "hsl(220 15% 16%)" }} interval={tickInterval} />
-          <YAxis tick={{ fontSize: 8, fill: "hsl(215 12% 50%)" }} tickLine={false} axisLine={false} tickFormatter={(v) => formatAxis(Math.abs(v), interval)} width={40} />
-          <ReferenceLine y={0} stroke="hsl(215 12% 40%)" strokeWidth={1} />
+          <CartesianGrid vertical={false} stroke={chartColors.grid} />
+          <XAxis dataKey="time" tick={axisTick(chartColors)} tickLine={false} axisLine={false} interval={tickInterval} />
+          <YAxis tick={axisTick(chartColors)} tickLine={false} axisLine={false} tickFormatter={(v) => formatAxis(Math.abs(Number(v)), interval)} width={44} />
+          <ReferenceLine y={0} stroke={chartColors.ink} strokeWidth={1} />
           <Tooltip
-            cursor={{ stroke: "hsl(215 12% 50%)", strokeOpacity: 0.3 }}
+            cursor={{ stroke: chartColors.text, strokeOpacity: 0.4 }}
             content={({ active, payload, label }) => {
               if (!active || !payload?.length) return null
               const byAS = new Map<number, { inVal: number; outVal: number }>()
@@ -172,18 +159,18 @@ export function ASTrafficChart({ data, height = 300, title, timeBounds }: ASTraf
                 else l.outVal = Math.abs(Number(e.value) || 0)
               }
               return (
-                <div style={{ backgroundColor: "hsl(220 18% 10%)", border: "1px solid hsl(220 15% 20%)", borderRadius: 4, fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.5)", padding: "6px 10px", maxWidth: 320 }}>
-                  <div style={{ color: "hsl(215 12% 50%)", marginBottom: 3, fontSize: 11 }}>{label}</div>
+                <div style={{ ...tooltipBoxStyle(chartColors), maxWidth: 340 }}>
+                  <div style={{ color: chartColors.text, marginBottom: 3 }}>{label}</div>
                   {Array.from(byAS.entries()).map(([asn, { inVal, outVal }]) => {
                     if (inVal === 0 && outVal === 0) return null
                     return (
-                      <div key={asn} style={{ display: "flex", alignItems: "center", gap: 4, lineHeight: 1.6, color: "hsl(210 20% 88%)" }}>
-                        <span style={{ width: 6, height: 6, borderRadius: 1, backgroundColor: colors[asn]?.in || "#888", flexShrink: 0 }} />
-                        <span style={{ fontSize: 11, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{asLabels[asn]}</span>
-                        <span style={{ whiteSpace: "nowrap", fontSize: 11 }}>
-                          {inVal > 0 && <>{"\u2193"}{formatTraffic(inVal, interval)}</>}
-                          {inVal > 0 && outVal > 0 && " "}
-                          {outVal > 0 && <>{"\u2191"}{formatTraffic(outVal, interval)}</>}
+                      <div key={asn} style={{ display: "flex", alignItems: "center", gap: 6, lineHeight: 1.6 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 1, backgroundColor: colors[asn]?.in, flexShrink: 0 }} />
+                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{asLabels[asn]}</span>
+                        <span style={{ whiteSpace: "nowrap" }}>
+                          {inVal > 0 && <>in {formatValue(inVal, interval)}</>}
+                          {inVal > 0 && outVal > 0 && ", "}
+                          {outVal > 0 && <>out {formatValue(outVal, interval)}</>}
                         </span>
                       </div>
                     )
@@ -193,10 +180,10 @@ export function ASTrafficChart({ data, height = 300, title, timeBounds }: ASTraf
             }}
           />
           {asKeys.map((asn) => (
-            <Area key={`${asn}_in`} type="stepAfter" dataKey={`${asn}_in`} stackId="up" stroke={colors[asn].in} fill={colors[asn].in} fillOpacity={0.85} strokeWidth={0.5} dot={false} isAnimationActive={false} />
+            <Area key={`${asn}_in`} type="stepAfter" dataKey={`${asn}_in`} stackId="up" stroke={colors[asn].in} fill={colors[asn].in} fillOpacity={0.85} strokeWidth={0} dot={false} isAnimationActive={false} />
           ))}
           {asKeys.map((asn) => (
-            <Area key={`${asn}_out`} type="stepAfter" dataKey={`${asn}_out`} stackId="down" stroke={colors[asn].out} fill={colors[asn].out} fillOpacity={0.7} strokeWidth={0.5} dot={false} isAnimationActive={false} />
+            <Area key={`${asn}_out`} type="stepAfter" dataKey={`${asn}_out`} stackId="down" stroke={colors[asn].out} fill={colors[asn].out} fillOpacity={0.5} strokeWidth={0} dot={false} isAnimationActive={false} />
           ))}
         </AreaChart>
       </ResponsiveContainer>

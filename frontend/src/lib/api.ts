@@ -28,6 +28,7 @@ import type {
   Hostgroup,
   LinkTimeSeries,
   LinkTraffic,
+  LiveStatus,
   LiveThreat,
   MoversResponse,
   Overview,
@@ -37,6 +38,7 @@ import type {
   QueryFilters,
   ReportSchedule,
   RetentionPolicy,
+  StatusData,
   StorageStats,
   TalkersResponse,
   TrafficPoint,
@@ -45,6 +47,21 @@ import type {
 } from "./types"
 
 const BASE = "/api/v1"
+
+/** ApiError carries the HTTP status so callers can tell a missing endpoint
+ *  (404 on an older server) or a refusal (409/422) from a real failure. */
+export class ApiError extends Error {
+  readonly status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = "ApiError"
+    this.status = status
+  }
+}
+
+export function isApiError(err: unknown, ...statuses: number[]): err is ApiError {
+  return err instanceof ApiError && (statuses.length === 0 || statuses.includes(err.status))
+}
 
 function getCSRFToken(): string {
   const match = document.cookie.match(/(?:^|;\s*)as_stats_csrf=([^;]+)/)
@@ -100,7 +117,7 @@ async function fetchAPI<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(body.error || `API error: ${res.status}`)
+    throw new ApiError(body.error || `API error: ${res.status}`, res.status)
   }
 
   return res.json()
@@ -145,7 +162,8 @@ export const api = {
   // ─── Traffic heatmap (U8) — 7×24 day-of-week × hour-of-day grid ──────────
   trafficHeatmap: (filters?: QueryFilters) => fetchAPI<HeatmapData>("/traffic/heatmap", filters),
 
-  status: (filters?: QueryFilters) => fetchAPI<{ routers: { router_ip: string; last_seen: string; flow_count: number }[]; total_rows: number; db_size: number }>("/status", filters),
+  status: (filters?: QueryFilters) => fetchAPI<StatusData>("/status", filters),
+  statusLive: () => fetchAPI<LiveStatus>("/status/live"),
   dnsPtr: (ip: string) => fetchAPI<{ ip: string; ptr: string }>("/dns/ptr", { ip } as QueryFilters),
   search: (q: string) => fetchAPI<ASInfo[]>("/search", { q }),
 
