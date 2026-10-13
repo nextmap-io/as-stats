@@ -612,3 +612,28 @@ type ReportSchedule struct {
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
+
+// Router liveness states reported by GET /status/live.
+const (
+	RouterStateOK      = "ok"      // last flow less than 120 s ago
+	RouterStateStale   = "stale"   // last flow 120 s – 600 s ago
+	RouterStateMissing = "missing" // referenced by a configured link, no flow in the last 10 min
+)
+
+// RouterLiveStatus is one exporter's liveness over the last 10 minutes.
+type RouterLiveStatus struct {
+	RouterIP string `json:"router_ip"` // IPv4 without the ::ffff: prefix
+	LastSeen string `json:"last_seen"` // RFC 3339, "" when nothing in the window
+	Flows10m uint64 `json:"flows_10m"`
+	State    string `json:"state"`
+}
+
+// LiveStatus is the payload of GET /status/live: a cheap health probe for the
+// header dot and the home status strip (reads 10 minutes of flows_raw only).
+type LiveStatus struct {
+	// Healthy is true iff at least one router is known and every router is "ok".
+	Healthy bool               `json:"healthy"`
+	Routers []RouterLiveStatus `json:"routers"`
+	// DiskUsedPct is the highest used-% across ClickHouse disks; nil if unknown.
+	DiskUsedPct *float64 `json:"disk_used_pct"`
+}

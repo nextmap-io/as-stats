@@ -183,6 +183,12 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Get("/changes/movers", h.Movers)
 			r.Get("/changes/talkers", h.Talkers)
 
+			// Status: the windowed Status page and the cheap live probe that
+			// every page polls for the header dot. Neither depends on the
+			// caller's identity.
+			r.Get("/status", h.Status)
+			r.Get("/status/live", h.StatusLive)
+
 			// Port stats (gated by FEATURE_PORT_STATS)
 			if cfg.FeaturePortStats {
 				r.Get("/top/protocol", h.TopProtocols)
@@ -246,9 +252,6 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		// Link detail (not cached — specific to one link)
 		r.Get("/link/{tag}", h.LinkDetail)
 		r.Get("/link/{tag}/load-curve", h.LinkLoadCurve)
-
-		// Status
-		r.Get("/status", h.Status)
 
 		// DNS
 		r.Get("/dns/ptr", h.DNSPtr)
