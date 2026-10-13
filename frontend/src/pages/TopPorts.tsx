@@ -129,11 +129,11 @@ export function TopPorts() {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>
               {direction === "in" ? "Destination ports (services accessed)" : "Source ports (services exposed)"}
             </CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <ViewToggle />
               <ExportButton rows={rows} columns={exportColumns} filename={`top-ports-${direction}`} />
             </div>

@@ -178,7 +178,7 @@ export function Countries() {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>Countries by traffic volume</CardTitle>
             <ExportButton rows={rows} columns={exportColumns} filename="top-countries" />
           </div>

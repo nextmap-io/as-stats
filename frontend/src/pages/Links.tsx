@@ -128,7 +128,7 @@ export function Links() {
       {/* Links table */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>Known links with traffic</CardTitle>
             <ExportButton rows={linkRows} columns={exportColumns} filename="links" />
           </div>

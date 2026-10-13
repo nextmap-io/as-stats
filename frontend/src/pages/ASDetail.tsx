@@ -148,7 +148,7 @@ export function ASDetail() {
           ) : null}
         </div>
         {inBytes || outBytes ? (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-muted-foreground">In / out share:</span>
             <RatioBar bytesIn={inBytes} bytesOut={outBytes} />
             <AsymmetryBadge cls={detail.class} />

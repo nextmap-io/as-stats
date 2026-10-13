@@ -260,9 +260,9 @@ export function Changes() {
       {/* Top movers */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>Top movers</CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <div
                 className="inline-flex gap-0.5 rounded border border-input p-0.5"
                 role="group"
@@ -307,9 +307,9 @@ export function Changes() {
       {/* New / disappeared talkers */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>New and disappeared talkers</CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <div
                 className="inline-flex gap-0.5 rounded border border-input p-0.5"
                 role="group"

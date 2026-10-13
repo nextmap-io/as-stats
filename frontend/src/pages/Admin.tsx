@@ -499,7 +499,7 @@ function TokensTab() {
               This is the only time <span className="font-medium">{minted.name}</span> will be shown. It cannot be
               retrieved again — store it somewhere safe.
             </p>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <code className="flex-1 px-2 py-1.5 rounded border border-input bg-background font-mono text-[13px] break-all select-all">
                 {minted.token}
               </code>

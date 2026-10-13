@@ -151,11 +151,11 @@ export function TopIP() {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>
               {scope === "internal" ? "Internal" : scope === "external" ? "External" : "All"} IPs by traffic volume
             </CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <ViewToggle />
               <MetricToggle value={metric} onChange={(v) => setFilter("metric", v)} />
               <ExportButton rows={rows} columns={exportColumns} filename="top-ip" />

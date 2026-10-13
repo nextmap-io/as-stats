@@ -146,12 +146,12 @@ export function TopPrefixes() {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>
               {scope === "internal" ? "Internal" : scope === "external" ? "External" : "All"} prefixes by traffic volume
               {scope === "internal" && <span className="font-normal text-muted-foreground ml-2">(grouped by announced prefix)</span>}
             </CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <ViewToggle />
               <MetricToggle value={metric} onChange={(v) => setFilter("metric", v)} />
               <ExportButton rows={rows} columns={exportColumns} filename="top-prefixes" />

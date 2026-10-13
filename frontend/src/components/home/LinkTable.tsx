@@ -28,7 +28,7 @@ export function LinkTable({ rows, step, filterSearch }: { rows: LinkRowData[]; s
         {rows.map((r) => (
           <li
             key={r.tag}
-            className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-5 gap-y-2 border-b border-border py-3 [grid-template-areas:'name_cap''meter_meter''now_vol'] lg:grid-cols-[minmax(150px,1.5fr)_80px_120px_minmax(180px,1.6fr)_110px_130px] lg:[grid-template-areas:'name_cap_now_meter_vol_spark']"
+            className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-5 gap-y-2 border-b border-border py-3 [grid-template-areas:'name_cap''meter_meter''now_vol''spark_spark'] lg:grid-cols-[minmax(150px,1.5fr)_80px_120px_minmax(180px,1.6fr)_110px_130px] lg:[grid-template-areas:'name_cap_now_meter_vol_spark']"
           >
             <div className="min-w-0 [grid-area:name]">
               <Link to={`/link/${encodeURIComponent(r.tag)}${filterSearch}`} className="font-semibold hover:underline">
@@ -53,7 +53,7 @@ export function LinkTable({ rows, step, filterSearch }: { rows: LinkRowData[]; s
               <br className="hidden lg:block" />
               {formatRate(r.volumeOut, 1, "bytes", "bytes")}
             </div>
-            <div className="hidden [grid-area:spark] lg:block">
+            <div className="[grid-area:spark]">
               <CapacitySpark row={r} step={step} />
             </div>
           </li>

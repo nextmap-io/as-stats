@@ -62,7 +62,7 @@ export function LoadDurationChart({ curve, capacityBps, height = 300, title }: L
             tickLine={false}
             axisLine={false}
             tickFormatter={(v) => formatBitsPerSec(Number(v))}
-            width={54}
+            width={72}
           />
           {capacityBps != null && capacityBps > 0 && (
             <ReferenceLine

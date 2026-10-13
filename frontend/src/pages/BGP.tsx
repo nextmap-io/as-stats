@@ -254,7 +254,7 @@ export function BGP() {
                     className="w-full px-2 py-1.5 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
                   />
                 </label>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="submit"
                     disabled={blockMutation.isPending}

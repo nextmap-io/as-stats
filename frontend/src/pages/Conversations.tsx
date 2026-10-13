@@ -264,9 +264,9 @@ export function Conversations() {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>Top conversations</CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <div
                 className="inline-flex gap-0.5 rounded border border-input p-0.5"
                 role="group"
