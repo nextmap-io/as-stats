@@ -66,6 +66,65 @@ var TimestampsClamped = promauto.NewCounter(prometheus.CounterOpts{
 	Help: "Flows whose out-of-range exporter timestamp was replaced with receive time.",
 })
 
+// FlowsBothInterfacesLinked counts flows whose input and output interfaces
+// both map to configured links (transit between two of your links). Such a
+// flow is credited to one link only per record; a high rate together with
+// ingress+egress monitoring on the same uplinks means the exporter sends each
+// packet twice, which only flowDirection (field 61) can disambiguate.
+var FlowsBothInterfacesLinked = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "asstats_flows_both_interfaces_linked_total",
+	Help: "Flows whose input and output interfaces both match configured links.",
+})
+
+// FlowSetsNoTemplate counts v9/IPFIX data sets discarded because their
+// template has not been received from that exporter. It is counted in sets,
+// not flows: without the template the record count cannot be known. Expected
+// for one template refresh period after a collector restart; a rate that
+// persists means the exporter's templates never reach the collector.
+var FlowSetsNoTemplate = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "asstats_flowsets_dropped_no_template_total",
+	Help: "v9/IPFIX data sets dropped because their template is unknown (sets, not flows).",
+}, []string{"router"})
+
+// SamplingRate is the 1-in-N sampling rate applied to the last packet decoded
+// from each exporter. A change here changes every byte count derived from that
+// router, so it is worth graphing next to traffic.
+var SamplingRate = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "asstats_sampling_rate",
+	Help: "Sampling rate (1-in-N) applied to the most recent flows of each exporter.",
+}, []string{"router"})
+
+// PipelineQueueLength / PipelineQueueCapacity expose the fill level of the
+// collector's internal channels, sampled every few seconds. A queue pinned at
+// capacity locates the bottleneck: packets → decoders, flows → enricher,
+// enriched → batch writer / ClickHouse.
+var PipelineQueueLength = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "asstats_pipeline_queue_length",
+	Help: "Items currently queued in a collector pipeline channel.",
+}, []string{"queue"})
+
+var PipelineQueueCapacity = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "asstats_pipeline_queue_capacity",
+	Help: "Capacity of a collector pipeline channel.",
+}, []string{"queue"})
+
+// UDPReceiveBuffer is the socket receive buffer the kernel actually granted
+// (on Linux, half the SO_RCVBUF readback). Linux silently caps the request at
+// net.core.rmem_max.
+var UDPReceiveBuffer = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "asstats_udp_receive_buffer_bytes",
+	Help: "UDP socket receive buffer size granted by the kernel.",
+}, []string{"listener"})
+
+// UDPSocketDrops is the kernel's cumulative drop count for a listener socket
+// (Linux only): datagrams lost because the receive buffer was full, before
+// the collector could read them. Use increase() on it like a counter; it
+// resets when the socket is reopened.
+var UDPSocketDrops = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "asstats_udp_socket_drops",
+	Help: "Datagrams dropped by the kernel on a listener socket since it was opened (Linux).",
+}, []string{"listener"})
+
 // ── Collector: alert engine ─────────────────────────────────────────────────
 
 var AlertEvaluations = promauto.NewCounterVec(prometheus.CounterOpts{

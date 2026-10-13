@@ -33,6 +33,10 @@ type Enricher struct {
 	// out-of-range and replaced with receive time. Atomic: Enrich runs without
 	// holding the write lock.
 	clampedTS atomic.Uint64
+
+	// bothLinked counts flows whose input and output interfaces both map to a
+	// configured link.
+	bothLinked atomic.Uint64
 }
 
 // New creates a new Enricher.
@@ -101,10 +105,15 @@ const (
 // rewritten to receive time. Exposed for metrics/diagnostics.
 func (e *Enricher) ClampedTimestamps() uint64 { return e.clampedTS.Load() }
 
+// BothInterfacesLinked counts flows whose input and output interfaces both
+// matched a configured link.
+func (e *Enricher) BothInterfacesLinked() uint64 { return e.bothLinked.Load() }
+
 // Enrich sets the LinkTag and Direction fields on a flow based on known links.
-// If the input interface matches a known link, the flow is inbound on that link.
-// If the output interface matches, the flow is outbound on that link. It also
-// clamps an out-of-range exporter timestamp to receive time.
+// A flow is inbound on a link it entered through and outbound on a link it
+// left through; when both interfaces are links, the exporter's flowDirection
+// decides which side is credited. It also clamps an out-of-range exporter
+// timestamp to receive time.
 func (e *Enricher) Enrich(flow *model.FlowRecord) {
 	routerIP := normalizeIP(flow.RouterIP)
 
@@ -121,28 +130,50 @@ func (e *Enricher) Enrich(flow *model.FlowRecord) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	// Check input interface -> inbound traffic
-	inKey := linkKey{RouterIP: routerIP, SNMPIndex: flow.InInterface}
-	if info, ok := e.links[inKey]; ok {
-		flow.LinkTag = info.Tag
-		flow.Direction = model.DirectionInbound
+	in, inOK := e.links[linkKey{RouterIP: routerIP, SNMPIndex: flow.InInterface}]
+	out, outOK := e.links[linkKey{RouterIP: routerIP, SNMPIndex: flow.OutInterface}]
+	if inOK && outOK {
+		// Transit between two configured links. Only one of them can be
+		// credited per record; with ingress+egress monitors on both, the
+		// exporter sends the packet twice and flowDirection tells them apart.
+		e.bothLinked.Add(1)
+		metrics.FlowsBothInterfacesLinked.Inc()
 	}
 
-	// Check output interface -> outbound traffic
-	if flow.LinkTag == "" {
-		outKey := linkKey{RouterIP: routerIP, SNMPIndex: flow.OutInterface}
-		if info, ok := e.links[outKey]; ok {
-			flow.LinkTag = info.Tag
-			flow.Direction = model.DirectionOutbound
+	// On entry flow.Direction carries the exporter's flowDirection (v9/IPFIX
+	// field 61), if any: the side of the router where the record was observed.
+	// Credit that side first and fall back to the other one only when it is not
+	// a configured link. Without this, an egress record of a flow A→B (which an
+	// egress monitor on B exports in addition to A's ingress record) matched
+	// its input A as well, and the packet counted twice as inbound on A while
+	// B never saw it as outbound. Falling back, rather than dropping, keeps
+	// ingress-only monitoring on every interface working: traffic leaving via
+	// an uplink is only ever exported as ingress on an internal interface.
+	if flow.Direction == model.DirectionOutbound {
+		switch {
+		case outOK:
+			flow.LinkTag, flow.Direction = out.Tag, model.DirectionOutbound
+		case inOK:
+			flow.LinkTag, flow.Direction = in.Tag, model.DirectionInbound
+		}
+	} else {
+		switch {
+		case inOK:
+			flow.LinkTag, flow.Direction = in.Tag, model.DirectionInbound
+		case outOK:
+			flow.LinkTag, flow.Direction = out.Tag, model.DirectionOutbound
 		}
 	}
 
 	// Override private/missing AS for IPs in local prefixes
 	if e.localAS > 0 && len(e.localNets) > 0 {
-		if e.isLocalIP(flow.SrcIP) && (flow.SrcAS == 0 || isPrivateAS(flow.SrcAS)) {
+		// The AS test is a couple of comparisons; isLocalIP is a linear scan of
+		// every announced prefix. Most flows carry a public AS, so test that
+		// first and only scan when the result can change something.
+		if (flow.SrcAS == 0 || isPrivateAS(flow.SrcAS)) && e.isLocalIP(flow.SrcIP) {
 			flow.SrcAS = e.localAS
 		}
-		if e.isLocalIP(flow.DstIP) && (flow.DstAS == 0 || isPrivateAS(flow.DstAS)) {
+		if (flow.DstAS == 0 || isPrivateAS(flow.DstAS)) && e.isLocalIP(flow.DstIP) {
 			flow.DstAS = e.localAS
 		}
 	}

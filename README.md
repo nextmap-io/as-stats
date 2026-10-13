@@ -201,6 +201,23 @@ interface <UPLINK>
 /ip traffic-flow target add dst-address=<COLLECTOR_IP> port=2055 version=ipfix
 ```
 
+**Sampling.** Every flow is scaled by its 1-in-N sampling rate, taken in
+this order: a rate carried in the record itself (sFlow, NetFlow v5 header,
+v9/IPFIX `SAMPLING_INTERVAL`), the rate the exporter announces in its v9 /
+IPFIX options data (`SAMPLING_INTERVAL`, `FLOW_SAMPLER_RANDOM_INTERVAL`,
+`samplingPacketInterval`/`Space`, … — matched per sampler ID when records
+carry `FLOW_SAMPLER_ID` / `selectorId`), then `COLLECTOR_SAMPLING_OVERRIDE`,
+and finally 1 (unsampled). Records seen before the first options packet are
+counted as unsampled, so expect a few minutes of under-counting after a
+collector restart on a sampled router. The rate in use per router is exported
+as `asstats_sampling_rate{router}`.
+
+With `ip flow monitor … input` **and** `output` on the same uplinks (as in the
+IOS-XE example), keep `match flow direction`: a packet crossing two monitored
+uplinks is exported twice, and the direction field is what lets the collector
+credit one copy as inbound on the first link and the other as outbound on the
+second, instead of counting it twice as inbound.
+
 ### 5. Map your interfaces
 
 Open the UI → **Links** → **Add link** to bind a router IP + SNMP ifindex
@@ -223,9 +240,12 @@ Everything is environment-variable driven. The full list lives in
 | `CLICKHOUSE_PASSWORD` | *required* | Strong password for the `asstats` user |
 | `COLLECTOR_LISTEN_NETFLOW` | `:2055` | NetFlow / IPFIX UDP listen address |
 | `COLLECTOR_LISTEN_SFLOW` | `:6343` | sFlow UDP listen address |
-| `COLLECTOR_BATCH_SIZE` | `10000` | Flows per batch INSERT |
-| `COLLECTOR_FLUSH_INTERVAL` | `5s` | Force-flush timer (whichever fires first) |
+| `COLLECTOR_BATCH_SIZE` | `50000` | Burst ceiling per batch INSERT (flush on size or timer, whichever fires first) |
+| `COLLECTOR_FLUSH_INTERVAL` | `15s` | Flush cadence. Each INSERT creates ~21 parts across the materialised views, so fewer, larger INSERTs mean far less merge work |
 | `COLLECTOR_WORKERS` | `4` | Decoder goroutines (raise on multi-Gbps) |
+| `COLLECTOR_SAMPLING_OVERRIDE` | *(none)* | Last-resort per-router sampling rate, e.g. `2001:db8::1=1000,192.0.2.1=512`; only used when neither the record nor the exporter's options data gives one |
+| `COLLECTOR_FLUSH_TIMEOUT` | `30s` | Upper bound on one batch INSERT; a failed batch is dropped and counted (`asstats_flows_dropped_total`), not retried |
+| `COLLECTOR_SHUTDOWN_TIMEOUT` | `40s` | Bound on the SIGTERM drain + final flush; keep below the container stop grace period |
 | `LOCAL_AS` | *(none)* | Your AS number — auto-fetches your prefixes from RIPEstat at startup so the engine knows which IPs are "yours" |
 | `API_CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins |
 
@@ -374,7 +394,13 @@ The ingest counters worth alerting on:
 
 | Metric | Meaning |
 |---|---|
-| `asstats_flows_received_total{protocol}` | Flows decoded from routers |
+| `asstats_flows_received_total{protocol}` | Flows decoded from routers (`netflow5`, `netflow9`, `ipfix`, `sflow`) |
+| `asstats_flowsets_dropped_no_template_total{router}` | v9/IPFIX data sets dropped because the exporter's template is not known yet (normal for one template refresh after a restart) |
+| `asstats_sampling_rate{router}` | Sampling rate applied to each exporter's latest flows |
+| `asstats_udp_socket_drops{listener}` | Datagrams the kernel dropped before the collector read them (Linux; use `increase()`) |
+| `asstats_udp_receive_buffer_bytes{listener}` | Receive buffer actually granted — capped by `net.core.rmem_max` |
+| `asstats_pipeline_queue_length{queue}` / `_capacity` | Fill level of the internal channels; a queue stuck at capacity is the bottleneck |
+| `asstats_flows_both_interfaces_linked_total` | Flows whose input and output interfaces are both configured links |
 | `asstats_flows_written_total` | Flows committed to ClickHouse |
 | `asstats_batch_write_errors_total` | Batch INSERTs that failed |
 | `asstats_flows_dropped_total` | Flows discarded because their batch failed |

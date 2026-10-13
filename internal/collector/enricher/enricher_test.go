@@ -73,6 +73,86 @@ func TestEnrichNoMatch(t *testing.T) {
 	}
 }
 
+// With ingress and egress monitors on both uplinks, a flow A→B is exported
+// twice with the same in/out interfaces. Each copy must be credited to the
+// link where it was observed — not both to A as inbound.
+func TestEnrichFlowDirectionDisambiguatesTransit(t *testing.T) {
+	e := New()
+	router := net.ParseIP("2001:db8::1")
+	e.LoadLinks([]model.Link{
+		{Tag: "a", RouterIP: router, SNMPIndex: 1},
+		{Tag: "b", RouterIP: router, SNMPIndex: 2},
+	})
+
+	cases := []struct {
+		name    string
+		hint    uint8
+		wantTag string
+		wantDir uint8
+	}{
+		{"ingress record", model.DirectionInbound, "a", model.DirectionInbound},
+		{"egress record", model.DirectionOutbound, "b", model.DirectionOutbound},
+		{"no flowDirection", model.DirectionUnknown, "a", model.DirectionInbound},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &model.FlowRecord{RouterIP: router, InInterface: 1, OutInterface: 2, Direction: tc.hint}
+			e.Enrich(f)
+			if f.LinkTag != tc.wantTag || f.Direction != tc.wantDir {
+				t.Errorf("got (%q, %d), want (%q, %d)", f.LinkTag, f.Direction, tc.wantTag, tc.wantDir)
+			}
+		})
+	}
+	if got := e.BothInterfacesLinked(); got != uint64(len(cases)) {
+		t.Errorf("BothInterfacesLinked = %d, want %d", got, len(cases))
+	}
+}
+
+// The observed side is preferred, but a record is never dropped when only the
+// other side is a link: with ingress-only monitoring everywhere, traffic
+// leaving via an uplink only exists as an ingress record on an internal port.
+func TestEnrichFlowDirectionFallsBackToOtherSide(t *testing.T) {
+	e := New()
+	router := net.ParseIP("10.0.0.1")
+	e.LoadLinks([]model.Link{{Tag: "uplink", RouterIP: router, SNMPIndex: 7}})
+
+	ingressOut := &model.FlowRecord{RouterIP: router, InInterface: 3, OutInterface: 7, Direction: model.DirectionInbound}
+	e.Enrich(ingressOut)
+	if ingressOut.LinkTag != "uplink" || ingressOut.Direction != model.DirectionOutbound {
+		t.Errorf("ingress record leaving via uplink: got (%q, %d)", ingressOut.LinkTag, ingressOut.Direction)
+	}
+
+	egressIn := &model.FlowRecord{RouterIP: router, InInterface: 7, OutInterface: 3, Direction: model.DirectionOutbound}
+	e.Enrich(egressIn)
+	if egressIn.LinkTag != "uplink" || egressIn.Direction != model.DirectionInbound {
+		t.Errorf("egress record entering via uplink: got (%q, %d)", egressIn.LinkTag, egressIn.Direction)
+	}
+	if got := e.BothInterfacesLinked(); got != 0 {
+		t.Errorf("BothInterfacesLinked = %d, want 0", got)
+	}
+}
+
+func TestEnrichLocalASRemap(t *testing.T) {
+	e := New()
+	_, local, _ := net.ParseCIDR("192.0.2.0/24")
+	e.SetLocalAS(64496, []net.IPNet{*local})
+
+	f := &model.FlowRecord{
+		SrcIP: net.ParseIP("192.0.2.10"), SrcAS: 65001, // private, local → remapped
+		DstIP: net.ParseIP("198.51.100.1"), DstAS: 0, // not local → untouched
+	}
+	e.Enrich(f)
+	if f.SrcAS != 64496 || f.DstAS != 0 {
+		t.Errorf("got src AS %d dst AS %d, want 64496 / 0", f.SrcAS, f.DstAS)
+	}
+
+	pub := &model.FlowRecord{SrcIP: net.ParseIP("192.0.2.11"), SrcAS: 13335}
+	e.Enrich(pub)
+	if pub.SrcAS != 13335 {
+		t.Errorf("public AS on a local IP was rewritten to %d", pub.SrcAS)
+	}
+}
+
 func TestASNames(t *testing.T) {
 	e := New()
 	e.LoadASNames([]model.ASInfo{

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -60,6 +61,20 @@ type CollectorConfig struct {
 	FlushInterval time.Duration
 	Workers       int
 	LocalAS       uint32
+
+	// ShutdownTimeout bounds the drain on SIGTERM (decoders, enricher, final
+	// flush). Keep it below the container's stop grace period, or the runtime
+	// SIGKILLs the process mid-flush.
+	ShutdownTimeout time.Duration
+
+	// FlushTimeout bounds one batch INSERT. A batch that fails or times out is
+	// dropped (and counted), never retried — see writer.write.
+	FlushTimeout time.Duration
+
+	// SamplingOverride maps router IP → 1-in-N sampling rate, applied only to
+	// flows whose sampling rate is known neither from the record itself nor
+	// from the exporter's options data (COLLECTOR_SAMPLING_OVERRIDE).
+	SamplingOverride map[string]uint32
 
 	// Flow log retention (only applied when the table exists; default 180 days)
 	FlowLogRetentionDays int
@@ -162,17 +177,39 @@ func loadClickHouse() ClickHouseConfig {
 
 // LoadCollector loads collector configuration from environment variables.
 func LoadCollector() (*CollectorConfig, error) {
-	batchSize, err := strconv.Atoi(envOr("COLLECTOR_BATCH_SIZE", "10000"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid COLLECTOR_BATCH_SIZE: %w", err)
+	// Flushing is meant to be time-driven: every INSERT into flows_raw fans out
+	// to ~20 materialised views and creates ~21 parts, so the part count — and
+	// the merge I/O that follows — scales with the number of INSERTs, not with
+	// rows. Measured on production traffic, 30s instead of 5s cut new parts by
+	// 83% and merge I/O by 74%. 15s keeps most of that gain while the 1-min hot
+	// tables used by the alert engine stay fresh. The batch size is a ceiling
+	// for bursts, sized well above interval × normal flow rate.
+	batchSize, err := strconv.Atoi(envOr("COLLECTOR_BATCH_SIZE", "50000"))
+	if err != nil || batchSize <= 0 {
+		return nil, fmt.Errorf("invalid COLLECTOR_BATCH_SIZE: %q", envOr("COLLECTOR_BATCH_SIZE", "50000"))
 	}
-	flushInterval, err := time.ParseDuration(envOr("COLLECTOR_FLUSH_INTERVAL", "5s"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid COLLECTOR_FLUSH_INTERVAL: %w", err)
+	flushInterval, err := time.ParseDuration(envOr("COLLECTOR_FLUSH_INTERVAL", "15s"))
+	if err != nil || flushInterval <= 0 {
+		return nil, fmt.Errorf("invalid COLLECTOR_FLUSH_INTERVAL: %q", envOr("COLLECTOR_FLUSH_INTERVAL", "15s"))
 	}
 	workers, err := strconv.Atoi(envOr("COLLECTOR_WORKERS", "4"))
 	if err != nil {
 		return nil, fmt.Errorf("invalid COLLECTOR_WORKERS: %w", err)
+	}
+
+	shutdownTimeout, err := time.ParseDuration(envOr("COLLECTOR_SHUTDOWN_TIMEOUT", "40s"))
+	if err != nil || shutdownTimeout <= 0 {
+		return nil, fmt.Errorf("invalid COLLECTOR_SHUTDOWN_TIMEOUT: %q", envOr("COLLECTOR_SHUTDOWN_TIMEOUT", "40s"))
+	}
+
+	flushTimeout, err := time.ParseDuration(envOr("COLLECTOR_FLUSH_TIMEOUT", "30s"))
+	if err != nil || flushTimeout <= 0 {
+		return nil, fmt.Errorf("invalid COLLECTOR_FLUSH_TIMEOUT: %q", envOr("COLLECTOR_FLUSH_TIMEOUT", "30s"))
+	}
+
+	samplingOverride, err := parseSamplingOverride(envOr("COLLECTOR_SAMPLING_OVERRIDE", ""))
+	if err != nil {
+		return nil, err
 	}
 
 	localAS, _ := strconv.ParseUint(envOr("LOCAL_AS", "0"), 10, 32)
@@ -214,6 +251,9 @@ func LoadCollector() (*CollectorConfig, error) {
 		BatchSize:                  batchSize,
 		FlushInterval:              flushInterval,
 		Workers:                    workers,
+		ShutdownTimeout:            shutdownTimeout,
+		FlushTimeout:               flushTimeout,
+		SamplingOverride:           samplingOverride,
 		LocalAS:                    uint32(localAS),
 		FlowLogRetentionDays:       flowLogRetention,
 		RetentionReconcileInterval: reconcileInterval,
@@ -317,6 +357,23 @@ func LoadAPI() (*APIConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+// parseSamplingOverride parses "ip=rate,ip=rate" (e.g.
+// "2001:db8::1=1000,192.0.2.1=512"). A wrong rate silently scales a router's
+// traffic, so any malformed entry fails startup instead of being skipped.
+func parseSamplingOverride(s string) (map[string]uint32, error) {
+	out := make(map[string]uint32)
+	for _, entry := range splitCSV(s) {
+		ipStr, rateStr, ok := strings.Cut(entry, "=")
+		ip := net.ParseIP(strings.TrimSpace(ipStr))
+		rate, err := strconv.ParseUint(strings.TrimSpace(rateStr), 10, 32)
+		if !ok || ip == nil || err != nil || rate == 0 {
+			return nil, fmt.Errorf("invalid COLLECTOR_SAMPLING_OVERRIDE entry %q: want <router-ip>=<rate>, rate >= 1", entry)
+		}
+		out[ip.String()] = uint32(rate)
+	}
+	return out, nil
 }
 
 func splitCSV(s string) []string {
