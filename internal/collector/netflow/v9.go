@@ -221,6 +221,9 @@ func applyField(flow *model.FlowRecord, fieldType uint16, data []byte) {
 			flow.DstPrefix = fmt.Sprintf("%s/%d", maskIP(flow.DstIP, data[0]), data[0])
 		}
 	case FieldDirection:
+		// flowDirection: 0 = ingress, 1 = egress, relative to the interface
+		// where the record was observed. The enricher reads it as a hint and
+		// then overwrites Direction with the link-relative direction.
 		if len(data) >= 1 {
 			switch data[0] {
 			case 0:

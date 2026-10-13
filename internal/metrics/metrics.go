@@ -66,6 +66,16 @@ var TimestampsClamped = promauto.NewCounter(prometheus.CounterOpts{
 	Help: "Flows whose out-of-range exporter timestamp was replaced with receive time.",
 })
 
+// FlowsBothInterfacesLinked counts flows whose input and output interfaces
+// both map to configured links (transit between two of your links). Such a
+// flow is credited to one link only per record; a high rate together with
+// ingress+egress monitoring on the same uplinks means the exporter sends each
+// packet twice, which only flowDirection (field 61) can disambiguate.
+var FlowsBothInterfacesLinked = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "asstats_flows_both_interfaces_linked_total",
+	Help: "Flows whose input and output interfaces both match configured links.",
+})
+
 // ── Collector: alert engine ─────────────────────────────────────────────────
 
 var AlertEvaluations = promauto.NewCounterVec(prometheus.CounterOpts{
