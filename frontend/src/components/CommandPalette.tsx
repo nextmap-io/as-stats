@@ -239,7 +239,7 @@ export function CommandPalette() {
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-start justify-center bg-black/50 pt-[12vh] px-4 animate-fade-in"
+      className="fixed inset-0 z-[100] flex items-start justify-center bg-black/50 pt-[12vh] px-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) close()
       }}
@@ -249,7 +249,7 @@ export function CommandPalette() {
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        className="w-full max-w-lg overflow-hidden rounded-lg border border-border bg-popover shadow-2xl"
+        className="w-full max-w-lg overflow-hidden rounded-lg border border-border bg-popover shadow-md"
         onKeyDown={onKeyDown}
       >
         <div className="flex items-center gap-2 border-b border-border px-3">
@@ -270,7 +270,7 @@ export function CommandPalette() {
             placeholder="Search pages, AS, IP, prefix…"
             className="h-11 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
           />
-          <kbd className="hidden sm:inline text-[10px] text-muted-foreground border border-border rounded px-1 py-0.5">
+          <kbd className="hidden sm:inline text-xs text-muted-foreground border border-border rounded px-1 py-0.5">
             Esc
           </kbd>
         </div>
@@ -296,7 +296,7 @@ export function CommandPalette() {
                   <span className="text-muted-foreground shrink-0">{item.icon}</span>
                   <span className="flex-1 truncate">{item.label}</span>
                   {item.sublabel && (
-                    <span className="text-[10px] text-muted-foreground truncate max-w-[40%]">{item.sublabel}</span>
+                    <span className="text-xs text-muted-foreground truncate max-w-[40%]">{item.sublabel}</span>
                   )}
                   {i === activeIndex && <CornerDownLeft className="size-3 text-muted-foreground shrink-0" aria-hidden />}
                 </button>

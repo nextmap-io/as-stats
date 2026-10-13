@@ -1,54 +1,33 @@
-import { useEffect, useState, type ReactNode } from "react"
-import { ThemeCtx } from "@/hooks/useTheme"
-
-type Theme = "light" | "dark" | "system"
-
-const STORAGE_KEY = "theme"
-
-// localStorage access throws (not returns null) when storage is blocked —
-// Safari private browsing, strict third-party-cookie policies, some enterprise
-// profiles. ThemeProvider wraps the whole router, so an uncaught throw here
-// takes the entire SPA down to the ErrorBoundary fallback. Degrade to the
-// in-memory default instead: the app still works, the choice just isn't
-// remembered across reloads.
-function readStoredTheme(): Theme {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored === "light" || stored === "dark" || stored === "system") return stored
-  } catch {
-    // storage unavailable — fall through to the default
-  }
-  return "system"
-}
-
-function persistTheme(theme: Theme) {
-  try {
-    localStorage.setItem(STORAGE_KEY, theme)
-  } catch {
-    // storage unavailable — the theme stays session-local
-  }
-}
+import { useCallback, useEffect, useState, type ReactNode } from "react"
+import { ThemeCtx, type ResolvedTheme, type Theme } from "@/hooks/useTheme"
+import { applyThemeClass, persistTheme, readStoredTheme, resolveTheme, systemPrefersDark } from "@/lib/theme"
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(readStoredTheme)
+  const [theme, setThemeState] = useState<Theme>(readStoredTheme)
+  const [systemDark, setSystemDark] = useState(systemPrefersDark)
 
+  const setTheme = useCallback(
+    (next: Theme) => {
+      applyThemeClass(resolveTheme(next, systemDark))
+      persistTheme(next)
+      setThemeState(next)
+    },
+    [systemDark],
+  )
+
+  // Follow the OS setting live while the user has chosen "system".
   useEffect(() => {
-    const root = document.documentElement
-    root.classList.remove("light", "dark")
-
-    if (theme === "system") {
-      const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches
-      root.classList.add(isDark ? "dark" : "light")
-    } else {
-      root.classList.add(theme)
+    if (theme !== "system" || !window.matchMedia) return
+    const mq = window.matchMedia("(prefers-color-scheme: dark)")
+    const onChange = (e: MediaQueryListEvent) => {
+      applyThemeClass(e.matches ? "dark" : "light")
+      setSystemDark(e.matches)
     }
-
-    persistTheme(theme)
+    mq.addEventListener("change", onChange)
+    return () => mq.removeEventListener("change", onChange)
   }, [theme])
 
-  return (
-    <ThemeCtx.Provider value={{ theme, setTheme }}>
-      {children}
-    </ThemeCtx.Provider>
-  )
+  const resolved: ResolvedTheme = resolveTheme(theme, systemDark)
+
+  return <ThemeCtx.Provider value={{ theme, resolved, setTheme }}>{children}</ThemeCtx.Provider>
 }

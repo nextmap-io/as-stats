@@ -9,7 +9,6 @@ import { TrafficChart } from "@/components/charts/TrafficChart"
 import { ASTrafficChart } from "@/components/charts/ASTrafficChart"
 import { LoadDurationChart } from "@/components/charts/LoadDurationChart"
 
-const AS_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6", "#1abc9c", "#e67e22", "#2980b9", "#e91e63", "#00bcd4"]
 import { ExpandableChart } from "@/components/ExpandableChart"
 import { QueryBoundary } from "@/components/QueryBoundary"
 import { ComparisonToggle } from "@/components/ComparisonToggle"
@@ -17,6 +16,8 @@ import { previousWindow, shiftSeries, useCompareEnabled } from "@/lib/comparison
 import { formatNumber, formatPercent } from "@/lib/utils"
 import { ASRef } from "@/components/ASRef"
 import { useUnit } from "@/hooks/useUnit"
+import { seriesColor, useChartColors } from "@/hooks/useChartColors"
+import { bytesToBps, stepSecondsOf } from "@/lib/rate"
 
 /** One percentile row (p50/p95/p99) showing in + out throughput. Renders
  *  nothing when neither direction is present (older backend). */
@@ -24,28 +25,29 @@ function PercentileItem({
   label,
   inVal,
   outVal,
-  bucketSeconds,
+  stepSeconds,
 }: {
   label: string
   inVal?: number
   outVal?: number
-  bucketSeconds: number
+  stepSeconds: number
 }) {
   const { formatTraffic } = useUnit()
   if (inVal == null && outVal == null) return null
   return (
     <div>
-      <span className="text-muted-foreground uppercase tracking-wide text-[10px]">{label}</span>{" "}
-      <span className="font-semibold text-traffic-in">{formatTraffic(inVal ?? 0, bucketSeconds)}</span>
+      <span className="text-muted-foreground">{label}</span>{" "}
+      <span className="font-semibold text-traffic-in">{formatTraffic(inVal ?? 0, stepSeconds)}</span>
       <span className="text-muted-foreground"> / </span>
-      <span className="font-semibold text-traffic-out">{formatTraffic(outVal ?? 0, bucketSeconds)}</span>
+      <span className="font-semibold text-traffic-out">{formatTraffic(outVal ?? 0, stepSeconds)}</span>
     </div>
   )
 }
 
 export function LinkDetail() {
   const { tag } = useParams<{ tag: string }>()
-  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds, bounds } = useFilters()
+  const { filters, filterSearch, periodSeconds, timeBounds, bounds } = useFilters()
+  const chartColors = useChartColors()
   const { formatTraffic } = useUnit()
   const { data, isLoading, error } = useLinkDetail(tag || "", filters)
   const loadCurveQuery = useLinkLoadCurve(tag || "", filters)
@@ -81,10 +83,14 @@ export function LinkDetail() {
   // config only for capacity if the detail response predates the field.
   const capacityMbps = detail.capacity_mbps || linkConfig?.capacity_mbps || 0
   const capacityBps = capacityMbps * 1_000_000
-  const p95InBps = detail.p95_in ? (detail.p95_in * 8) / bucketSeconds : 0
-  const p95OutBps = detail.p95_out ? (detail.p95_out * 8) / bucketSeconds : 0
+  // Bucket width the server used for the series and percentiles (3.1+), or the
+  // legacy guess on older servers.
+  const step = stepSecondsOf(data?.meta, periodSeconds)
+  const p95InBps = detail.p95_in ? bytesToBps(detail.p95_in, step) : 0
+  const p95OutBps = detail.p95_out ? bytesToBps(detail.p95_out, step) : 0
   const p95MaxBps = Math.max(p95InBps, p95OutBps)
-  // utilization_pct is p95(in+out) / capacity; nil when capacity unset.
+  // utilization_pct is the busier direction's p95 against capacity; null when
+  // capacity is unset.
   const utilizationPct =
     detail.utilization_pct != null
       ? detail.utilization_pct
@@ -95,31 +101,31 @@ export function LinkDetail() {
   // Colors for AS in the chart and table
   const asColors: Record<number, string> = {}
   if (detail.as_series) {
-    detail.as_series.forEach((d, i) => { asColors[d.as_number] = AS_COLORS[i % AS_COLORS.length] })
+    detail.as_series.forEach((d, i) => { asColors[d.as_number] = seriesColor(chartColors, i) })
   }
 
   return (
     <div className="space-y-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">Link: {detail.tag}</h1>
+          <h1 className="text-2xl font-semibold">{linkConfig?.description || detail.tag}</h1>
           {linkConfig?.description && (
-            <p className="text-xs text-muted-foreground mt-0.5">{linkConfig.description}</p>
+            <p className="mt-0.5 text-[13px] text-muted-foreground">Link tag {detail.tag}</p>
           )}
         </div>
         <ComparisonToggle className="shrink-0" />
       </div>
 
       {/* Percentiles (p50 / p95 / p99, in & out) + Capacity */}
-      <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
-        <PercentileItem label="p50" inVal={detail.p50_in} outVal={detail.p50_out} bucketSeconds={bucketSeconds} />
-        <PercentileItem label="p95" inVal={detail.p95_in} outVal={detail.p95_out} bucketSeconds={bucketSeconds} />
-        <PercentileItem label="p99" inVal={detail.p99_in} outVal={detail.p99_out} bucketSeconds={bucketSeconds} />
+      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+        <PercentileItem label="p50" inVal={detail.p50_in} outVal={detail.p50_out} stepSeconds={step} />
+        <PercentileItem label="p95" inVal={detail.p95_in} outVal={detail.p95_out} stepSeconds={step} />
+        <PercentileItem label="p99" inVal={detail.p99_in} outVal={detail.p99_out} stepSeconds={step} />
         {capacityMbps > 0 && (
           <>
-            <div><span className="text-muted-foreground">Capacity:</span> <span className="font-semibold">{capacityMbps.toLocaleString()} Mbps</span></div>
+            <div><span className="text-muted-foreground">Capacity</span> <span className="font-semibold">{capacityMbps.toLocaleString()} Mb/s</span></div>
             {utilizationPct != null && (
-              <div><span className="text-muted-foreground">Utilization:</span> <span className={`font-semibold ${utilizationPct >= 90 ? "text-destructive" : utilizationPct >= 70 ? "text-warning" : "text-success"}`}>{formatPercent(utilizationPct)}</span></div>
+              <div><span className="text-muted-foreground">p95 utilisation, busier direction</span> <span className={`font-semibold ${utilizationPct >= 90 ? "text-destructive" : utilizationPct >= 70 ? "text-warning" : ""}`}>{formatPercent(utilizationPct)}</span></div>
             )}
           </>
         )}
@@ -128,8 +134,8 @@ export function LinkDetail() {
       {/* Total traffic vs previous period (comparison overlay, opt-in) */}
       {compare && detail.time_series?.length > 0 && (
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Total traffic vs previous period</CardTitle>
+          <CardHeader>
+            <CardTitle>Total traffic against the previous period</CardTitle>
           </CardHeader>
           <CardContent>
             <TrafficChart
@@ -139,6 +145,7 @@ export function LinkDetail() {
               p95In={detail.p95_in}
               p95Out={detail.p95_out}
               timeBounds={timeBounds}
+              stepSeconds={step}
             />
           </CardContent>
         </Card>
@@ -147,9 +154,9 @@ export function LinkDetail() {
       {/* Top AS stacked chart */}
       {detail.as_series && detail.as_series.length > 0 && (
         <Card>
-          <CardContent className="px-4 pt-5 pb-4">
+          <CardContent className="pt-3">
             <ExpandableChart title={`Top AS on ${detail.tag}`} fetchType="link-detail" fetchParams={{ tag: tag || "" }} currentPeriod={filters.period}>
-              <ASTrafficChart data={detail.as_series} title="Traffic by AS" height={350} timeBounds={timeBounds} />
+              <ASTrafficChart data={detail.as_series} title="Traffic by AS" height={350} timeBounds={timeBounds} stepSeconds={step} />
             </ExpandableChart>
           </CardContent>
         </Card>
@@ -158,10 +165,10 @@ export function LinkDetail() {
       {/* Fallback: simple traffic chart if no AS series */}
       {(!detail.as_series || detail.as_series.length === 0) && detail.time_series?.length > 0 && (
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Traffic</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Traffic</CardTitle></CardHeader>
           <CardContent>
             <ExpandableChart title="Link Traffic" fetchType="link-detail" fetchParams={{ tag: tag || "" }} currentPeriod={filters.period}>
-              <TrafficChart data={detail.time_series} height={350} p95In={detail.p95_in} p95Out={detail.p95_out} timeBounds={timeBounds} />
+              <TrafficChart data={detail.time_series} height={350} p95In={detail.p95_in} p95Out={detail.p95_out} timeBounds={timeBounds} stepSeconds={step} />
             </ExpandableChart>
           </CardContent>
         </Card>
@@ -169,14 +176,14 @@ export function LinkDetail() {
 
       {/* Load-duration curve */}
       <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Load-Duration Curve</CardTitle>
+        <CardHeader>
+          <CardTitle>Load-duration curve</CardTitle>
         </CardHeader>
         <CardContent>
           <QueryBoundary
             query={loadCurveQuery}
-            isEmpty={(d) => d.data.points.length === 0}
-            skeleton={<div className="h-[300px] animate-pulse rounded bg-muted/40" />}
+            isEmpty={(d) => !d.data?.points?.length}
+            skeleton={<div className="h-[300px] rounded bg-muted/40" />}
           >
             {(d) => (
               <ExpandableChart title={`Load-Duration Curve — ${detail.tag}`}>
@@ -184,7 +191,7 @@ export function LinkDetail() {
               </ExpandableChart>
             )}
           </QueryBoundary>
-          <p className="mt-2 text-[10px] text-muted-foreground">
+          <p className="mt-2 text-xs text-muted-foreground">
             Throughput sorted descending against the fraction of the window it was met or exceeded.
             {capacityBps > 0 && " The dashed line marks the configured capacity."}
           </p>
@@ -194,11 +201,11 @@ export function LinkDetail() {
       {/* Top AS table with color dots */}
       {detail.top_as?.length > 0 && (
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Top AS on this link</CardTitle>
+          <CardHeader>
+            <CardTitle>Top AS on this link</CardTitle>
           </CardHeader>
           <CardContent>
-            <table className="w-full text-xs">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
                   <th className="pb-1.5 w-4"></th>
@@ -210,11 +217,11 @@ export function LinkDetail() {
               </thead>
               <tbody>
                 {detail.top_as.map((as) => (
-                  <tr key={as.as_number} className="border-b border-border/40 last:border-0 hover:bg-muted/50">
+                  <tr key={as.as_number} className="border-b border-border-soft last:border-0 hover:bg-accent/60">
                     <td className="py-1">
                       <span
                         className="inline-block size-3 rounded-sm"
-                        style={{ backgroundColor: asColors[as.as_number] || "#888" }}
+                        style={{ backgroundColor: asColors[as.as_number] || chartColors.grid }}
                       />
                     </td>
                     <td className="py-1">
@@ -222,12 +229,12 @@ export function LinkDetail() {
                         asn={as.as_number}
                         search={filterSearch}
                         prefix={false}
-                        className="text-primary hover:underline font-mono"
+                        className="text-primary hover:underline"
                       />
                     </td>
                     <td className="py-1 text-muted-foreground truncate max-w-48">{as.as_name || "-"}</td>
-                    <td className="py-1 text-right font-mono">{formatTraffic(as.bytes, periodSeconds)}</td>
-                    <td className="py-1 text-right font-mono text-muted-foreground hidden sm:table-cell">{formatNumber(as.flows)}</td>
+                    <td className="py-1 text-right">{formatTraffic(as.bytes, periodSeconds, as.packets)}</td>
+                    <td className="py-1 text-right text-muted-foreground hidden sm:table-cell">{formatNumber(as.flows)}</td>
                   </tr>
                 ))}
               </tbody>

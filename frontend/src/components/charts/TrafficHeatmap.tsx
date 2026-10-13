@@ -43,7 +43,7 @@ export function TrafficHeatmap({ cells }: { cells: HeatmapCell[] }) {
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
         <div
-          className="flex gap-0.5 rounded border border-input bg-muted/30 p-0.5"
+          className="inline-flex overflow-hidden rounded border border-input"
           role="group"
           aria-label="Heatmap metric"
         >
@@ -54,10 +54,10 @@ export function TrafficHeatmap({ cells }: { cells: HeatmapCell[] }) {
               onClick={() => setMetric(m)}
               aria-pressed={metric === m}
               className={cn(
-                "px-2 py-0.5 text-[11px] font-medium rounded transition-colors capitalize",
+                "px-2.5 py-1 text-[13px] capitalize",
                 metric === m
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                  ? "bg-accent font-semibold text-foreground"
+                  : "text-foreground-secondary hover:text-foreground",
               )}
             >
               {m}
@@ -67,14 +67,14 @@ export function TrafficHeatmap({ cells }: { cells: HeatmapCell[] }) {
         <Legend max={max} />
       </div>
 
-      <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
+      <div className="overflow-x-auto">
         <div className="min-w-[520px]">
           {/* Hour axis */}
           <div className="flex pl-9">
             {HOURS.map((h) => (
               <div
                 key={h}
-                className="flex-1 text-center text-[8px] text-muted-foreground tabular-nums"
+                className="flex-1 text-center text-xs text-muted-foreground tabular-nums"
                 aria-hidden
               >
                 {h % 3 === 0 ? h : ""}
@@ -86,7 +86,7 @@ export function TrafficHeatmap({ cells }: { cells: HeatmapCell[] }) {
             const day = i + 1
             return (
               <div key={day} className="flex items-center">
-                <div className="w-9 shrink-0 text-[9px] text-muted-foreground uppercase tracking-wider" aria-hidden>
+                <div className="w-9 shrink-0 text-xs text-muted-foreground" aria-hidden>
                   {label}
                 </div>
                 <div className="flex flex-1 gap-px py-px">
@@ -100,11 +100,11 @@ export function TrafficHeatmap({ cells }: { cells: HeatmapCell[] }) {
                         type="button"
                         title={`${label} ${String(hour).padStart(2, "0")}:00 — ${metric} ${formatBitsPerSec(v)}`}
                         aria-label={`${label} ${String(hour).padStart(2, "0")}:00, ${metric} throughput ${formatBitsPerSec(v)}`}
-                        className="relative flex-1 aspect-square min-w-[10px] rounded-[2px] bg-muted/60 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:z-10"
+                        className="relative h-6 flex-1 min-w-[10px] rounded-[2px] bg-muted outline-none sm:h-7 focus-visible:ring-2 focus-visible:ring-ring focus-visible:z-10"
                       >
                         <span
                           aria-hidden
-                          className="absolute inset-0 rounded-[2px] bg-primary"
+                          className="absolute inset-0 rounded-[2px] bg-traffic-out"
                           style={{ opacity: intensity }}
                         />
                       </button>
@@ -118,7 +118,7 @@ export function TrafficHeatmap({ cells }: { cells: HeatmapCell[] }) {
       </div>
 
       {/* Screen-reader data fallback */}
-      <table className="sr-only">
+      <div className="sr-only"><table>
         <caption>Traffic {metric} throughput by day of week and hour of day</caption>
         <thead>
           <tr>
@@ -138,18 +138,18 @@ export function TrafficHeatmap({ cells }: { cells: HeatmapCell[] }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   )
 }
 
 function Legend({ max }: { max: number }) {
   return (
-    <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
+    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
       <span className="tabular-nums">0</span>
       <div className="flex h-2 w-20 overflow-hidden rounded-sm bg-muted/60">
         {[0.15, 0.35, 0.55, 0.75, 1].map((o) => (
-          <span key={o} className="flex-1 bg-primary" style={{ opacity: o }} aria-hidden />
+          <span key={o} className="flex-1 bg-traffic-out" style={{ opacity: o }} aria-hidden />
         ))}
       </div>
       <span className="tabular-nums">{formatBitsPerSec(max)}</span>

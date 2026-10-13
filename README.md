@@ -475,7 +475,7 @@ Only registered when the corresponding `FEATURE_*` flag is set.
 | Cache | In-process, 30s TTL | No Redis to operate |
 | Frontend | React 19, TypeScript, Vite, [TanStack Query](https://tanstack.com/query) | Modern, typed end-to-end |
 | Charts | [Recharts](https://recharts.org) | Composable, themable, no D3 in app code |
-| UI | [Tailwind](https://tailwindcss.com), JetBrains Mono | Dark-first NOC theme |
+| UI | [Tailwind](https://tailwindcss.com), Archivo | Light / dark "Ledger" theme |
 | Auth | OIDC + PKCE via [coreos/go-oidc](https://github.com/coreos/go-oidc) | Works with every modern IdP |
 | Container | Multi-arch Docker (amd64 + arm64) on GHCR | One image, runs anywhere |
 | CI/CD | GitHub Actions | Lint, test, build, push, release on tag |

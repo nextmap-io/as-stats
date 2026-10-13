@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom"
 import { Treemap, PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts"
-import { useChartColors } from "@/hooks/useChartColors"
+import { seriesColor, tooltipBoxStyle, useChartColors } from "@/hooks/useChartColors"
 
 export interface VizDatum {
   /** Display name (legend / tooltip / label). */
@@ -13,12 +13,6 @@ export interface VizDatum {
   color?: string
 }
 
-// Deterministic, evenly-spread hue ramp so adjacent slices/tiles stay
-// distinguishable even with many entries. Saturation/lightness are fixed to
-// read on both themes.
-function colorAt(i: number): string {
-  return `hsl(${(i * 47) % 360} 62% 52%)`
-}
 
 interface TopNVizProps {
   data: VizDatum[]
@@ -46,7 +40,9 @@ export function TopNViz({ data, view, formatValue, label, height = 420 }: TopNVi
   // node payload without needing the chart's total in scope.
   const colored = data.map((d, i) => ({
     ...d,
-    color: d.color ?? colorAt(i),
+    // The theme's ordinal palette; past its length the tiles repeat colours,
+    // which is fine because every tile is labelled.
+    color: d.color ?? seriesColor(colors, i),
     share: total > 0 ? (d.value / total) * 100 : 0,
   }))
 
@@ -54,14 +50,7 @@ export function TopNViz({ data, view, formatValue, label, height = 420 }: TopNVi
     if (datum?.path) navigate(datum.path)
   }
 
-  const tooltipStyle = {
-    backgroundColor: colors.tooltipBg,
-    border: `1px solid ${colors.tooltipBorder}`,
-    borderRadius: 4,
-    fontSize: 11,
-    padding: "4px 8px",
-    color: colors.tooltipText,
-  }
+  const tooltipStyle = tooltipBoxStyle(colors)
 
   // Recharts hands the formatter the datum payload as the 3rd arg; we read the
   // precomputed share off it and return a "<value> · <pct>%" string + name.
@@ -124,7 +113,7 @@ export function TopNViz({ data, view, formatValue, label, height = 420 }: TopNVi
       </div>
 
       {/* Screen-reader data fallback */}
-      <table className="sr-only">
+      <div className="sr-only"><table>
         <caption>{label}</caption>
         <thead>
           <tr>
@@ -142,7 +131,7 @@ export function TopNViz({ data, view, formatValue, label, height = 420 }: TopNVi
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   )
 }
@@ -164,13 +153,13 @@ function TreemapCell(props: TreemapCellProps) {
   const showLabel = width > 46 && height > 22
   return (
     <g className={path ? "cursor-pointer" : undefined}>
-      <rect x={x} y={y} width={width} height={height} fill={color ?? "hsl(200 60% 50%)"} stroke="var(--color-card)" strokeWidth={1} />
+      <rect x={x} y={y} width={width} height={height} fill={color} stroke="var(--color-background)" strokeWidth={1} />
       {showLabel && (
         <text
           x={x + 4}
           y={y + 14}
-          fill="hsl(0 0% 100%)"
-          fontSize={10}
+          fill="#ffffff"
+          fontSize={12}
           className="pointer-events-none"
           style={{ paintOrder: "stroke", stroke: "rgba(0,0,0,0.35)", strokeWidth: 2 }}
         >
