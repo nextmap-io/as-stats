@@ -223,8 +223,8 @@ Everything is environment-variable driven. The full list lives in
 | `CLICKHOUSE_PASSWORD` | *required* | Strong password for the `asstats` user |
 | `COLLECTOR_LISTEN_NETFLOW` | `:2055` | NetFlow / IPFIX UDP listen address |
 | `COLLECTOR_LISTEN_SFLOW` | `:6343` | sFlow UDP listen address |
-| `COLLECTOR_BATCH_SIZE` | `10000` | Flows per batch INSERT |
-| `COLLECTOR_FLUSH_INTERVAL` | `5s` | Force-flush timer (whichever fires first) |
+| `COLLECTOR_BATCH_SIZE` | `50000` | Burst ceiling per batch INSERT (flush on size or timer, whichever fires first) |
+| `COLLECTOR_FLUSH_INTERVAL` | `15s` | Flush cadence. Each INSERT creates ~21 parts across the materialised views, so fewer, larger INSERTs mean far less merge work |
 | `COLLECTOR_WORKERS` | `4` | Decoder goroutines (raise on multi-Gbps) |
 | `COLLECTOR_FLUSH_TIMEOUT` | `30s` | Upper bound on one batch INSERT; a failed batch is dropped and counted (`asstats_flows_dropped_total`), not retried |
 | `COLLECTOR_SHUTDOWN_TIMEOUT` | `40s` | Bound on the SIGTERM drain + final flush; keep below the container stop grace period |

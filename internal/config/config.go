@@ -171,13 +171,20 @@ func loadClickHouse() ClickHouseConfig {
 
 // LoadCollector loads collector configuration from environment variables.
 func LoadCollector() (*CollectorConfig, error) {
-	batchSize, err := strconv.Atoi(envOr("COLLECTOR_BATCH_SIZE", "10000"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid COLLECTOR_BATCH_SIZE: %w", err)
+	// Flushing is meant to be time-driven: every INSERT into flows_raw fans out
+	// to ~20 materialised views and creates ~21 parts, so the part count — and
+	// the merge I/O that follows — scales with the number of INSERTs, not with
+	// rows. Measured on production traffic, 30s instead of 5s cut new parts by
+	// 83% and merge I/O by 74%. 15s keeps most of that gain while the 1-min hot
+	// tables used by the alert engine stay fresh. The batch size is a ceiling
+	// for bursts, sized well above interval × normal flow rate.
+	batchSize, err := strconv.Atoi(envOr("COLLECTOR_BATCH_SIZE", "50000"))
+	if err != nil || batchSize <= 0 {
+		return nil, fmt.Errorf("invalid COLLECTOR_BATCH_SIZE: %q", envOr("COLLECTOR_BATCH_SIZE", "50000"))
 	}
-	flushInterval, err := time.ParseDuration(envOr("COLLECTOR_FLUSH_INTERVAL", "5s"))
-	if err != nil {
-		return nil, fmt.Errorf("invalid COLLECTOR_FLUSH_INTERVAL: %w", err)
+	flushInterval, err := time.ParseDuration(envOr("COLLECTOR_FLUSH_INTERVAL", "15s"))
+	if err != nil || flushInterval <= 0 {
+		return nil, fmt.Errorf("invalid COLLECTOR_FLUSH_INTERVAL: %q", envOr("COLLECTOR_FLUSH_INTERVAL", "15s"))
 	}
 	workers, err := strconv.Atoi(envOr("COLLECTOR_WORKERS", "4"))
 	if err != nil {

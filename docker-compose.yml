@@ -55,8 +55,10 @@ services:
       CLICKHOUSE_PASSWORD: asstats
       COLLECTOR_LISTEN_NETFLOW: ":2055"
       COLLECTOR_LISTEN_SFLOW: ":6343"
-      COLLECTOR_BATCH_SIZE: "10000"
-      COLLECTOR_FLUSH_INTERVAL: "5s"
+      # Time-driven flushing: each INSERT creates ~21 parts across the MVs, so
+      # fewer, larger INSERTs cut part count and merge I/O (see .env.example).
+      COLLECTOR_BATCH_SIZE: "50000"
+      COLLECTOR_FLUSH_INTERVAL: "15s"
       COLLECTOR_WORKERS: "4"
     # SIGTERM drains the pipeline and flushes the last batch, bounded by
     # COLLECTOR_SHUTDOWN_TIMEOUT (40s). Docker's default 10s grace would

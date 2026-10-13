@@ -28,8 +28,13 @@ type Collector struct {
 
 // New creates a new Collector.
 func New(cfg *config.CollectorConfig, s store.FlowWriter) *Collector {
-	flowsCh := make(chan *model.FlowRecord, cfg.BatchSize*4)
-	enrichedCh := make(chan *model.FlowRecord, cfg.BatchSize*4)
+	// One batch worth of slack per channel. The writer already double-buffers
+	// (one INSERT in flight, one batch filling), so the channels only absorb
+	// what arrives while both buffers are full. Worst case the pipeline holds
+	// 4×BatchSize flows at ~310 B each: ~60 MiB at the 50k default, against
+	// ~150 MiB when these were sized 4×BatchSize apiece.
+	flowsCh := make(chan *model.FlowRecord, cfg.BatchSize)
+	enrichedCh := make(chan *model.FlowRecord, cfg.BatchSize)
 
 	return &Collector{
 		cfg:      cfg,
