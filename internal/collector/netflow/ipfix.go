@@ -200,24 +200,5 @@ func decodeIPFIXDataSet(data []byte, routerKey [16]byte, domainID uint32, setID 
 }
 
 func decodeIPFIXRecord(data []byte, tmpl *Template, routerIP net.IP, ts time.Time) *model.FlowRecord {
-	flow := &model.FlowRecord{
-		Timestamp:    ts,
-		RouterIP:     routerIP,
-		IPVersion:    4,
-		SamplingRate: 1,
-		FlowType:     "ipfix",
-	}
-
-	offset := 0
-	for _, field := range tmpl.Fields {
-		if offset+int(field.Length) > len(data) {
-			return nil
-		}
-
-		fieldData := data[offset : offset+int(field.Length)]
-		applyField(flow, field.Type, fieldData)
-		offset += int(field.Length)
-	}
-
-	return flow
+	return decodeTemplateRecord(data, tmpl, routerIP, ts, "ipfix")
 }

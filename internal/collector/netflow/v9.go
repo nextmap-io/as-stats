@@ -138,13 +138,31 @@ func decodeDataSet(data []byte, routerKey [16]byte, sourceID uint32, setID uint1
 }
 
 func decodeRecord(data []byte, tmpl *Template, routerIP net.IP, ts time.Time) *model.FlowRecord {
+	return decodeTemplateRecord(data, tmpl, routerIP, ts, "netflow9")
+}
+
+// recordState holds the fields of one data record that cannot be applied in
+// template order, because their meaning depends on another field that may
+// come later in the same template.
+type recordState struct {
+	inBytes, outBytes uint64
+	inPkts, outPkts   uint64
+	hasInBytes        bool
+	hasInPkts         bool
+	srcMask, dstMask  int // -1 when absent
+}
+
+// decodeTemplateRecord decodes one v9 / IPFIX data record. v9 and IPFIX share
+// the IANA field IDs used here.
+func decodeTemplateRecord(data []byte, tmpl *Template, routerIP net.IP, ts time.Time, flowType string) *model.FlowRecord {
 	flow := &model.FlowRecord{
 		Timestamp:    ts,
 		RouterIP:     routerIP,
 		IPVersion:    4,
 		SamplingRate: 1,
-		FlowType:     "netflow9",
+		FlowType:     flowType,
 	}
+	st := recordState{srcMask: -1, dstMask: -1}
 
 	offset := 0
 	for _, field := range tmpl.Fields {
@@ -153,14 +171,55 @@ func decodeRecord(data []byte, tmpl *Template, routerIP net.IP, ts time.Time) *m
 		}
 
 		fieldData := data[offset : offset+int(field.Length)]
-		applyField(flow, field.Type, fieldData)
+		applyField(flow, &st, field.Type, fieldData)
 		offset += int(field.Length)
 	}
 
+	st.finish(flow)
 	return flow
 }
 
-func applyField(flow *model.FlowRecord, fieldType uint16, data []byte) {
+// finish applies the order-dependent fields once the whole record is read.
+func (st *recordState) finish(flow *model.FlowRecord) {
+	// IN_BYTES/IN_PKTS (1/2) are the counters of the record. OUT_BYTES/OUT_PKTS
+	// (23/24) are only a fallback: an exporter sending both commonly leaves
+	// OUT_* at 0, which used to overwrite the real value depending on field
+	// order.
+	if st.hasInBytes {
+		flow.Bytes = st.inBytes
+	} else {
+		flow.Bytes = st.outBytes
+	}
+	if st.hasInPkts {
+		flow.Packets = st.inPkts
+	} else {
+		flow.Packets = st.outPkts
+	}
+
+	// Masks are resolved here rather than in field order: a template is free
+	// to list the mask before the address it applies to.
+	flow.SrcPrefix = prefixString(flow.SrcIP, st.srcMask)
+	flow.DstPrefix = prefixString(flow.DstIP, st.dstMask)
+}
+
+// prefixString returns "addr/len" for ip masked to maskLen, or "" when there
+// is no address, no mask, or a mask longer than the address family allows
+// (an exporter-supplied 200 used to produce "<nil>/200").
+func prefixString(ip net.IP, maskLen int) string {
+	if ip == nil || maskLen <= 0 {
+		return ""
+	}
+	bits := 128
+	if ip.To4() != nil {
+		bits = 32
+	}
+	if maskLen > bits {
+		return ""
+	}
+	return fmt.Sprintf("%s/%d", maskIP(ip, uint8(maskLen)), maskLen)
+}
+
+func applyField(flow *model.FlowRecord, st *recordState, fieldType uint16, data []byte) {
 	switch fieldType {
 	case FieldIPv4SrcAddr:
 		if len(data) >= 4 {
@@ -204,21 +263,25 @@ func applyField(flow *model.FlowRecord, fieldType uint16, data []byte) {
 		if len(data) >= 1 {
 			flow.TCPFlags = data[0]
 		}
-	case FieldInBytes, FieldOutBytes:
-		flow.Bytes = readUint64(data)
-	case FieldInPkts, FieldOutPkts:
-		flow.Packets = readUint64(data)
+	case FieldInBytes:
+		st.inBytes, st.hasInBytes = readUint64(data), true
+	case FieldOutBytes:
+		st.outBytes = readUint64(data)
+	case FieldInPkts:
+		st.inPkts, st.hasInPkts = readUint64(data), true
+	case FieldOutPkts:
+		st.outPkts = readUint64(data)
 	case FieldInputSNMP:
 		flow.InInterface = readUint32(data)
 	case FieldOutputSNMP:
 		flow.OutInterface = readUint32(data)
 	case FieldSrcMask, FieldIPv6SrcMask:
-		if len(data) >= 1 && data[0] > 0 && flow.SrcIP != nil {
-			flow.SrcPrefix = fmt.Sprintf("%s/%d", maskIP(flow.SrcIP, data[0]), data[0])
+		if len(data) >= 1 {
+			st.srcMask = int(data[0])
 		}
 	case FieldDstMask, FieldIPv6DstMask:
-		if len(data) >= 1 && data[0] > 0 && flow.DstIP != nil {
-			flow.DstPrefix = fmt.Sprintf("%s/%d", maskIP(flow.DstIP, data[0]), data[0])
+		if len(data) >= 1 {
+			st.dstMask = int(data[0])
 		}
 	case FieldDirection:
 		// flowDirection: 0 = ingress, 1 = egress, relative to the interface
