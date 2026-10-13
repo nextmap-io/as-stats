@@ -50,7 +50,7 @@ func TestBatchWriterFlushOnSize(t *testing.T) {
 	store := &mockStore{}
 	ch := make(chan *model.FlowRecord, 100)
 
-	w := New(store, ch, 5, 10*time.Second) // batch size 5, long flush interval
+	w := New(store, ch, 5, 10*time.Second, time.Second) // batch size 5, long flush interval
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go w.Run(ctx)
@@ -77,7 +77,7 @@ func TestBatchWriterFlushOnTimer(t *testing.T) {
 	store := &mockStore{}
 	ch := make(chan *model.FlowRecord, 100)
 
-	w := New(store, ch, 100, 100*time.Millisecond) // large batch, short timer
+	w := New(store, ch, 100, 100*time.Millisecond, time.Second) // large batch, short timer
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go w.Run(ctx)
@@ -101,7 +101,7 @@ func TestBatchWriterFlushOnShutdown(t *testing.T) {
 	store := &mockStore{}
 	ch := make(chan *model.FlowRecord, 100)
 
-	w := New(store, ch, 100, 10*time.Second)
+	w := New(store, ch, 100, 10*time.Second, time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -130,7 +130,7 @@ func TestBatchWriterFlushOnClosedInputAfterCancel(t *testing.T) {
 	store := &mockStore{}
 	ch := make(chan *model.FlowRecord, 100)
 
-	w := New(store, ch, 100, 10*time.Second)
+	w := New(store, ch, 100, 10*time.Second, time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -158,7 +158,7 @@ func TestBatchWriterMetrics(t *testing.T) {
 	store := &mockStore{}
 	ch := make(chan *model.FlowRecord, 100)
 
-	w := New(store, ch, 3, 10*time.Second)
+	w := New(store, ch, 3, 10*time.Second, time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go w.Run(ctx)
@@ -180,4 +180,106 @@ func TestBatchWriterMetrics(t *testing.T) {
 	}
 
 	cancel()
+}
+
+// gatedStore blocks every WriteBatch until release is closed (or the write's
+// context expires), so tests can hold an INSERT in flight.
+type gatedStore struct {
+	mockStore
+	release chan struct{}
+	started chan struct{}
+}
+
+func (g *gatedStore) WriteBatch(ctx context.Context, flows []*model.FlowRecord) error {
+	select {
+	case g.started <- struct{}{}:
+	default:
+	}
+	select {
+	case <-g.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return g.mockStore.WriteBatch(ctx, flows)
+}
+
+// A stalled ClickHouse must not hold a batch forever: the write is abandoned
+// after flushTimeout, counted as an error, and not retried.
+func TestBatchWriterFlushTimeoutDropsBatch(t *testing.T) {
+	store := &gatedStore{release: make(chan struct{}), started: make(chan struct{}, 1)}
+	ch := make(chan *model.FlowRecord, 100)
+	w := New(store, ch, 3, time.Hour, 50*time.Millisecond)
+
+	done := make(chan struct{})
+	go func() {
+		w.Run(context.Background())
+		close(done)
+	}()
+
+	for i := 0; i < 3; i++ {
+		ch <- &model.FlowRecord{Bytes: 1}
+	}
+	time.Sleep(200 * time.Millisecond)
+	if got := w.Metrics.WriteErrors.Load(); got != 1 {
+		t.Fatalf("WriteErrors = %d, want 1 after the flush timeout", got)
+	}
+
+	// The writer recovers for the next batch.
+	close(store.release)
+	for i := 0; i < 3; i++ {
+		ch <- &model.FlowRecord{Bytes: 1}
+	}
+	close(ch)
+	<-done
+	if got := store.totalFlows(); got != 3 {
+		t.Errorf("flows written = %d, want 3 (failed batch dropped, not retried)", got)
+	}
+}
+
+// While one INSERT is in flight the writer keeps consuming its input into a
+// second buffer, but no further: memory stays bounded at two batches.
+func TestBatchWriterDoubleBuffers(t *testing.T) {
+	store := &gatedStore{release: make(chan struct{}), started: make(chan struct{}, 1)}
+	ch := make(chan *model.FlowRecord) // unbuffered: every send is a consumption
+	w := New(store, ch, 5, time.Hour, 10*time.Second)
+
+	done := make(chan struct{})
+	go func() {
+		w.Run(context.Background())
+		close(done)
+	}()
+
+	send := func(n int) int {
+		for i := 0; i < n; i++ {
+			select {
+			case ch <- &model.FlowRecord{Bytes: 1}:
+			case <-time.After(200 * time.Millisecond):
+				return i
+			}
+		}
+		return n
+	}
+
+	if got := send(5); got != 5 {
+		t.Fatalf("first batch: accepted %d of 5", got)
+	}
+	<-store.started // first INSERT is now blocked in flight
+
+	if got := send(5); got != 5 {
+		t.Fatalf("second batch accumulated %d of 5 while the first INSERT was in flight", got)
+	}
+	// Both buffers are full: the next flow must not be accepted.
+	if got := send(1); got != 0 {
+		t.Fatalf("writer accepted a flow beyond two batches; memory is unbounded")
+	}
+
+	close(store.release)
+	if got := send(1); got != 1 {
+		t.Fatal("writer did not resume after the INSERT completed")
+	}
+	close(ch)
+	<-done
+	if got := store.totalFlows(); got != 11 {
+		t.Errorf("flows written = %d, want 11", got)
+	}
 }

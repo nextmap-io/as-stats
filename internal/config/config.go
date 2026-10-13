@@ -66,6 +66,10 @@ type CollectorConfig struct {
 	// SIGKILLs the process mid-flush.
 	ShutdownTimeout time.Duration
 
+	// FlushTimeout bounds one batch INSERT. A batch that fails or times out is
+	// dropped (and counted), never retried — see writer.write.
+	FlushTimeout time.Duration
+
 	// Flow log retention (only applied when the table exists; default 180 days)
 	FlowLogRetentionDays int
 
@@ -185,6 +189,11 @@ func LoadCollector() (*CollectorConfig, error) {
 		return nil, fmt.Errorf("invalid COLLECTOR_SHUTDOWN_TIMEOUT: %q", envOr("COLLECTOR_SHUTDOWN_TIMEOUT", "40s"))
 	}
 
+	flushTimeout, err := time.ParseDuration(envOr("COLLECTOR_FLUSH_TIMEOUT", "30s"))
+	if err != nil || flushTimeout <= 0 {
+		return nil, fmt.Errorf("invalid COLLECTOR_FLUSH_TIMEOUT: %q", envOr("COLLECTOR_FLUSH_TIMEOUT", "30s"))
+	}
+
 	localAS, _ := strconv.ParseUint(envOr("LOCAL_AS", "0"), 10, 32)
 
 	flowLogRetention, err := strconv.Atoi(envOr("FLOW_LOG_RETENTION_DAYS", "180"))
@@ -225,6 +234,7 @@ func LoadCollector() (*CollectorConfig, error) {
 		FlushInterval:              flushInterval,
 		Workers:                    workers,
 		ShutdownTimeout:            shutdownTimeout,
+		FlushTimeout:               flushTimeout,
 		LocalAS:                    uint32(localAS),
 		FlowLogRetentionDays:       flowLogRetention,
 		RetentionReconcileInterval: reconcileInterval,

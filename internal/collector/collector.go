@@ -35,7 +35,7 @@ func New(cfg *config.CollectorConfig, s store.FlowWriter) *Collector {
 		cfg:      cfg,
 		store:    s,
 		enricher: enricher.New(),
-		writer:   writer.New(s, enrichedCh, cfg.BatchSize, cfg.FlushInterval),
+		writer:   writer.New(s, enrichedCh, cfg.BatchSize, cfg.FlushInterval, cfg.FlushTimeout),
 		nfListen: netflow.NewListener(cfg.ListenNetFlow, cfg.Workers),
 		sfListen: sflow.NewListener(cfg.ListenSFlow, cfg.Workers),
 		flows:    flowsCh,
