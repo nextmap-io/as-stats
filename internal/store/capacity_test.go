@@ -3,7 +3,44 @@ package store
 import (
 	"math"
 	"testing"
+	"time"
 )
+
+func TestCompleteBuckets(t *testing.T) {
+	at := func(h, m, s int) time.Time { return time.Date(2026, 10, 13, h, m, s, 0, time.UTC) }
+	step := 5 * time.Minute
+
+	// Unaligned window ending "now": the bucket containing now (12:00–12:05)
+	// is still filling and must not be the "current" one.
+	start, end, last := completeBuckets(at(11, 2, 30), at(12, 3, 10), at(12, 3, 10), step)
+	if !start.Equal(at(11, 5, 0)) || !end.Equal(at(12, 0, 0)) || !last.Equal(at(11, 55, 0)) {
+		t.Fatalf("got start=%s end=%s last=%s", start, end, last)
+	}
+
+	// `to` in the future is capped at now.
+	_, end, last = completeBuckets(at(10, 0, 0), at(13, 0, 0), at(12, 3, 10), step)
+	if !end.Equal(at(12, 0, 0)) || !last.Equal(at(11, 55, 0)) {
+		t.Fatalf("future to: end=%s last=%s", end, last)
+	}
+
+	// Aligned bounds are kept as-is.
+	start, end, _ = completeBuckets(at(11, 0, 0), at(12, 0, 0), at(13, 0, 0), step)
+	if !start.Equal(at(11, 0, 0)) || !end.Equal(at(12, 0, 0)) {
+		t.Fatalf("aligned: start=%s end=%s", start, end)
+	}
+
+	// A window narrower than a bucket degrades to the last complete bucket.
+	start, end, last = completeBuckets(at(12, 1, 0), at(12, 3, 0), at(12, 3, 0), step)
+	if !start.Equal(at(11, 55, 0)) || !end.Equal(at(12, 0, 0)) || !last.Equal(at(11, 55, 0)) {
+		t.Fatalf("narrow: start=%s end=%s last=%s", start, end, last)
+	}
+
+	// Daily step aligns to UTC midnight, like toStartOfInterval(…, 86400).
+	_, end, _ = completeBuckets(at(0, 0, 0).Add(-72*time.Hour), at(15, 0, 0), at(15, 0, 0), 24*time.Hour)
+	if !end.Equal(at(0, 0, 0)) {
+		t.Fatalf("daily end = %s, want midnight", end)
+	}
+}
 
 func almostEqual(a, b, tol float64) bool { return math.Abs(a-b) <= tol }
 
