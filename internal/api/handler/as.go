@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nextmap-io/as-stats/internal/model"
+	"github.com/nextmap-io/as-stats/internal/store"
 )
 
 // ASDetail handles GET /api/v1/as/{asn}
@@ -67,7 +68,7 @@ func (h *Handler) ASDetail(w http.ResponseWriter, r *http.Request) {
 			"ratio":        ratio,
 			"class":        class,
 		},
-		Meta: &ResponseMeta{From: p.From, To: p.To},
+		Meta: &ResponseMeta{From: p.From, To: p.To, StepSeconds: store.ASSeriesStepSeconds(p.From, p.To)},
 	})
 }
 

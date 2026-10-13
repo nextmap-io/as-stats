@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/nextmap-io/as-stats/internal/model"
+	"github.com/nextmap-io/as-stats/internal/store"
 )
 
 const maxLinkBodySize = 10 * 1024 // 10KB
@@ -49,26 +50,23 @@ func (h *Handler) LinkDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// P95 for this link
-	inP95, outP95, _ := h.Store.LinkP95(r.Context(), tag, p)
-
-	// p50/p95/p99 percentiles (Module D) — p50 and p99 surfaced alongside the
-	// existing p95 keys.
+	// p50/p95/p99 of per-bucket bytes (Module D). p95_in/p95_out come from
+	// the same pass — the separate LinkP95 query computed the identical value.
 	inPct, outPct, _ := h.Store.LinkPercentiles(r.Context(), tag, p)
+	step := store.LinkSeriesStepSeconds(p.From, p.To)
 
 	// Per-AS time series on this link
 	asSeries, _ := h.Store.LinkASTimeSeries(r.Context(), tag, p)
 
-	// Capacity + utilization. utilization_pct is the p95 of per-bucket (in+out)
-	// throughput over the window as a fraction of configured capacity — the same
-	// definition used by the Capacity page. Nil when capacity is unset.
+	// Capacity + utilization. A link is full duplex, so utilization_pct is the
+	// p95 of the BUSIER direction against capacity — the same definition as
+	// the Capacity page — never in+out. Nil when capacity is unset.
 	capacityMbps, _ := h.Store.LinkCapacityMbps(r.Context(), tag)
 	var utilizationPct *float64
-	if capacityMbps > 0 {
-		if p95Total, err := h.Store.LinkP95Total(r.Context(), tag, p.From, p.To); err == nil {
-			u := float64(p95Total) / (float64(capacityMbps) * 1e6) * 100
-			utilizationPct = &u
-		}
+	if capacityMbps > 0 && step > 0 {
+		busier := max(inPct.P95, outPct.P95)
+		u := float64(busier) * 8 / float64(step) / (float64(capacityMbps) * 1e6) * 100
+		utilizationPct = &u
 	}
 
 	writeJSON(w, http.StatusOK, Response{
@@ -77,8 +75,8 @@ func (h *Handler) LinkDetail(w http.ResponseWriter, r *http.Request) {
 			"time_series":     ts,
 			"top_as":          topAS,
 			"as_series":       asSeries,
-			"p95_in":          inP95,
-			"p95_out":         outP95,
+			"p95_in":          inPct.P95,
+			"p95_out":         outPct.P95,
 			"p50_in":          inPct.P50,
 			"p50_out":         outPct.P50,
 			"p99_in":          inPct.P99,
@@ -86,7 +84,7 @@ func (h *Handler) LinkDetail(w http.ResponseWriter, r *http.Request) {
 			"capacity_mbps":   capacityMbps,
 			"utilization_pct": utilizationPct,
 		},
-		Meta: &ResponseMeta{From: p.From, To: p.To},
+		Meta: &ResponseMeta{From: p.From, To: p.To, StepSeconds: step},
 	})
 }
 
@@ -172,7 +170,7 @@ func (h *Handler) LinksTraffic(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, Response{
 		Data: series,
-		Meta: &ResponseMeta{From: p.From, To: p.To},
+		Meta: &ResponseMeta{From: p.From, To: p.To, StepSeconds: store.LinkSeriesStepSeconds(p.From, p.To)},
 	})
 }
 

@@ -61,8 +61,8 @@ func (s *ClickHouseStore) LinksCapacity(ctx context.Context, from, to time.Time)
 		return []model.LinkCapacity{}, nil
 	}
 
-	secs := int(autoStep(from, to).Seconds())
-	table := pickLinkTable(from, to)
+	plan := capacityPlan(from, to)
+	secs, table := plan.Secs(), plan.Table
 
 	// 2. p95 of per-bucket (in+out) throughput per link over the window.
 	p95Map, err := s.linkBucketQuantileByTag(ctx, table, secs, from, to)
@@ -299,9 +299,10 @@ func (s *ClickHouseStore) LinkLoadCurve(ctx context.Context, tag string, from, t
 // link, choosing flows_raw for short windows (finer granularity) and the
 // range-appropriate aggregate table otherwise. Returns the SQL and its args.
 func (s *ClickHouseStore) linkBucketSubquery(from, to time.Time, tag string) (string, []any) {
-	secs := int(autoStep(from, to).Seconds())
+	plan := linkSeriesPlan(from, to)
+	secs := plan.Secs()
 	var inner string
-	if useRawTable(from, to) {
+	if plan.Raw() {
 		inner = fmt.Sprintf(`
 			SELECT (sumIf(f.bytes * f.sampling_rate, f.direction = 'in')
 				+ sumIf(f.bytes * f.sampling_rate, f.direction = 'out')) * 8 / %d AS bps
@@ -310,13 +311,12 @@ func (s *ClickHouseStore) linkBucketSubquery(from, to time.Time, tag string) (st
 			GROUP BY toStartOfInterval(f.timestamp, INTERVAL %d SECOND)
 		`, secs, secs)
 	} else {
-		table := pickLinkTable(from, to)
 		inner = fmt.Sprintf(`
 			SELECT (sum(f.bytes_in) + sum(f.bytes_out)) * 8 / %d AS bps
 			FROM %s f
 			WHERE f.link_tag = @tag AND f.ts >= @from AND f.ts < @to
 			GROUP BY toStartOfInterval(f.ts, INTERVAL %d SECOND)
-		`, secs, table, secs)
+		`, secs, plan.Table, secs)
 	}
 	args := []any{
 		clickhouse.Named("tag", tag),

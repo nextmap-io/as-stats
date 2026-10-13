@@ -286,31 +286,32 @@ func (s *ClickHouseStore) Talkers(ctx context.Context, dim string, from, to time
 }
 
 // LinkPercentiles returns the p50/p95/p99 of per-bucket in/out throughput
-// (bytes per bucket) for a single link over [from,to]. It mirrors LinkP95 but
-// computes three quantiles in one pass via quantiles(0.5,0.95,0.99). Bucket
-// size follows autoStep; short windows read flows_raw for finer granularity.
+// (bytes per bucket) for a single link over [from,to], in one pass via
+// quantiles(0.5,0.95,0.99). Buckets follow linkSeriesPlan — flows_raw for
+// short windows, never finer than the source table — so the values divide by
+// LinkSeriesStepSeconds to give bps. It is the link detail page's only
+// percentile query (the former LinkP95 computed the same p95 a second time).
 func (s *ClickHouseStore) LinkPercentiles(ctx context.Context, tag string, p QueryParams) (in, out model.Percentiles, err error) {
-	step := autoStep(p.From, p.To)
+	plan := linkSeriesPlan(p.From, p.To)
 
 	var query string
-	if useRawTable(p.From, p.To) {
+	if plan.Raw() {
 		query = fmt.Sprintf(`
 			SELECT quantiles(0.5, 0.95, 0.99)(bi), quantiles(0.5, 0.95, 0.99)(bo) FROM (
-				SELECT toStartOfInterval(timestamp, INTERVAL %d SECOND) AS period,
-					sumIf(bytes * sampling_rate, direction = 'in') AS bi,
-					sumIf(bytes * sampling_rate, direction = 'out') AS bo
-				FROM flows_raw WHERE timestamp >= @from AND timestamp < @to AND link_tag = @tag
+				SELECT toStartOfInterval(f.timestamp, INTERVAL %d SECOND) AS period,
+					sumIf(f.bytes * f.sampling_rate, f.direction = 'in') AS bi,
+					sumIf(f.bytes * f.sampling_rate, f.direction = 'out') AS bo
+				FROM flows_raw f WHERE f.timestamp >= @from AND f.timestamp < @to AND f.link_tag = @tag
 				GROUP BY period
-			)`, int(step.Seconds()))
+			)`, plan.Secs())
 	} else {
-		table := pickLinkTable(p.From, p.To)
 		query = fmt.Sprintf(`
 			SELECT quantiles(0.5, 0.95, 0.99)(bi), quantiles(0.5, 0.95, 0.99)(bo) FROM (
-				SELECT toStartOfInterval(ts, INTERVAL %d SECOND) AS period,
-					sum(bytes_in) AS bi, sum(bytes_out) AS bo
-				FROM %s WHERE ts >= @from AND ts < @to AND link_tag = @tag
+				SELECT toStartOfInterval(f.ts, INTERVAL %d SECOND) AS period,
+					sum(f.bytes_in) AS bi, sum(f.bytes_out) AS bo
+				FROM %s f WHERE f.ts >= @from AND f.ts < @to AND f.link_tag = @tag
 				GROUP BY period
-			)`, int(step.Seconds()), table)
+			)`, plan.Secs(), plan.Table)
 	}
 
 	var inQ, outQ []float64

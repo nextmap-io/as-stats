@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/nextmap-io/as-stats/internal/ripestat"
+	"github.com/nextmap-io/as-stats/internal/store"
 )
 
 // TopAS handles GET /api/v1/top/as
@@ -67,7 +68,7 @@ func (h *Handler) TopASTraffic(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, Response{
 		Data: results,
-		Meta: &ResponseMeta{From: p.From, To: p.To, Limit: p.Limit},
+		Meta: &ResponseMeta{From: p.From, To: p.To, Limit: p.Limit, StepSeconds: store.ASSeriesStepSeconds(p.From, p.To)},
 	})
 }
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/nextmap-io/as-stats/internal/store"
 )
 
 // IPDetail handles GET /api/v1/ip/{ip}
@@ -52,6 +53,6 @@ func (h *Handler) IPDetail(w http.ResponseWriter, r *http.Request) {
 			"top_as":      topAS,
 			"peer_ips":    peerIPs,
 		},
-		Meta: &ResponseMeta{From: p.From, To: p.To},
+		Meta: &ResponseMeta{From: p.From, To: p.To, StepSeconds: store.IPSeriesStepSeconds(p.From, p.To)},
 	})
 }
