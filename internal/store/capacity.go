@@ -23,15 +23,27 @@ const (
 )
 
 // LinksCapacity returns per-link utilization and a saturation forecast over the
-// [from,to] window. For each link in the `links` table it computes:
-//   - CurrentBps: throughput in the most recent bucket (in+out)
-//   - P95Bps:     p95 of per-bucket (in+out) throughput across the window
-//   - UtilizationPct: P95Bps / (capacity_mbps*1e6) * 100 (nil if capacity unset)
-//   - ForecastDays80/95/100: linear-regression projection over ~90 days of the
-//     daily p95 series (computed in Go, see linearRegression/forecastDaysToLevel)
+// [from,to] window.
 //
-// All aggregate columns are sum()-wrapped to tolerate not-yet-merged
-// SummingMergeTree rows.
+// A link is full duplex: each direction has the whole capacity to itself, so
+// utilisation is the BUSIER direction against capacity — never in+out, which
+// used to report a link at 60% in / 60% out as 120% full. For each link in the
+// `links` table:
+//   - Current{In,Out}Bps: throughput in the last COMPLETE bucket. The bucket
+//     that contains `to` is still filling (and the collector flushes in
+//     batches), so reading it under-reports; CurrentBps = max(in, out).
+//   - Peak{In,Out}Bps: the busiest bucket per direction; PeakUtilizationPct =
+//     max(peak_in, peak_out) / capacity.
+//   - P95{In,Out}Bps: p95 of per-bucket throughput per direction; P95Bps =
+//     max(p95_in, p95_out); UtilizationPct = P95Bps / capacity.
+//   - TrendBpsPerDay / ForecastDays80/95/100: linear regression over the last
+//     ~90 days of the DAILY p95 of max(in, out) (linkDailyP95ByTag). Fitting
+//     daily averages instead — night-time troughs included — under-stated the
+//     level a link actually has to carry and pushed forecasts months out.
+//
+// Buckets come from capacityPlan (never finer than the source table, see
+// store/step.go) and only whole buckets inside the window are used. All
+// aggregates are sum()-wrapped to tolerate not-yet-merged rows.
 func (s *ClickHouseStore) LinksCapacity(ctx context.Context, from, to time.Time) ([]model.LinkCapacity, error) {
 	// 1. Configured links (tag → description, capacity).
 	type linkMeta struct {
@@ -61,23 +73,16 @@ func (s *ClickHouseStore) LinksCapacity(ctx context.Context, from, to time.Time)
 		return []model.LinkCapacity{}, nil
 	}
 
-	secs := int(autoStep(from, to).Seconds())
-	table := pickLinkTable(from, to)
+	plan := capacityPlan(from, to)
 
-	// 2. p95 of per-bucket (in+out) throughput per link over the window.
-	p95Map, err := s.linkBucketQuantileByTag(ctx, table, secs, from, to)
+	// 2. Per-direction current / peak / p95 over the complete buckets.
+	stats, err := s.linkDirectionStats(ctx, plan, from, to, time.Now().UTC())
 	if err != nil {
 		return nil, err
 	}
 
-	// 3. Current throughput = the last bucket in the window.
-	curMap, err := s.linkCurrentBpsByTag(ctx, table, secs, from, to)
-	if err != nil {
-		return nil, err
-	}
-
-	// 4. Daily p95 series (last ~90d) for the linear-regression forecast.
-	dailyMap, err := s.linkDailySeriesByTag(ctx, to)
+	// 3. Daily p95 of the busier direction (last ~90d) for the forecast.
+	dailyMap, err := s.linkDailyP95ByTag(ctx, to)
 	if err != nil {
 		return nil, err
 	}
@@ -85,26 +90,31 @@ func (s *ClickHouseStore) LinksCapacity(ctx context.Context, from, to time.Time)
 	results := make([]model.LinkCapacity, 0, len(order))
 	for _, tag := range order {
 		m := meta[tag]
+		st := stats[tag]
 		lc := model.LinkCapacity{
-			Tag:          tag,
-			Description:  m.description,
-			CapacityMbps: m.capacity,
-			CurrentBps:   uint64(curMap[tag]),
-			P95Bps:       uint64(p95Map[tag]),
+			Tag:           tag,
+			Description:   m.description,
+			CapacityMbps:  m.capacity,
+			CurrentInBps:  uint64(st.curIn),
+			CurrentOutBps: uint64(st.curOut),
+			PeakInBps:     uint64(st.peakIn),
+			PeakOutBps:    uint64(st.peakOut),
+			P95InBps:      uint64(st.p95In),
+			P95OutBps:     uint64(st.p95Out),
 		}
+		lc.CurrentBps = max(lc.CurrentInBps, lc.CurrentOutBps)
+		lc.P95Bps = max(lc.P95InBps, lc.P95OutBps)
 		if m.capacity > 0 {
 			capBps := float64(m.capacity) * 1e6
 			util := float64(lc.P95Bps) / capBps * 100
 			lc.UtilizationPct = &util
+			peak := float64(max(lc.PeakInBps, lc.PeakOutBps)) / capBps * 100
+			lc.PeakUtilizationPct = &peak
 
-			if series := dailyMap[tag]; len(series) >= 2 {
-				xs := make([]float64, len(series))
-				for i := range series {
-					xs[i] = float64(i)
-				}
-				slope, intercept := linearRegression(xs, series)
+			if series := dailyMap[tag]; len(series.days) >= 2 {
+				slope, intercept := linearRegression(series.days, series.p95)
 				lc.TrendBpsPerDay = slope
-				lastX := float64(len(series) - 1)
+				lastX := series.days[len(series.days)-1]
 				lc.ForecastDays80 = forecastDaysToLevel(slope, intercept, lastX, 0.80*capBps)
 				lc.ForecastDays95 = forecastDaysToLevel(slope, intercept, lastX, 0.95*capBps)
 				lc.ForecastDays100 = forecastDaysToLevel(slope, intercept, lastX, 1.00*capBps)
@@ -117,123 +127,144 @@ func (s *ClickHouseStore) LinksCapacity(ctx context.Context, from, to time.Time)
 	return results, nil
 }
 
-// linkBucketQuantileByTag returns tag → p95 of per-bucket (in+out) bps.
-func (s *ClickHouseStore) linkBucketQuantileByTag(ctx context.Context, table string, secs int, from, to time.Time) (map[string]float64, error) {
+// completeBuckets returns the span of whole step-wide buckets inside
+// [from, min(to, now)) and the start of the last one. The bucket containing
+// `to` (or `now`) is excluded because it is still filling. A window narrower
+// than one bucket degrades to the last complete bucket before it, so a link
+// never reports "no data" just because the window was short.
+//
+// Bucket boundaries are multiples of step since the Unix epoch — the same
+// alignment ClickHouse's toStartOfInterval uses — so Go and SQL agree on
+// which bucket is "last".
+func completeBuckets(from, to, now time.Time, step time.Duration) (start, end, last time.Time) {
+	if now.Before(to) {
+		to = now
+	}
+	end = truncEpoch(to, step)
+	start = truncEpoch(from, step)
+	if start.Before(from) {
+		start = start.Add(step)
+	}
+	if !start.Before(end) {
+		start = end.Add(-step)
+	}
+	return start, end, end.Add(-step)
+}
+
+// truncEpoch floors t to a multiple of step counted from the Unix epoch.
+func truncEpoch(t time.Time, step time.Duration) time.Time {
+	secs := int64(step / time.Second)
+	if secs <= 0 {
+		return t.UTC()
+	}
+	u := t.Unix()
+	return time.Unix(u-((u%secs)+secs)%secs, 0).UTC()
+}
+
+// linkDirStats holds per-direction bps statistics for one link.
+type linkDirStats struct {
+	curIn, curOut, peakIn, peakOut, p95In, p95Out float64
+}
+
+// linkDirectionStats returns tag → per-direction current / peak / p95 bps over
+// the complete buckets of [from,to] (see completeBuckets).
+func (s *ClickHouseStore) linkDirectionStats(ctx context.Context, plan seriesPlan, from, to, now time.Time) (map[string]linkDirStats, error) {
+	start, end, last := completeBuckets(from, to, now, plan.Step)
+	secs := plan.Secs()
 	query := fmt.Sprintf(`
-		SELECT link_tag, quantile(0.95)(bps) AS p95
+		SELECT
+			link_tag,
+			sumIf(bi, b = @last_bucket) AS cur_in,
+			sumIf(bo, b = @last_bucket) AS cur_out,
+			max(bi) AS peak_in,
+			max(bo) AS peak_out,
+			quantile(0.95)(bi) AS p95_in,
+			quantile(0.95)(bo) AS p95_out
 		FROM (
 			SELECT f.link_tag AS link_tag,
-				(sum(f.bytes_in) + sum(f.bytes_out)) * 8 / %d AS bps
-			FROM %s f
+				toStartOfInterval(f.ts, INTERVAL %[1]d SECOND) AS b,
+				sum(f.bytes_in) * 8 / %[1]d AS bi,
+				sum(f.bytes_out) * 8 / %[1]d AS bo
+			FROM %[2]s f
 			WHERE f.ts >= @from AND f.ts < @to
-			GROUP BY f.link_tag, toStartOfInterval(f.ts, INTERVAL %d SECOND)
+			GROUP BY f.link_tag, b
 		)
 		GROUP BY link_tag
-	`, secs, table, secs)
+	`, secs, plan.Table)
 
 	rows, err := s.conn.Query(ctx, query,
-		clickhouse.Named("from", from),
-		clickhouse.Named("to", to),
+		clickhouse.Named("from", start),
+		clickhouse.Named("to", end),
+		clickhouse.Named("last_bucket", last),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("capacity: p95 by link: %w", err)
+		return nil, fmt.Errorf("capacity: per-direction stats: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	out := make(map[string]float64)
+	out := make(map[string]linkDirStats)
 	for rows.Next() {
 		var tag string
-		var p95 float64
-		if err := rows.Scan(&tag, &p95); err != nil {
+		var st linkDirStats
+		if err := rows.Scan(&tag, &st.curIn, &st.curOut, &st.peakIn, &st.peakOut, &st.p95In, &st.p95Out); err != nil {
 			return nil, err
 		}
-		out[tag] = p95
+		out[tag] = st
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
-// linkCurrentBpsByTag returns tag → throughput bps in the most recent bucket.
-func (s *ClickHouseStore) linkCurrentBpsByTag(ctx context.Context, table string, secs int, from, to time.Time) (map[string]float64, error) {
-	curFrom := to.Add(-time.Duration(secs) * time.Second)
-	if curFrom.Before(from) {
-		curFrom = from
-	}
-	query := fmt.Sprintf(`
-		SELECT f.link_tag AS link_tag,
-			(sum(f.bytes_in) + sum(f.bytes_out)) * 8 / %d AS bps
-		FROM %s f
-		WHERE f.ts >= @cur_from AND f.ts < @to
-		GROUP BY f.link_tag
-	`, secs, table)
-
-	rows, err := s.conn.Query(ctx, query,
-		clickhouse.Named("cur_from", curFrom),
-		clickhouse.Named("to", to),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("capacity: current bps by link: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	out := make(map[string]float64)
-	for rows.Next() {
-		var tag string
-		var bps float64
-		if err := rows.Scan(&tag, &bps); err != nil {
-			return nil, err
-		}
-		out[tag] = bps
-	}
-	return out, nil
+// dailyP95Series is one link's forecast input: x = days since the Unix epoch
+// (so gaps in the data keep their real spacing), y = that day's p95 bps.
+type dailyP95Series struct {
+	days []float64
+	p95  []float64
 }
 
-// linkDailySeriesByTag returns tag → ordered daily throughput bps series over
-// the last forecastLookbackDays, from traffic_by_link_daily. Each day has a
-// single summed bucket, so the per-day value is that day's average bps.
-func (s *ClickHouseStore) linkDailySeriesByTag(ctx context.Context, to time.Time) (map[string][]float64, error) {
-	dailyFrom := to.Add(-forecastLookbackDays * 24 * time.Hour)
+// linkDailyP95ByTag returns tag → the daily p95 of per-5-minute max(in, out)
+// throughput over the last forecastLookbackDays whole days before `to`, from
+// traffic_by_link (5-minute rows; its default retention is exactly the 90-day
+// lookback). The day containing `to` is left out: a partial day's p95 is
+// biased by which hours it happens to contain.
+func (s *ClickHouseStore) linkDailyP95ByTag(ctx context.Context, to time.Time) (map[string]dailyP95Series, error) {
+	dayEnd := truncEpoch(to, 24*time.Hour)
+	dayStart := dayEnd.Add(-forecastLookbackDays * 24 * time.Hour)
 	query := `
-		SELECT f.link_tag AS link_tag,
-			toDate(f.ts) AS day,
-			(sum(f.bytes_in) + sum(f.bytes_out)) * 8 / 86400 AS bps
-		FROM traffic_by_link_daily f
-		WHERE f.ts >= @daily_from AND f.ts < @to
-		GROUP BY f.link_tag, day
-		ORDER BY f.link_tag, day
+		SELECT link_tag, toUInt32(toRelativeDayNum(day)) AS day_num, quantile(0.95)(bps) AS p95
+		FROM (
+			SELECT f.link_tag AS link_tag,
+				toDate(f.ts) AS day,
+				greatest(sum(f.bytes_in), sum(f.bytes_out)) * 8 / 300 AS bps
+			FROM traffic_by_link f
+			WHERE f.ts >= @daily_from AND f.ts < @daily_to
+			GROUP BY f.link_tag, f.ts
+		)
+		GROUP BY link_tag, day
+		ORDER BY link_tag, day
 	`
 	rows, err := s.conn.Query(ctx, query,
-		clickhouse.Named("daily_from", dailyFrom),
-		clickhouse.Named("to", to),
+		clickhouse.Named("daily_from", dayStart),
+		clickhouse.Named("daily_to", dayEnd),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("capacity: daily series: %w", err)
+		return nil, fmt.Errorf("capacity: daily p95 series: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
-	out := make(map[string][]float64)
+	out := make(map[string]dailyP95Series)
 	for rows.Next() {
 		var tag string
-		var day time.Time
-		var bps float64
-		if err := rows.Scan(&tag, &day, &bps); err != nil {
+		var day uint32
+		var p95 float64
+		if err := rows.Scan(&tag, &day, &p95); err != nil {
 			return nil, err
 		}
-		out[tag] = append(out[tag], bps)
+		ser := out[tag]
+		ser.days = append(ser.days, float64(day))
+		ser.p95 = append(ser.p95, p95)
+		out[tag] = ser
 	}
-	return out, nil
-}
-
-// LinkP95Total returns the p95 of per-bucket (in+out) throughput bps for a
-// single link over [from,to]. Used to compute utilization on the link detail
-// page consistently with the Capacity page.
-func (s *ClickHouseStore) LinkP95Total(ctx context.Context, tag string, from, to time.Time) (uint64, error) {
-	inner, args := s.linkBucketSubquery(from, to, tag)
-	query := fmt.Sprintf(`SELECT quantile(0.95)(bps) FROM (%s) t`, inner)
-	var v float64
-	if err := s.conn.QueryRow(ctx, query, args...).Scan(&v); err != nil {
-		return 0, fmt.Errorf("link p95 total: %w", err)
-	}
-	return uint64(v), nil
+	return out, rows.Err()
 }
 
 // LinkCapacityMbps returns the configured capacity (Mbps) for a link, or 0 if
@@ -253,8 +284,11 @@ func (s *ClickHouseStore) LinkCapacityMbps(ctx context.Context, tag string) (uin
 }
 
 // LinkLoadCurve returns a load-duration curve for a link over [from,to]:
-// per-bucket (in+out) throughput sorted descending (downsampled), the standard
-// quantiles computed by ClickHouse, and a ~20-bin histogram.
+// per-bucket throughput of the busier direction sorted descending
+// (downsampled), the standard quantiles computed by ClickHouse, and a ~20-bin
+// histogram. Like the Capacity page it uses max(in, out) per bucket — the
+// curve is read against the link's capacity, and a full-duplex link is only
+// as full as its busier direction.
 //
 // The per-bucket subquery aliases the table (`f`) and qualifies the timestamp
 // in WHERE/GROUP BY to avoid ClickHouse alias shadowing.
@@ -262,7 +296,7 @@ func (s *ClickHouseStore) LinkLoadCurve(ctx context.Context, tag string, from, t
 	inner, args := s.linkBucketSubquery(from, to, tag)
 	lc := model.LoadCurve{Tag: tag}
 
-	// Quantiles via ClickHouse over the per-bucket sum.
+	// Quantiles via ClickHouse over the per-bucket values.
 	qQuery := fmt.Sprintf(`SELECT quantiles(0.5, 0.9, 0.95, 0.99, 1.0)(bps) FROM (%s) t`, inner)
 	var q []float64
 	if err := s.conn.QueryRow(ctx, qQuery, args...).Scan(&q); err != nil {
@@ -295,28 +329,28 @@ func (s *ClickHouseStore) LinkLoadCurve(ctx context.Context, tag string, from, t
 	return lc, nil
 }
 
-// linkBucketSubquery builds the per-bucket (in+out) throughput subquery for a
-// link, choosing flows_raw for short windows (finer granularity) and the
-// range-appropriate aggregate table otherwise. Returns the SQL and its args.
+// linkBucketSubquery builds the per-bucket busier-direction throughput (bps)
+// subquery for a link following linkSeriesPlan — flows_raw for short windows,
+// the range-appropriate rollup otherwise, never finer than the source table.
 func (s *ClickHouseStore) linkBucketSubquery(from, to time.Time, tag string) (string, []any) {
-	secs := int(autoStep(from, to).Seconds())
+	plan := linkSeriesPlan(from, to)
+	secs := plan.Secs()
 	var inner string
-	if useRawTable(from, to) {
+	if plan.Raw() {
 		inner = fmt.Sprintf(`
-			SELECT (sumIf(f.bytes * f.sampling_rate, f.direction = 'in')
-				+ sumIf(f.bytes * f.sampling_rate, f.direction = 'out')) * 8 / %d AS bps
+			SELECT greatest(sumIf(f.bytes * f.sampling_rate, f.direction = 'in'),
+				sumIf(f.bytes * f.sampling_rate, f.direction = 'out')) * 8 / %[1]d AS bps
 			FROM flows_raw f
 			WHERE f.link_tag = @tag AND f.timestamp >= @from AND f.timestamp < @to
-			GROUP BY toStartOfInterval(f.timestamp, INTERVAL %d SECOND)
-		`, secs, secs)
+			GROUP BY toStartOfInterval(f.timestamp, INTERVAL %[1]d SECOND)
+		`, secs)
 	} else {
-		table := pickLinkTable(from, to)
 		inner = fmt.Sprintf(`
-			SELECT (sum(f.bytes_in) + sum(f.bytes_out)) * 8 / %d AS bps
-			FROM %s f
+			SELECT greatest(sum(f.bytes_in), sum(f.bytes_out)) * 8 / %[1]d AS bps
+			FROM %[2]s f
 			WHERE f.link_tag = @tag AND f.ts >= @from AND f.ts < @to
-			GROUP BY toStartOfInterval(f.ts, INTERVAL %d SECOND)
-		`, secs, table, secs)
+			GROUP BY toStartOfInterval(f.ts, INTERVAL %[1]d SECOND)
+		`, secs, plan.Table)
 	}
 	args := []any{
 		clickhouse.Named("tag", tag),
@@ -327,28 +361,36 @@ func (s *ClickHouseStore) linkBucketSubquery(from, to time.Time, tag string) (st
 }
 
 // EvalLinkCapacity evaluates recent link utilization for the link_capacity
-// alert rule. It computes the p95 of per-bucket (in+out) throughput over the
-// last `window` seconds from traffic_by_link_hourly, compares it to each link's
-// configured capacity, and returns the single worst-utilized link exceeding
-// thresholdPct. Links with capacity_mbps == 0 are skipped.
+// alert rule with the Capacity page's semantics: per link, the p95 of hourly
+// throughput of the BUSIER direction (max(p95_in, p95_out), never in+out —
+// links are full duplex) over the last `window` seconds of traffic_by_link_hourly,
+// against the configured capacity. Returns the single worst-utilized link
+// exceeding thresholdPct. Links with capacity_mbps == 0 are skipped.
+//
+// Only complete hours are read: the current hour's row is partial, and
+// dividing it by 3600 under-reads. The window is therefore widened to at least
+// one hour so a short rule window still evaluates the last complete hour.
 //
 // Like disk_usage, the metric is a percentage carried through the engine as
 // metric_type="percent"; the violation has no IP target (the link tag is
 // surfaced via AlertViolation.TargetLabel).
 func (s *ClickHouseStore) EvalLinkCapacity(ctx context.Context, thresholdPct uint64, window uint32) ([]AlertViolation, error) {
+	window = max(window, 3600)
 	query := `
 		SELECT
 			t.link_tag AS link_tag,
-			quantile(0.95)(t.bps) AS p95,
+			greatest(quantile(0.95)(t.bi), quantile(0.95)(t.bo)) AS p95,
 			any(l.capacity_mbps) AS cap
 		FROM (
 			SELECT f.link_tag AS link_tag,
-				(sum(f.bytes_in) + sum(f.bytes_out)) * 8 / 3600 AS bps
+				sum(f.bytes_in) * 8 / 3600 AS bi,
+				sum(f.bytes_out) * 8 / 3600 AS bo
 			FROM traffic_by_link_hourly f
-			WHERE f.ts >= now() - INTERVAL @window SECOND
-			GROUP BY f.link_tag, toStartOfInterval(f.ts, INTERVAL 3600 SECOND)
+			WHERE f.ts >= toStartOfHour(now()) - INTERVAL @window SECOND
+			  AND f.ts < toStartOfHour(now())
+			GROUP BY f.link_tag, f.ts
 		) t
-		LEFT JOIN links l ON t.link_tag = l.tag
+		LEFT JOIN (SELECT tag, capacity_mbps FROM links FINAL) l ON t.link_tag = l.tag
 		GROUP BY t.link_tag
 		ORDER BY p95 DESC
 	`

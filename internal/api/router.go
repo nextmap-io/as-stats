@@ -67,7 +67,7 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 	// SMTP config; loadSMTP already enforces SMTP_HOST/SMTP_FROM when the feature
 	// is on, so a non-nil generator implies a usable sender.
 	if cfg.FeatureReports {
-		if gen, err := reports.NewGenerator(s); err != nil {
+		if gen, err := reports.NewGenerator(s, reports.WithExcludeAS(cfg.LocalAS)); err != nil {
 			log.Printf("WARNING: report generator init failed: %v — test-send disabled", err)
 		} else {
 			h.ReportService = reports.NewService(s, gen, reports.NewSender(cfg.SMTP))
@@ -183,6 +183,22 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			r.Get("/changes/movers", h.Movers)
 			r.Get("/changes/talkers", h.Talkers)
 
+			// Status: the windowed Status page and the cheap live probe that
+			// every page polls for the header dot. Neither depends on the
+			// caller's identity.
+			r.Get("/status", h.Status)
+			r.Get("/status/live", h.StatusLive)
+
+			// AS / IP / link detail. Keyed by URI like the rest of the
+			// group: none of these handlers reads the caller's identity, and
+			// they are the heaviest pages (flows_raw scans, 5–8 queries).
+			r.Get("/as/{asn}", h.ASDetail)
+			r.Get("/as/{asn}/peers", h.ASPeers)
+			r.Get("/as/{asn}/ips", h.ASTopIPs)
+			r.Get("/ip/{ip}", h.IPDetail)
+			r.Get("/link/{tag}", h.LinkDetail)
+			r.Get("/link/{tag}/load-curve", h.LinkLoadCurve)
+
 			// Port stats (gated by FEATURE_PORT_STATS)
 			if cfg.FeaturePortStats {
 				r.Get("/top/protocol", h.TopProtocols)
@@ -234,21 +250,6 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 				r.Delete("/bgp/blocks/{ip}", h.DeleteBGPBlock)
 			})
 		}
-
-		// AS detail
-		r.Get("/as/{asn}", h.ASDetail)
-		r.Get("/as/{asn}/peers", h.ASPeers)
-		r.Get("/as/{asn}/ips", h.ASTopIPs)
-
-		// IP detail
-		r.Get("/ip/{ip}", h.IPDetail)
-
-		// Link detail (not cached — specific to one link)
-		r.Get("/link/{tag}", h.LinkDetail)
-		r.Get("/link/{tag}/load-curve", h.LinkLoadCurve)
-
-		// Status
-		r.Get("/status", h.Status)
 
 		// DNS
 		r.Get("/dns/ptr", h.DNSPtr)

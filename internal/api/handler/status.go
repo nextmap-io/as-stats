@@ -77,3 +77,15 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 		Meta: &ResponseMeta{From: p.From, To: p.To},
 	})
 }
+
+// StatusLive handles GET /api/v1/status/live — the cheap health probe behind
+// the header dot and the home status strip. Unlike Status it ignores the
+// request window: it reads only the last 10 minutes of flows_raw.
+func (h *Handler) StatusLive(w http.ResponseWriter, r *http.Request) {
+	st, err := h.Store.LiveStatus(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, Response{Data: st})
+}

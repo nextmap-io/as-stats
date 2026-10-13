@@ -56,6 +56,12 @@ type ResponseMeta struct {
 	TotalBytes uint64    `json:"total_bytes,omitempty"`
 	Limit      int       `json:"limit,omitempty"`
 	Offset     int       `json:"offset,omitempty"`
+	// StepSeconds is the bucket width the backend actually used for every
+	// per-bucket value in the response (time series and percentiles of
+	// per-bucket bytes). bytes-per-bucket × 8 / StepSeconds = bps. It is never
+	// finer than the source table (flows_raw 60, 5-min rollups 300, hourly
+	// 3600, daily 86400) — see store/step.go.
+	StepSeconds int `json:"step_seconds,omitempty"`
 }
 
 // writeJSON writes a JSON response with the given status code.

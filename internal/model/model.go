@@ -186,8 +186,6 @@ type Overview struct {
 	TotalBytesOut uint64        `json:"total_bytes_out"`
 	TotalFlows    uint64        `json:"total_flows"`
 	ActiveASCount uint64        `json:"active_as_count"`
-	TopAS         []ASTraffic   `json:"top_as"`
-	TopIP         []IPTraffic   `json:"top_ip"`
 	Links         []LinkTraffic `json:"links"`
 }
 
@@ -508,9 +506,19 @@ type LinkCapacity struct {
 	Tag             string   `json:"tag"`
 	Description     string   `json:"description"`
 	CapacityMbps    uint32   `json:"capacity_mbps"`
-	CurrentBps      uint64   `json:"current_bps"` // latest bucket throughput (in+out)
-	P95Bps          uint64   `json:"p95_bps"`     // p95 of per-bucket (in+out) over the window
-	UtilizationPct  *float64 `json:"utilization_pct"`
+	// A link is full duplex: every *_bps without a direction is the BUSIER
+	// direction, max(in, out) — never in+out.
+	CurrentInBps       uint64   `json:"current_in_bps"`  // last complete bucket
+	CurrentOutBps      uint64   `json:"current_out_bps"` // last complete bucket
+	CurrentBps         uint64   `json:"current_bps"`     // max(current_in_bps, current_out_bps)
+	PeakInBps          uint64   `json:"peak_in_bps"`     // busiest bucket over the window
+	PeakOutBps         uint64   `json:"peak_out_bps"`
+	PeakUtilizationPct *float64 `json:"peak_utilization_pct"` // max(peak_in, peak_out) / capacity; nil without capacity
+	P95InBps           uint64   `json:"p95_in_bps"`           // p95 of per-bucket throughput
+	P95OutBps          uint64   `json:"p95_out_bps"`
+	P95Bps             uint64   `json:"p95_bps"`         // max(p95_in_bps, p95_out_bps)
+	UtilizationPct     *float64 `json:"utilization_pct"` // p95_bps / capacity; nil without capacity
+	// Trend and forecasts are fitted on the daily p95 of max(in, out).
 	TrendBpsPerDay  float64  `json:"trend_bps_per_day,omitempty"`
 	ForecastDays80  *float64 `json:"forecast_days_80,omitempty"`
 	ForecastDays95  *float64 `json:"forecast_days_95,omitempty"`
@@ -611,4 +619,29 @@ type ReportSchedule struct {
 	LastRunAt  time.Time `json:"last_run_at"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// Router liveness states reported by GET /status/live.
+const (
+	RouterStateOK      = "ok"      // last flow less than 120 s ago
+	RouterStateStale   = "stale"   // last flow 120 s – 600 s ago
+	RouterStateMissing = "missing" // referenced by a configured link, no flow in the last 10 min
+)
+
+// RouterLiveStatus is one exporter's liveness over the last 10 minutes.
+type RouterLiveStatus struct {
+	RouterIP string `json:"router_ip"` // IPv4 without the ::ffff: prefix
+	LastSeen string `json:"last_seen"` // RFC 3339, "" when nothing in the window
+	Flows10m uint64 `json:"flows_10m"`
+	State    string `json:"state"`
+}
+
+// LiveStatus is the payload of GET /status/live: a cheap health probe for the
+// header dot and the home status strip (reads 10 minutes of flows_raw only).
+type LiveStatus struct {
+	// Healthy is true iff at least one router is known and every router is "ok".
+	Healthy bool               `json:"healthy"`
+	Routers []RouterLiveStatus `json:"routers"`
+	// DiskUsedPct is the highest used-% across ClickHouse disks; nil if unknown.
+	DiskUsedPct *float64 `json:"disk_used_pct"`
 }

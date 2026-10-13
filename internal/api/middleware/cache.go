@@ -32,8 +32,9 @@ type cacheEntry struct {
 // responseCache is a size- and count-bounded LRU of cached GET responses.
 //
 // The key is deliberately identity-free: it is only mounted on routes whose
-// output depends purely on the query string (overview / top-N / links /
-// heatmap / changes). None of them consult the authenticated principal, and
+// output depends purely on the request URI (overview / top-N / links /
+// heatmap / changes / status / AS, IP and link detail). None of them consult
+// the authenticated principal, and
 // admin and viewer see byte-identical bodies, so one user's response can never
 // be served as another's. Adding an identity-sensitive route to the cached
 // group means adding the principal to the key.
