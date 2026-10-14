@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-10-14
+
+### Added
+- **Smarter Live Threats.** Each local host is compared with its own usual
+  level (per-minute p50/p95 around the same time of day over the previous
+  7 days) and ranked by how abnormal it is, not by raw volume: a busy host at
+  its usual level stays quiet. Rows carry the deviation (×ratio), when it
+  started, a 60-minute sparkline against the usual peak, and attack
+  signatures in plain words — inbound SYN flood, UDP/ICMP flood,
+  amplification (reflector source ports such as NTP/DNS/SSDP/memcached),
+  small packets, many sources; outbound port scan, host sweep, SMTP burst,
+  outbound flood — with a one-sentence explanation. Levels are normal /
+  watch / incident, as on the home page.
+- Live Threats **Outbound** view for compromised local hosts.
+- Flow Search accepts `src_ip`, `dst_ip`, `from`, `to` in the URL (Live
+  Threats links to a pre-filtered search).
+
+### Changed
+- `GET /threats/live` returns `{direction, window_seconds, checked, normal,
+  rows}` and takes `direction`, `window`, `limit`, `all`.
+- ICMP and UDP flood rules are now taken into account when computing a
+  host's closeness to a rule (they were skipped).
+
 ## [3.1.0] - 2026-10-13
 
 ### Added
