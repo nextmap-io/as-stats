@@ -1,59 +1,128 @@
 <h1 align="center">AS-Stats</h1>
 
 <p align="center">
-  A modern, production-grade NetFlow / sFlow / IPFIX collector and traffic analytics platform.<br>
-  <em>Per-AS, per-IP, per-prefix statistics with a NOC-grade web UI, optional DDoS detection,
-  and a forensic flow log — all in three containers.</em>
+  Self-hosted traffic analytics and DDoS detection for networks that run BGP,
+  built from your routers' NetFlow, IPFIX and sFlow.
 </p>
 
 <p align="center">
-  <a href="https://github.com/nextmap-io/as-stats/releases"><img src="https://img.shields.io/github/v/release/nextmap-io/as-stats?label=release&color=blue" alt="release"></a>
   <a href="https://github.com/nextmap-io/as-stats/actions/workflows/ci.yml"><img src="https://github.com/nextmap-io/as-stats/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/nextmap-io/as-stats/blob/main/LICENSE"><img src="https://img.shields.io/github/license/nextmap-io/as-stats?color=green" alt="license"></a>
-  <a href="https://github.com/nextmap-io/as-stats/pkgs/container/as-stats-collector"><img src="https://img.shields.io/badge/container-ghcr.io-blue?logo=docker" alt="container"></a>
+  <a href="https://github.com/nextmap-io/as-stats/releases/latest"><img src="https://img.shields.io/github/v/release/nextmap-io/as-stats?label=release" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/nextmap-io/as-stats" alt="MIT license"></a>
+  <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/nextmap-io/as-stats" alt="Go version"></a>
 </p>
 
----
+If you operate an AS (an ISP, a hosting provider, a campus or enterprise
+network), AS-Stats answers the questions you ask every day: **who sends you
+traffic and who receives it**, per AS, prefix, IP and link; **which links are
+filling up** and when they will be full; **what changed** since yesterday; and
+**is someone attacking you, or is one of your hosts attacking someone else**.
+Point your routers at the collector and everything stays on your own machine:
+one ClickHouse database, two small Go services and a web UI. No SaaS, no
+per-flow pricing, no agent on your hosts.
 
-AS-Stats is the spiritual successor to the venerable Perl
-[AS-Stats](https://github.com/manuelkasper/AS-Stats). Same idea — point your
-routers at it and answer "where is my traffic going?" — but rebuilt around a
-modern stack so it scales from a homelab to a multi-Tbps transit network
-without falling over.
+It is a rewrite of the Perl [AS-Stats](https://github.com/manuelkasper/AS-Stats)
+on Go, ClickHouse and React.
 
-## Highlights
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/home-dark.png">
+  <img alt="Home page: status strip with two critical alerts and one link to watch, total traffic over 24 hours, links against capacity" src="docs/screenshots/home-light.png">
+</picture>
 
-| | |
-|---|---|
-| **Flow protocols** | NetFlow v5 / v9, IPFIX, sFlow v5 — all parsed in pure Go, no external decoders |
-| **Storage** | ClickHouse with materialised views: 5-min → hourly → daily rollups, automatic TTL |
-| **Throughput** | 100k+ flows/sec on a 4-vCPU box with batched writes and IRQ-balanced pipelines |
-| **IPv4 / IPv6** | First-class IPv6 — every chart and table can be split by address family |
-| **Per-link** | Map router SNMP interfaces to named "links" with custom colors and capacity, get true per-uplink graphs |
-| **Search** | Type an IP, an ASN, an AS name or a prefix — auto-routing to the right view |
-| **Reverse DNS** | PTR records resolved on the fly and shown inline in IP tables |
-| **Private ASNs** | Private-use ASNs (64512-65534, 4200000000-4294967294) collapse into one "Private / Internal" row instead of cluttering Top AS with anonymous entries |
-| **Auth** | Optional OIDC (PKCE) with admin / viewer RBAC — works with Azure AD, Authentik, Keycloak, Google, etc. |
-| **Deployment** | Three Docker images, one Compose file, one `.env` |
+<sub>All screenshots use invented data for a fictional network, AS64500 "Example Networks", on documentation address space. [`scripts/demo/`](scripts/demo/) rebuilds it.</sub>
 
-### Optional features (off by default)
+## What you get
 
-Three independent feature flags add capability without bloating the base
-install. Each one creates its own ClickHouse tables only when enabled.
+**Traffic analytics**
+- Top AS, IP, prefix and country over any window, by bytes, packets or flows, IPv4 / IPv6 / both, per link or across all links.
+- AS detail (traffic per link, your top IPs with that network and theirs, links to HE.net, PeeringDB and bgp.tools) and IP detail at 1-minute resolution on windows up to 3 hours (2-minute up to 6 hours).
+- Private-use ASNs (64512–65534, 4200000000–4294967294) fold into one "Private / Internal" row instead of a dozen anonymous ones.
+- Search box and command palette that take an IP, an ASN, an AS name or a prefix; reverse DNS shown next to addresses; CSV export of the tables.
 
-- **`FEATURE_FLOW_SEARCH`** — forensic per-tuple flow log with bloom-filter
-  indexes on src/dst IP. Search by IP, CIDR, AS, port, protocol, flags;
-  CSV export capped at 100k rows. 180-day retention by default.
+**Capacity**
+- Utilisation of each link against its configured capacity, on the busier direction (links are full duplex): now, peak and p95 over the window.
+- Days to saturation (80 / 95 / 100 %), from a linear fit on each day's p95 over the last 90 days.
+- Load-duration curve per link, and a `link_capacity` alert rule using the same definition.
 
-- **`FEATURE_PORT_STATS`** — Top Protocols and Top Ports views, IANA service
-  name resolution, direction toggle.
+**Changes**
+- Top movers against the previous equal-length window, by AS, prefix, port or country.
+- New and disappeared talkers (AS, IP, prefix), p50 / p95 / p99 per link, a compare-with-previous overlay on charts, and a day-of-week × hour heatmap over several weeks.
 
-- **`FEATURE_ALERTS`** — DDoS detection engine + Alerts dashboard +
-  Live Threats real-time view + webhooks (Slack / Teams / Discord / generic)
-  + audit log + admin UI for rule and webhook management.
-  Ships with **10 default rules** covering volumetric, SYN flood,
-  reflection / amplification, ICMP / UDP flood, connection-rate flood, port
-  scan from internal hosts, and slow outbound exfiltration.
+**Security and DDoS** (`FEATURE_ALERTS`)
+- An alert engine that evaluates rules every 30 s against 1-minute pre-aggregated tables, so detection cost does not grow with the raw flow table. 17 default rules: inbound / outbound volume, SYN, UDP and ICMP floods, connection-rate floods, reflection / amplification, port scans from your hosts, carpet bombing of a /24, SMTP abuse, disk usage, link capacity, and a statistical anomaly rule (off by default).
+- Rules only fire on your own address space, learned from your `LOCAL_AS` announcements; each alert records the top 5 source IPs at trigger time.
+- **Live Threats**: every local host compared with its own usual level at this time of day over the previous 7 days, so a busy server at its normal rate stays quiet. Rows carry the deviation, the attack signature in plain words (SYN flood, NTP / DNS / memcached amplification, port scan, host sweep, SMTP burst…), the closest rule and a 60-minute sparkline. Inbound and outbound views.
+- Webhooks to Slack, Microsoft Teams, Discord or any JSON endpoint, with a per-webhook severity filter; an audit log of sensitive actions.
+- Optional RFC 7999 blackhole from an alert, through your own BGP daemon (gobgp, BIRD, FRR — see [docs/bgp-blackhole.md](docs/bgp-blackhole.md)).
+
+**Forensics**
+- Flow log (`FEATURE_FLOW_SEARCH`): search per-tuple flows by IP or CIDR, AS, port, protocol and time, CSV export up to 100,000 rows, 180-day default retention; a conversations explorer for bidirectional top talkers.
+- Top protocols and ports with IANA service names (`FEATURE_PORT_STATS`).
+
+**Operations**
+- Collector for NetFlow v5 / v9, IPFIX and sFlow v5, parsed in Go. Decoding a NetFlow v5 record takes under 0.3 µs on one core (`BenchmarkDecodeV5`, 30-record packets). One production deployment runs on a single node and ingests about 1,300 flows/s, unsampled, from two routers.
+- Sampling rate taken from the record, then from the exporter's v9 / IPFIX options data, then from a per-router override.
+- OIDC login (PKCE) with admin / viewer roles, read-only API tokens for scripts, scheduled HTML + CSV email reports (`FEATURE_REPORTS`).
+- Retention editable at runtime per table, without rewriting existing data; schema migrations embedded in the images and checksum-verified.
+- Prometheus metrics for the ingest path, a status page, and multi-arch (amd64 / arm64) images on GHCR.
+- Light and dark UI that only uses colour for something abnormal, readable on a phone.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><a href="docs/screenshots/live-threats-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/live-threats-dark.png"><img alt="Live Threats: a SYN flood and an NTP amplification classified as incidents, a backup burst to watch" src="docs/screenshots/live-threats-light.png"></picture></a><br><b>Live Threats</b>: hosts ranked by how far they are from their usual level</td>
+    <td width="50%"><a href="docs/screenshots/alerts-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/alerts-dark.png"><img alt="Alerts list" src="docs/screenshots/alerts-light.png"></picture></a><br><b>Alerts</b>: lifecycle, acknowledgement, history</td>
+  </tr>
+  <tr>
+    <td><a href="docs/screenshots/top-as-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/top-as-dark.png"><img alt="Top AS table" src="docs/screenshots/top-as-light.png"></picture></a><br><b>Top AS</b>, with private ASNs grouped</td>
+    <td><a href="docs/screenshots/as-detail-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/as-detail-dark.png"><img alt="AS detail page" src="docs/screenshots/as-detail-light.png"></picture></a><br><b>AS detail</b>: traffic per link and top IPs on both sides</td>
+  </tr>
+  <tr>
+    <td><a href="docs/screenshots/link-detail-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/link-detail-dark.png"><img alt="Link detail with load-duration curve" src="docs/screenshots/link-detail-light.png"></picture></a><br><b>Link detail</b>: traffic by AS and load-duration curve</td>
+    <td><a href="docs/screenshots/capacity-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/capacity-dark.png"><img alt="Capacity: utilisation per link and days to saturation" src="docs/screenshots/capacity-light.png"></picture></a><br><b>Capacity</b>: p95 utilisation and days to saturation</td>
+  </tr>
+  <tr>
+    <td><a href="docs/screenshots/changes-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/changes-dark.png"><img alt="What changed: top movers by AS, new and disappeared networks" src="docs/screenshots/changes-light.png"></picture></a><br><b>Changes</b>: movers, new and disappeared talkers</td>
+    <td><a href="docs/screenshots/heatmap-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/heatmap-dark.png"><img alt="Weekly pattern: day of week by hour heatmap" src="docs/screenshots/heatmap-light.png"></picture></a><br><b>Weekly pattern</b>: day of week × hour</td>
+  </tr>
+  <tr>
+    <td><a href="docs/screenshots/flow-search-light.png"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/flow-search-dark.png"><img alt="Flow Search listing NTP reflectors" src="docs/screenshots/flow-search-light.png"></picture></a><br><b>Flow Search</b>: the reflectors behind an amplification</td>
+  </tr>
+</table>
+
+<details>
+<summary>On a phone</summary>
+<p>
+  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/home-mobile-dark.png"><img alt="Home page at 390 px" src="docs/screenshots/home-mobile-light.png" width="300"></picture>
+</p>
+</details>
+
+## Quick start
+
+You need a Linux host with Docker 24+ and Compose v2, UDP 2055 (NetFlow /
+IPFIX) and 6343 (sFlow) reachable from your routers, and a reverse proxy for
+TLS.
+
+```bash
+git clone https://github.com/nextmap-io/as-stats.git
+cd as-stats
+cp .env.example .env
+$EDITOR .env      # CLICKHOUSE_PASSWORD, LOCAL_AS, API_CORS_ORIGINS, OIDC_*
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+The UI listens on `127.0.0.1:8081`. Then:
+
+1. put your [reverse proxy](#reverse-proxy) in front of it;
+2. [point your routers](#point-a-router-at-the-collector) at the collector;
+3. [map router interfaces to links](#map-your-interfaces) and set their capacity;
+4. turn on the [optional features](#optional-features) you want.
+
+For a trusted local evaluation without an identity provider, set
+`AUTH_ENABLED=false` **and** `ALLOW_UNAUTHENTICATED=true`. To look around
+without routers, [`scripts/demo/`](scripts/demo/) starts a throwaway stack
+with invented data.
 
 ## Architecture
 
@@ -82,24 +151,22 @@ install. Each one creates its own ClickHouse tables only when enabled.
                         └──────────┘
 ```
 
-The collector is a single-binary Go service with a backpressure-aware
-channel pipeline (UDP listener → decoder workers → enricher → batch writer).
-The API server is another Go binary on `chi` with an in-memory response
-cache. The frontend is a React SPA built with Vite, served by nginx in
-production.
+The collector is a single Go binary with a channel pipeline (UDP listener →
+decoder workers → enricher → batch writer). Materialised views roll each
+INSERT up into 5-minute, hourly and daily tables per AS, IP, prefix, link and
+port. The API server is another Go binary on `chi` with a 30-second in-memory
+response cache. The frontend is a React SPA served by nginx. The alert engine
+runs inside the collector.
 
-## Quick Start
+## Deployment in detail
 
-> Pre-built multi-arch (amd64 + arm64) images are published to GHCR on every
-> tagged release. No build step required.
-
-### 1. Prerequisites
+### Prerequisites
 
 - Linux host with Docker 24+ and Compose v2
 - UDP/2055 (NetFlow / IPFIX) and UDP/6343 (sFlow) reachable from your routers
-- A reverse proxy that terminates TLS (Caddy, nginx, Traefik — all fine)
+- A reverse proxy that terminates TLS (Caddy, nginx, Traefik)
 
-### 2. Deploy
+### Deploy
 
 ```bash
 git clone https://github.com/nextmap-io/as-stats.git
@@ -144,7 +211,7 @@ SELECT * FROM asstats.schema_migration_lock;
 DROP TABLE asstats.schema_migration_lock;
 ```
 
-### 3. Reverse proxy
+### Reverse proxy
 
 Caddyfile example:
 
@@ -155,7 +222,7 @@ as-stats.example.com {
 }
 ```
 
-### 4. Point a router at the collector
+### Point a router at the collector
 
 **Junos (NetFlow v9, inline-jflow)**:
 
@@ -218,11 +285,12 @@ uplinks is exported twice, and the direction field is what lets the collector
 credit one copy as inbound on the first link and the other as outbound on the
 second, instead of counting it twice as inbound.
 
-### 5. Map your interfaces
+### Map your interfaces
 
 Open the UI → **Links** → **Add link** to bind a router IP + SNMP ifindex
-to a human-friendly tag. The collector reloads link config every 60 seconds,
-no restart needed.
+to a human-friendly tag, and set the link's capacity so utilisation and
+saturation forecasts work. The collector reloads link config every 60
+seconds, no restart needed.
 
 You can find the SNMP ifindex with `show snmp mib ifmib ifindex <interface>`
 on Cisco, `show snmp mib walk` on Junos, or `/interface print detail` on
@@ -246,8 +314,10 @@ Everything is environment-variable driven. The full list lives in
 | `COLLECTOR_SAMPLING_OVERRIDE` | *(none)* | Last-resort per-router sampling rate, e.g. `2001:db8::1=1000,192.0.2.1=512`; only used when neither the record nor the exporter's options data gives one |
 | `COLLECTOR_FLUSH_TIMEOUT` | `30s` | Upper bound on one batch INSERT; a failed batch is dropped and counted (`asstats_flows_dropped_total`), not retried |
 | `COLLECTOR_SHUTDOWN_TIMEOUT` | `40s` | Bound on the SIGTERM drain + final flush; keep below the container stop grace period |
-| `LOCAL_AS` | *(none)* | Your AS number — auto-fetches your prefixes from RIPEstat at startup so the engine knows which IPs are "yours" |
+| `LOCAL_AS` | *(none)* | Your AS number. At startup the collector and the API fetch its announced prefixes from RIPEstat: they define "your" addresses (alert scope, Live Threats, internal / external IP views), and the collector remaps private ASNs on flows from those prefixes to this AS |
 | `API_CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins |
+| `RETENTION_RECONCILE_INTERVAL` | `15m` | How often the collector applies retention changes |
+| `CONFIG_PURGE_DAYS` | `30` | Soft-deleted rules, webhooks, host groups and report schedules are purged after this many days |
 
 ### Authentication
 
@@ -259,34 +329,60 @@ Everything is environment-variable driven. The full list lives in
 | `OIDC_CLIENT_ID` | | App ID from your IdP |
 | `OIDC_CLIENT_SECRET` | | Client secret |
 | `OIDC_REDIRECT_URL` | | `https://your-domain/auth/callback` |
+| `OIDC_SCOPES` | `openid profile email` | Scopes requested from the IdP |
 
 The OIDC callback grants the **admin** role to any user whose `roles` (or
-`groups`) claim contains `Admin.All`. Anything else maps to **viewer**.
+`groups`) claim contains `Admin.All`. Anything else maps to **viewer**. A
+role is captured when the session is created: after changing someone's role,
+they must log out and back in.
 
 The API fails closed by default. Running without OIDC requires both
 `AUTH_ENABLED=false` and `ALLOW_UNAUTHENTICATED=true`.
 
+Admins can create **read-only API tokens** (Admin › Tokens) for scripts
+and dashboards: send them as `Authorization: Bearer <token>`; they are
+limited to safe (GET) methods.
+
 ### Optional features
+
+Four independent flags, all off by default. Each one only uses its own
+tables (the migrations create them either way).
 
 | Variable | Default | What it enables |
 |---|---|---|
-| `FEATURE_FLOW_SEARCH` | `false` | Forensic flow log + Search UI + CSV export |
-| `FLOW_LOG_RETENTION_DAYS` | `180` | **Seeds** the `flows_log` retention policy on first startup only. Afterwards `retention_policies` is authoritative — change it via Admin > Retention (`PUT /admin/retention/flows_log`) |
+| `FEATURE_FLOW_SEARCH` | `false` | Forensic flow log + Flow Search UI + CSV export + Conversations |
+| `FLOW_LOG_RETENTION_DAYS` | `180` | **Seeds** the `flows_log` retention policy on first startup only. Afterwards `retention_policies` is authoritative — change it via Admin › Storage (`PUT /admin/retention/flows_log`) |
 | `FEATURE_PORT_STATS` | `false` | Top Protocols + Top Ports views |
-| `FEATURE_ALERTS` | `false` | DDoS detection engine + Alerts + Live Threats + Admin UI |
+| `FEATURE_ALERTS` | `false` | Alert engine + Alerts + Live Threats + webhooks + audit log + rule admin |
 | `ALERT_EVAL_INTERVAL` | `30s` | How often the alert engine evaluates rules |
 | `ALERT_STALE_THRESHOLD` | `5m` | Active alerts auto-resolve after this gap of silence |
+| `FEATURE_REPORTS` | `false` | Scheduled HTML + CSV email reports (Admin › Reports) |
+| `SMTP_HOST`, `SMTP_FROM` | | Required with `FEATURE_REPORTS` |
+| `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_STARTTLS` | `587` / – / – / `true` | Mail submission settings |
 
 > **Note**: schema migrations are always applied by the one-shot `migrate`
 > service before the API and collector start. Feature flags only control
 > runtime behaviour; never run individual SQL files by hand during deployment.
 
-## Alert Engine
+### Metrics
+
+| Variable | Default | Description |
+|---|---|---|
+| `COLLECTOR_PROMETHEUS_ADDR` | `:9090` | Collector `/metrics` and `/healthz` listener; empty disables it |
+| `PROMETHEUS_ALLOW_CIDR` | *(open)* | Comma-separated IPs / CIDRs allowed to scrape `/metrics` (both binaries) |
+| `PROMETHEUS_USER` / `PROMETHEUS_PASS` | | Optional basic auth for `/metrics`; both must be set |
+
+BGP blackholing has its own variables (`BGP_ENABLED`, `BGP_ROUTER_ID`,
+`BGP_LOCAL_AS`, `BGP_PEER_ADDRESS`, `BGP_PEER_AS`, `BGP_NEXT_HOP`,
+`BGP_COMMUNITY`, `BGP_*_CMD`, and `BGP_API_URL` on the collector) — see
+[docs/bgp-blackhole.md](docs/bgp-blackhole.md).
+
+## Alert engine
 
 When `FEATURE_ALERTS=true`, the collector spawns a goroutine that evaluates
 configurable rules every 30 seconds against pre-aggregated 1-minute hot
-tables. **Detection scales independently of `flows_raw`** — even on
-high-volume networks, every rule resolves in milliseconds.
+tables, over complete minutes only. Detection does not scan `flows_raw`, so
+its cost does not grow with the raw flow volume.
 
 ### Rule types
 
@@ -300,6 +396,15 @@ high-volume networks, every rule resolves in milliseconds.
 | `icmp_flood` | ICMP packet rate to a destination — almost never legitimate at high rates |
 | `udp_flood` | UDP packet rate to a destination — DNS / NTP query flood signature |
 | `connection_flood` | High distinct flow count per destination — Slowloris / half-open scan |
+| `subnet_flood` | Aggregate traffic to one IPv4 subnet (e.g. a /24) of your prefixes — carpet bombing spread under the per-host thresholds |
+| `smtp_abuse` | An internal host sending to SMTP ports at a sustained rate (compromised relay) |
+| `disk_usage` | A ClickHouse data disk above a percentage |
+| `link_capacity` | A link's p95 utilisation (busier direction) above a percentage of its capacity |
+| `anomaly` | A link's hourly throughput far above the median of the same hour of the week (median + k·MAD) |
+
+The 17 rules seeded on first startup (only when `alert_rules` is empty) cover
+all of these; the anomaly example is disabled until tuned. Edit them in
+Admin › Alert Rules.
 
 Every rule is bound to a **target filter** — by default the local AS
 prefixes loaded from RIPEstat — so alerts only fire on IPs you actually
@@ -307,11 +412,11 @@ operate. Each triggered alert is enriched with the **top 5 source IPs**
 hammering the target, pulled from `flows_raw` at trigger time so the
 on-call engineer doesn't need to dig further.
 
-### Live Threats view
+### Live Threats
 
-The Alerts dashboard shows what already fired. The **Live Threats** page
-(`/live`) shows what's *building*, ranked by **how abnormal** each of your
-hosts is rather than by raw volume:
+The Alerts page shows what already fired. **Live Threats** (`/live`) shows
+what is building, ranked by **how abnormal** each of your hosts is rather
+than by raw volume:
 
 - every local host seen in the window is compared with **its own usual
   traffic** — the same time of day over the previous 7 days (per-minute p50 /
@@ -322,12 +427,15 @@ hosts is rather than by raw volume:
   outbound flood — and against the active alert rules (closest rule, % of its
   threshold);
 - each host gets a level: **incident**, **watch** or **normal**. Only the
-  first two are listed by default; `all=1` lists the top hosts by volume.
+  first two are listed by default; "Show all busy hosts" (`all=1`) lists the
+  others too.
 
 **Inbound** looks at your destinations (DDoS targets), **outbound** at your
-sources (compromised hosts). Each row carries a 60-minute sparkline and the
-time it went above its usual level. Configurable window (1m / 5m / 15m / 1h),
-auto-refresh. API: `GET /api/v1/threats/live?direction=in|out&window=300&all=0`.
+sources (compromised hosts). Each row explains itself in one sentence and
+carries a 60-minute sparkline against the usual peak, the time it went above
+its usual level, and links to the IP page and a pre-filtered Flow Search.
+Window 1 min / 5 min / 15 min / 1 h, refreshed every 30 s. API:
+`GET /api/v1/threats/live?direction=in|out&window=300&all=0`.
 
 ### BGP blackhole hook
 
@@ -338,9 +446,12 @@ or BIRD / FRR via `BGP_ANNOUNCE_CMD` & co.) to push RFC 7999 blackhole
 communities to your edge; the collector's `auto_block` rules reach it through
 `BGP_API_URL`. Without it the endpoint answers **409** instead of pretending
 to block, and alerts that have no single host target (link capacity,
-anomaly, disk usage, subnet flood) answer **422**.
+anomaly, disk usage, subnet flood) answer **422**. Details and daemon
+examples: [docs/bgp-blackhole.md](docs/bgp-blackhole.md).
 
 ## Hardware sizing
+
+Rough starting points, not benchmarks:
 
 | Traffic level | Flows / sec | CPU | RAM | Disk (1 year, base install) |
 |---|---|---|---|---|
@@ -354,8 +465,8 @@ ClickHouse will happily eat most of the available RAM — set
 are strongly recommended for query performance even at small sizes.
 
 `FEATURE_FLOW_SEARCH` adds significant storage: budget roughly **+250 GB
-per 6 months per Gbps** at 1:1000 sampling. The other two flags are
-lightweight (a few MB to a few GB per day).
+per 6 months per Gbps** at 1:1000 sampling. Port stats and reports are
+lightweight; the alert hot tables are bounded by their 7-day retention.
 
 ### Default retention
 
@@ -373,7 +484,7 @@ lightweight (a few MB to a few GB per day).
 All TTLs are enforced by ClickHouse itself — no cron jobs to maintain.
 
 Retention is **editable at runtime**: every table above has a row in
-`retention_policies`, surfaced in Admin > Retention and via
+`retention_policies`, surfaced in Admin › Storage and via
 `PUT /admin/retention/{table}`. A reconciler in the collector applies any change
 to the live table. The `ALTER` is metadata-only — it never rewrites existing
 parts, which matters because a whole-table rewrite lands on the very disk you
@@ -381,6 +492,7 @@ are usually trying to free. Because already-merged parts keep the expiry they
 were written with, the reconciler also drops any partition whose newest row is
 entirely past the retention (`DROP PARTITION`, no rewrite), so lowering a
 retention frees the old data on the next cycle instead of months later.
+The same page shows table sizes, disk usage and TTL lag.
 
 ClickHouse's own `system.*_log` tables share this volume and are unbounded by
 default (they reached ~12 GiB on one deployment and helped fill the disk). The
@@ -393,7 +505,9 @@ healthcheck still passes.
 ## Monitoring
 
 Both binaries expose Prometheus metrics on `/metrics` (guarded by
-`PROMETHEUS_ALLOW_CIDR` and/or basic auth — see Configuration).
+`PROMETHEUS_ALLOW_CIDR` and/or basic auth — see [Metrics](#metrics)). The
+collector also serves `/healthz` on the same listener; use it rather than
+probing the UDP ports.
 
 The ingest counters worth alerting on:
 
@@ -432,33 +546,42 @@ conntrack drops by default. Add a `NOTRACK` rule:
 ip6tables -t raw -I PREROUTING -s <ROUTER_IP> -p udp --dport 2055 -j NOTRACK
 ```
 
-Persist it via `/etc/ufw/before6.rules` or `networkd-dispatcher` — see
-[`docs/`](docs/) for distro-specific recipes.
+Persist it via `/etc/ufw/before6.rules` or `networkd-dispatcher`.
 
 ## API
 
-All endpoints under `/api/v1/`. Common query params: `period`
-(`1h` / `3h` / `6h` / `24h` / `7d` / `30d`), `ip_version` (`4` / `6`),
-`scope` (`internal` / `external`), `link`, `direction`, `limit`, `offset`.
+All endpoints under `/api/v1/`, JSON. Common query params: `period`
+(`1h` / `3h` / `6h` / `24h` / `7d` / `30d`) or `from` / `to`, `ip_version`
+(`4` / `6`), `scope` (`internal` / `external`), `link` / `links`,
+`direction`, `limit`, `offset`. Responses that hold a time series report the
+bucket width actually used in `meta.step_seconds`. Scripts can authenticate
+with a read-only API token.
 
 ### Always available
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/overview` | Dashboard counters |
+| `GET` | `/overview` | Totals, active AS count, links |
 | `GET` | `/status` | Active routers, flow rate, DB size (over the selected window) |
 | `GET` | `/status/live` | Cheap health probe: per-router ok / stale / missing over the last 10 min, disk usage |
 | `GET` | `/top/as` | Top ASes by volume |
 | `GET` | `/top/ip` | Top IPs (filterable to internal / external) |
 | `GET` | `/top/prefix` | Top prefixes (same scopes) |
-| `GET` | `/as/{asn}` | AS detail with v4 / v6 charts and top peers |
+| `GET` | `/top/country` | Top countries (AS-level geolocation) |
+| `GET` | `/as/{asn}` | AS detail with v4 / v6 series per link |
+| `GET` | `/as/{asn}/peers` · `/as/{asn}/ips` | Peers and top IPs for an AS |
 | `GET` | `/ip/{ip}` | IP detail with sub-5-min resolution on short windows |
-| `GET` | `/links` | Per-link traffic summary |
+| `GET` | `/links` · `/links/traffic` | Per-link traffic summary and series |
 | `GET` | `/links/capacity` | Per-link utilisation (busier direction vs capacity, p95 / peak / current) and saturation forecast |
-| `GET` | `/link/{tag}` | Link detail with top AS chart |
+| `GET` | `/link/{tag}` · `/link/{tag}/load-curve` | Link detail and load-duration curve |
+| `GET` | `/changes/movers` · `/changes/talkers` | Movers (`dimension=as/prefix/port/country`) and new / gone talkers (`as/ip/prefix`) |
+| `GET` | `/traffic/heatmap` | Day-of-week × hour heatmap |
 | `GET` | `/dns/ptr?ip=X` | Reverse DNS lookup |
 | `GET` | `/search?q=X` | Search by AS / IP / prefix / name |
 | `GET` | `/features` | Feature flag discovery (used by the frontend) |
+| `POST` / `DELETE` | `/admin/links[/{tag}]` | Link management (admin) |
+| `GET` / `PUT` | `/admin/storage` · `/admin/retention/{table}` | Storage stats and retention (admin) |
+| `GET` / `POST` / `DELETE` | `/admin/tokens[/{id}]` | Read-only API tokens (admin) |
 
 ### Feature-gated
 
@@ -466,23 +589,27 @@ Only registered when the corresponding `FEATURE_*` flag is set.
 
 | Feature | Endpoints |
 |---|---|
-| `FLOW_SEARCH` | `GET /flows/search` (with `?format=csv` for export, max 100k rows) · `GET /flows/timeseries` |
+| `FLOW_SEARCH` | `GET /flows/search` (with `?format=csv` for export, max 100k rows) · `GET /flows/timeseries` · `GET /conversations` |
 | `PORT_STATS` | `GET /top/protocol` · `GET /top/port` |
-| `ALERTS` | `GET /alerts` · `GET /alerts/summary` · `GET /threats/live` · `POST /alerts/{id}/{ack,resolve}` · `POST /alerts/{id}/block` · `GET/POST/PUT/DELETE /admin/{rules,webhooks}` · `GET /admin/audit` |
+| `ALERTS` | `GET /alerts` · `GET /alerts/summary` · `GET /threats/live` · `POST /alerts/{id}/{ack,resolve}` · `POST /alerts/{id}/block` · `GET /anomaly/explain` · `GET/POST/PUT/DELETE /admin/{rules,webhooks}` · `GET /admin/audit` |
+| `REPORTS` | `GET/POST/PUT/DELETE /admin/reports[/{id}]` · `POST /admin/reports/{id}/test` |
+
+Writes (`POST` / `PUT` / `DELETE`) require the CSRF double-submit header
+(`X-CSRF-Token`) when called from a browser session.
 
 ## Tech stack
 
 | Layer | Choice | Why |
 |---|---|---|
 | Collector | Go, custom parsers | Pure Go, no CGo, predictable GC, easy cross-compile |
-| API | Go, [chi](https://github.com/go-chi/chi) | Stdlib `http.Handler`, no magic, fast |
-| Storage | [ClickHouse](https://clickhouse.com) | Columnar, materialised views, brutal compression |
+| API | Go, [chi](https://github.com/go-chi/chi) | Stdlib `http.Handler`, no magic |
+| Storage | [ClickHouse](https://clickhouse.com) | Columnar, materialised views, strong compression |
 | Cache | In-process, 30s TTL | No Redis to operate |
-| Frontend | React 19, TypeScript, Vite, [TanStack Query](https://tanstack.com/query) | Modern, typed end-to-end |
+| Frontend | React 19, TypeScript, Vite, [TanStack Query](https://tanstack.com/query) | Typed end to end |
 | Charts | [Recharts](https://recharts.org) | Composable, themable, no D3 in app code |
 | UI | [Tailwind](https://tailwindcss.com), Archivo | Light / dark "Ledger" theme |
-| Auth | OIDC + PKCE via [coreos/go-oidc](https://github.com/coreos/go-oidc) | Works with every modern IdP |
-| Container | Multi-arch Docker (amd64 + arm64) on GHCR | One image, runs anywhere |
+| Auth | OIDC + PKCE via [coreos/go-oidc](https://github.com/coreos/go-oidc) | Works with Azure AD, Authentik, Keycloak, Google… |
+| Container | Multi-arch Docker (amd64 + arm64) on GHCR | One image per service, runs anywhere |
 | CI/CD | GitHub Actions | Lint, test, build, push, release on tag |
 
 ## Development
@@ -499,6 +626,10 @@ UI on http://localhost:5173, API on http://localhost:8080.
 ```bash
 make ci   # everything CI runs: Go lint + test + build, frontend lint + typecheck + build
 ```
+
+[`scripts/demo/`](scripts/demo/) starts a throwaway stack from the published
+images with two weeks of invented traffic, which is how the screenshots above
+are made.
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for branch naming, commit
 conventions and the full PR workflow, and [`CLAUDE.md`](CLAUDE.md) for the

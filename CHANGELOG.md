@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `scripts/demo/`: a throwaway stack with two weeks of invented traffic for a
+  fictional network (AS64500, documentation prefixes), used for screenshots.
+
+### Changed
+- README rewritten: what AS-Stats is for, a feature overview checked against
+  the code, screenshots (light and dark), a shorter quick start.
+
 ## [3.2.0] - 2026-10-14
 
 ### Added
