@@ -1,0 +1,14 @@
+[
+  { "name": "home", "path": "/", "height": 1180 },
+  { "name": "top-as", "path": "/top/as", "height": 860 },
+  { "name": "as-detail", "path": "/as/2906", "height": 1000 },
+  { "name": "link-detail", "path": "/link/TRANSIT-B", "height": 1060 },
+  { "name": "capacity", "path": "/capacity", "height": 620 },
+  { "name": "changes", "path": "/changes", "height": 1010 },
+  { "name": "heatmap", "path": "/changes", "height": 500, "scroll": "Weekly pattern" },
+  { "name": "live-threats", "path": "/live", "height": 800 },
+  { "name": "flow-search", "path": "/flows?dst_ip=198.51.100.25", "height": 940,
+    "type": [{ "sel": "input[placeholder=any]", "text": "123" }], "click": "Search" },
+  { "name": "alerts", "path": "/alerts", "height": 720, "click": "All" },
+  { "name": "home-mobile", "path": "/", "width": 390, "height": 844, "scale": 2 }
+]
