@@ -37,8 +37,6 @@ type FlowReader interface {
 	LinkTimeSeries(ctx context.Context, tag string, p QueryParams) ([]model.TrafficPoint, error)
 	LinkTopAS(ctx context.Context, tag string, p QueryParams) ([]model.ASTraffic, uint64, error)
 	LinksTrafficSeries(ctx context.Context, p QueryParams) ([]model.LinkTimeSeries, error)
-	LinksP95(ctx context.Context, p QueryParams) (inP95, outP95 uint64, err error)
-	LinkP95(ctx context.Context, tag string, p QueryParams) (inP95, outP95 uint64, err error)
 	TopASTrafficSeries(ctx context.Context, p QueryParams) ([]model.ASTrafficDetail, error)
 
 	Overview(ctx context.Context, p QueryParams) (*model.Overview, error)
@@ -68,7 +66,7 @@ type QueryParams struct {
 	LinkTags      []string
 	Direction     string   // "in", "out", or "" for both
 	IPVersion     uint8    // 0=all, 4=IPv4, 6=IPv6
-	LocalIPFilter string   // SQL filter for local IPs (from ripestat.PrefixesToSQL)
+	LocalIPFilter string   // SQL filter for local IPs on t.ip_address (from CIDRRangeSQL)
 	ExcludeAS     uint32   // AS to exclude from top results (local AS)
 	LocalPrefixes []string // Local CIDR prefixes for prefix scope filtering
 	PrefixScope   string   // "internal" or "external"

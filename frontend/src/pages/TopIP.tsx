@@ -48,7 +48,7 @@ export function TopIP() {
         sortable: true,
         className: "max-w-[280px]",
         render: (ip) => (
-          <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-mono text-[11px] block truncate">
+          <Link to={`/ip/${ip.ip}${filterSearch}`} className="text-primary hover:underline font-ip text-[13px] block truncate">
             <IPWithPTR ip={ip.ip} />
           </Link>
         ),
@@ -60,7 +60,7 @@ export function TopIP() {
         render: (ip) =>
           ip.as_number > 0 ? (
             <Link to={`/as/${ip.as_number}${filterSearch}`} className="hover:underline">
-              <span className="font-mono">AS{ip.as_number}</span>
+              <span>AS{ip.as_number}</span>
               {ip.as_name && <span className="ml-1 text-muted-foreground">{ip.as_name}</span>}
             </Link>
           ) : (
@@ -74,7 +74,7 @@ export function TopIP() {
         numeric: true,
         sortable: true,
         headerClassName: metricHeader("bytes"),
-        render: (ip) => formatTraffic(ip.bytes, periodSeconds),
+        render: (ip) => formatTraffic(ip.bytes, periodSeconds, ip.packets),
       },
       {
         key: "packets",
@@ -135,7 +135,7 @@ export function TopIP() {
   return (
     <div className="space-y-6">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Top IP</h1>
+        <h1 className="text-2xl font-semibold">Top IP</h1>
         <div className="flex gap-1 text-xs">
           {(["all", "internal", "external"] as Scope[]).map(s => (
             <button
@@ -150,12 +150,12 @@ export function TopIP() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-sm">
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle>
               {scope === "internal" ? "Internal" : scope === "external" ? "External" : "All"} IPs by traffic volume
             </CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <ViewToggle />
               <MetricToggle value={metric} onChange={(v) => setFilter("metric", v)} />
               <ExportButton rows={rows} columns={exportColumns} filename="top-ip" />
@@ -163,7 +163,7 @@ export function TopIP() {
           </div>
         </CardHeader>
         <CardContent>
-          <QueryBoundary query={query} isEmpty={(d) => d.data.length === 0} loadingCols={7}>
+          <QueryBoundary query={query} isEmpty={(d) => !d.data?.length} loadingCols={7}>
             {(data) =>
               view !== "table" ? (
                 <TopNViz

@@ -20,20 +20,30 @@ func (s *ClickHouseStore) TopCountry(ctx context.Context, p QueryParams) ([]mode
 	dirFilter, dirArgs := buildDirectionFilter(p.Direction)
 	linkFilter, linkArgs := buildLinkFilter(p.LinkTags)
 
+	// Aggregate per ASN first, then join the deduplicated names (names.go)
+	// and roll up to the country: joining raw as_names before the GROUP BY
+	// inflated every country holding a not-yet-merged renamed AS.
 	query := fmt.Sprintf(`
 		SELECT
 			if(an.country = '', 'Unknown', an.country) AS country_code,
-			sum(t.bytes) AS total_bytes,
-			sum(t.packets) AS total_packets,
-			sum(t.flow_count) AS total_flows
-		FROM traffic_by_as t
-		LEFT JOIN as_names an ON t.as_number = an.as_number
-		WHERE t.ts >= @from AND t.ts < @to
-		%s %s
+			sum(a.bytes) AS total_bytes,
+			sum(a.packets) AS total_packets,
+			sum(a.flows) AS total_flows
+		FROM (
+			SELECT t.as_number AS as_number,
+				sum(t.bytes) AS bytes,
+				sum(t.packets) AS packets,
+				sum(t.flow_count) AS flows
+			FROM traffic_by_as t
+			WHERE t.ts >= @from AND t.ts < @to
+			%s %s
+			GROUP BY t.as_number
+		) a
+		LEFT JOIN %s an ON a.as_number = an.as_number
 		GROUP BY country_code
-		ORDER BY total_bytes DESC
+		ORDER BY total_bytes DESC, country_code
 		LIMIT @limit OFFSET @offset
-	`, dirFilter, linkFilter)
+	`, dirFilter, linkFilter, asNamesLatest)
 
 	args := append([]any{
 		clickhouse.Named("from", p.From),

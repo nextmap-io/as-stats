@@ -28,7 +28,7 @@ export function MetricToggle({
           onClick={() => onChange(m === "bytes" ? undefined : m)}
           aria-pressed={value === m}
           className={cn(
-            "px-2 py-0.5 text-[11px] font-medium rounded transition-colors",
+            "px-2 py-0.5 text-[13px] font-medium rounded transition-colors",
             value === m
               ? "bg-primary text-primary-foreground"
               : "text-muted-foreground hover:text-foreground hover:bg-accent",

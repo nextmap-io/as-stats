@@ -10,28 +10,9 @@ import {
 } from "recharts"
 import type { LinkTimeSeries } from "@/lib/types"
 import { useUnit } from "@/hooks/useUnit"
-import { useChartColors } from "@/hooks/useChartColors"
+import { axisTick, seriesColor, tooltipBoxStyle, useChartColors } from "@/hooks/useChartColors"
+import { inferStepSeconds, formatTimeShort } from "./time"
 
-const DEFAULT_COLORS = [
-  "#e74c3c",
-  "#3498db",
-  "#2ecc71",
-  "#f39c12",
-  "#9b59b6",
-  "#1abc9c",
-  "#e67e22",
-  "#2980b9",
-]
-
-function lighten(hex: string, amount = 0.35): string {
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  const lr = Math.round(r + (255 - r) * amount)
-  const lg = Math.round(g + (255 - g) * amount)
-  const lb = Math.round(b + (255 - b) * amount)
-  return `#${lr.toString(16).padStart(2, "0")}${lg.toString(16).padStart(2, "0")}${lb.toString(16).padStart(2, "0")}`
-}
 
 interface LinkTrafficChartProps {
   series: LinkTimeSeries[]
@@ -42,34 +23,21 @@ interface LinkTrafficChartProps {
   p95Out?: number
   hideLegend?: boolean
   timeBounds?: { from: number; to: number }
+  /** Bucket width from the API (meta.step_seconds); inferred when absent. */
+  stepSeconds?: number
 }
 
-function getIntervalSeconds(series: LinkTimeSeries[]): number {
-  let minDiff = Infinity
-  for (const s of series) {
-    for (let i = 1; i < s.points.length; i++) {
-      const diff = (new Date(s.points[i].t).getTime() - new Date(s.points[i - 1].t).getTime()) / 1000
-      if (diff > 0 && diff < minDiff) minDiff = diff
-    }
-  }
-  return minDiff === Infinity ? 300 : minDiff
-}
 
-function formatTimeShort(ts: number, multiDay: boolean): string {
-  if (multiDay) {
-    const d = new Date(ts)
-    return `${d.getDate()}/${d.getMonth() + 1} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`
-  }
-  return new Date(ts).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" })
-}
-
-export function LinkTrafficChart({ series, height = 260, title, linkColors, p95In, p95Out, hideLegend, timeBounds }: LinkTrafficChartProps) {
-  const { formatTraffic, formatAxis, unit } = useUnit()
+export function LinkTrafficChart({ series, height = 260, title, linkColors, p95In, p95Out, hideLegend, timeBounds, stepSeconds }: LinkTrafficChartProps) {
+  const { formatValue, formatAxis, unit } = useUnit()
   const chartColors = useChartColors()
   if (!series.length) return null
-  const interval = getIntervalSeconds(series)
+  const interval = stepSeconds && stepSeconds > 0 ? stepSeconds : inferStepSeconds(series.map((s) => s.points))
   const stepMs = interval * 1000
-  const usePps = unit === "pps"
+  // pps needs packet counts; without them the chart stays in bits per second.
+  const hasPackets = series.some((s) => s.points.some((p) => (p.packets_in ?? 0) > 0 || (p.packets_out ?? 0) > 0))
+  const usePps = unit === "pps" && hasPackets
+  const kind = usePps ? "packets" : "bytes"
 
   // Detect if data spans multiple days
   let minTs = Infinity, maxTs = -Infinity
@@ -93,8 +61,8 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
     const ls = series[i]
     linkTags.push(ls.link_tag)
     linkLabels[ls.link_tag] = ls.description || ls.link_tag
-    const base = linkColors?.[ls.link_tag] || DEFAULT_COLORS[i % DEFAULT_COLORS.length]
-    colors[ls.link_tag] = { in: base, out: lighten(base) }
+    const base = seriesColor(chartColors, i, linkColors?.[ls.link_tag])
+    colors[ls.link_tag] = { in: base, out: base }
   }
 
   // Collect all unique timestamps across all series
@@ -187,14 +155,12 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
       : undefined
 
   return (
-    <div className="animate-fade-in overflow-hidden">
-      {title && (
-        <h3 className="text-[10px] font-medium text-muted-foreground mb-2 uppercase tracking-wider">{title}</h3>
-      )}
+    <div className="overflow-hidden">
+      {title && <h3 className="mb-1 text-[13px] text-foreground-secondary">{title}</h3>}
       <ResponsiveContainer width="100%" height={height}>
         <AreaChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
           {/* No gradients — solid fills like classic rrdtool */}
-          <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} opacity={0.5} />
+          <CartesianGrid vertical={false} stroke={chartColors.grid} />
           <XAxis
             type="number"
             dataKey="t"
@@ -202,27 +168,27 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
             domain={[domainFrom, domainTo]}
             ticks={xTicks}
             allowDataOverflow
-            tick={{ fontSize: 8, fill: chartColors.text }}
-            tickLine={{ stroke: chartColors.grid }}
-            axisLine={{ stroke: chartColors.grid }}
+            tick={axisTick(chartColors)}
+            tickLine={false}
+            axisLine={false}
             tickFormatter={(t) => formatTimeShort(Number(t), multiDay)}
           />
           <YAxis
-            tick={{ fontSize: 8, fill: chartColors.text }}
+            tick={axisTick(chartColors)}
             tickLine={false}
             axisLine={false}
-            tickFormatter={(v) => formatAxis(Math.abs(v), interval)}
-            width={40}
+            tickFormatter={(v) => formatAxis(Math.abs(Number(v)), interval, kind)}
+            width={44}
           />
-          <ReferenceLine y={0} stroke={chartColors.text} strokeWidth={1} />
-          {p95In != null && p95In > 0 && (
-            <ReferenceLine y={p95In} stroke="#e74c3c" strokeDasharray="4 2" strokeWidth={1} label={{ value: `p95 in: ${formatTraffic(p95In, interval)}`, position: "right", fontSize: 8, fill: "#e74c3c" }} />
+          <ReferenceLine y={0} stroke={chartColors.ink} strokeWidth={1} />
+          {!usePps && p95In != null && p95In > 0 && (
+            <ReferenceLine y={p95In} stroke={chartColors.ink} strokeDasharray="2 3" label={{ value: `p95 in ${formatValue(p95In, interval)}`, position: "insideTopRight", fontSize: 12, fill: chartColors.text }} />
           )}
-          {p95Out != null && p95Out > 0 && (
-            <ReferenceLine y={-p95Out} stroke="#e74c3c" strokeDasharray="4 2" strokeWidth={1} label={{ value: `p95 out: ${formatTraffic(p95Out, interval)}`, position: "right", fontSize: 8, fill: "#e74c3c" }} />
+          {!usePps && p95Out != null && p95Out > 0 && (
+            <ReferenceLine y={-p95Out} stroke={chartColors.ink} strokeDasharray="2 3" label={{ value: `p95 out ${formatValue(p95Out, interval)}`, position: "insideBottomRight", fontSize: 12, fill: chartColors.text }} />
           )}
           <Tooltip
-            cursor={{ stroke: "hsl(215 12% 50%)", strokeOpacity: 0.3 }}
+            cursor={{ stroke: chartColors.text, strokeOpacity: 0.4 }}
             content={({ active, payload, label }) => {
               if (!active || !payload?.length) return null
               const byLink = new Map<string, { inVal: number; outVal: number }>()
@@ -234,18 +200,18 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
                 else l.outVal = Math.abs(Number(e.value) || 0)
               }
               return (
-                <div style={{ backgroundColor: chartColors.tooltipBg, border: `1px solid ${chartColors.tooltipBorder}`, borderRadius: 4, fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.5)", padding: "6px 10px" }}>
-                  <div style={{ color: chartColors.text, marginBottom: 3, fontSize: 11 }}>{formatTimeShort(Number(label), multiDay)}</div>
+                <div style={tooltipBoxStyle(chartColors)}>
+                  <div style={{ color: chartColors.text, marginBottom: 3 }}>{formatTimeShort(Number(label), true)}</div>
                   {Array.from(byLink.entries()).map(([tag, { inVal, outVal }]) => {
                     if (inVal === 0 && outVal === 0) return null
                     return (
-                      <div key={tag} style={{ display: "flex", alignItems: "center", gap: 4, lineHeight: 1.6, color: chartColors.tooltipText }}>
-                        <span style={{ width: 6, height: 6, borderRadius: 1, backgroundColor: colors[tag]?.in || "#888", flexShrink: 0 }} />
-                        <span style={{ fontSize: 11 }}>{linkLabels[tag] || tag}</span>
-                        <span style={{ marginLeft: "auto", paddingLeft: 8, whiteSpace: "nowrap", fontSize: 11 }}>
-                          {inVal > 0 && <>{"\u2193"}{formatTraffic(inVal, interval)}</>}
-                          {inVal > 0 && outVal > 0 && " "}
-                          {outVal > 0 && <>{"\u2191"}{formatTraffic(outVal, interval)}</>}
+                      <div key={tag} style={{ display: "flex", alignItems: "center", gap: 6, lineHeight: 1.6 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 1, backgroundColor: colors[tag]?.in, flexShrink: 0 }} />
+                        <span>{linkLabels[tag] || tag}</span>
+                        <span style={{ marginLeft: "auto", paddingLeft: 12, whiteSpace: "nowrap" }}>
+                          {inVal > 0 && <>in {formatValue(inVal, interval, kind)}</>}
+                          {inVal > 0 && outVal > 0 && ", "}
+                          {outVal > 0 && <>out {formatValue(outVal, interval, kind)}</>}
                         </span>
                       </div>
                     )
@@ -264,7 +230,7 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
               stroke={colors[tag].in}
               fill={colors[tag].in}
               fillOpacity={0.85}
-              strokeWidth={0.5}
+              strokeWidth={0}
               dot={false}
               isAnimationActive={false}
             />
@@ -278,8 +244,8 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
               stackId="down"
               stroke={colors[tag].out}
               fill={colors[tag].out}
-              fillOpacity={0.7}
-              strokeWidth={0.5}
+              fillOpacity={0.5}
+              strokeWidth={0}
               dot={false}
               isAnimationActive={false}
             />
@@ -287,10 +253,10 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
         </AreaChart>
       </ResponsiveContainer>
       {!hideLegend && (
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 px-1">
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
           {linkTags.map((tag) => (
-            <div key={tag} className="flex items-center gap-1 text-[9px] text-muted-foreground">
-              <span className="inline-block size-2 rounded-sm" style={{ backgroundColor: colors[tag].in }} />
+            <div key={tag} className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+              <span className="inline-block h-2.5 w-3.5 rounded-[1px]" style={{ backgroundColor: colors[tag].in }} />
               <span>{linkLabels[tag]}</span>
             </div>
           ))}

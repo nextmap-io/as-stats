@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
-import { useStatus, useStorageStatus } from "@/hooks/useApi"
+import { useLiveStatus, useStatus, useStorageStatus } from "@/hooks/useApi"
+import { ROUTER_STATE_LABEL, displayIP } from "@/lib/status"
 import { useFilters } from "@/hooks/useFilters"
 import { useFeatureFlags, useFeatures } from "@/hooks/useFeatures"
 import { useCurrentUser } from "@/hooks/useAuth"
@@ -13,12 +14,12 @@ import { Activity, ShieldAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { DiskStats } from "@/lib/types"
 
-// diskBarClass colors the disk-usage bar: green < 80, amber >= 80, red >= 90 —
+// diskBarClass colours the disk-usage bar: neutral < 80, amber >= 80, red >= 90,
 // matching the disk_usage alert-rule defaults.
 function diskBarClass(pct: number): string {
   if (pct >= 90) return "bg-destructive"
-  if (pct >= 80) return "bg-warning"
-  return "bg-success"
+  if (pct >= 80) return "bg-warning-mark"
+  return "bg-foreground-secondary"
 }
 
 function fmtTime(s?: string): string {
@@ -46,6 +47,9 @@ export function Status() {
   // features and active alerts are point-in-time and ignore it.
   const { filters } = useFilters()
   const { data: statusRes } = useStatus(filters)
+  // Liveness (last 10 minutes) is separate from the windowed volume above:
+  // a router can have sent plenty this week and nothing since an hour ago.
+  const { data: live } = useLiveStatus()
   // /admin/storage is admin-only when auth is on: polling it as a viewer would
   // just collect 403s every 30s, so it waits until access is established.
   const { data: storageRes } = useStorageStatus(canView)
@@ -77,21 +81,22 @@ export function Status() {
   const tables = storage?.tables ?? []
   const totalCompressed = tables.reduce((a, t) => a + (t.compressed_bytes || 0), 0)
   const ttlLagTables = tables.filter((t) => t.pending_mutations > 0).length
-  const healthy = routers.length > 0
+  const healthy = live ? live.healthy : routers.length > 0
+  const stateByIP = new Map((live?.routers ?? []).map((r) => [displayIP(r.router_ip), r.state]))
   const alerts = alertsRes?.data
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <h1 className="text-2xl font-semibold">System Status</h1>
+        <h1 className="text-2xl font-semibold">System status</h1>
         <span
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium",
-            healthy ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive"
+            "inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-[13px] font-semibold",
+            healthy ? "text-foreground-secondary" : "bg-destructive text-destructive-foreground"
           )}
         >
-          <Activity className="h-3.5 w-3.5" />
-          {healthy ? "Operational" : "No flows"}
+          <Activity className="h-3.5 w-3.5" aria-hidden />
+          {healthy ? "All routers reporting" : routers.length ? "A router is not reporting" : "No flows"}
         </span>
       </div>
 
@@ -99,7 +104,7 @@ export function Status() {
       <Card>
         <CardHeader>
           <CardTitle>Ingestion</CardTitle>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-[13px] text-muted-foreground">
             Routers and flow volume over the selected window (raw flows, ≤7&nbsp;days).
           </p>
         </CardHeader>
@@ -115,6 +120,7 @@ export function Status() {
               <thead>
                 <tr className="border-b border-border/50 text-left text-muted-foreground">
                   <th className="py-2 pr-4 font-medium">Router</th>
+                  <th className="py-2 pr-4 font-medium">State, last 10 min</th>
                   <th className="py-2 pr-4 font-medium">Last seen</th>
                   <th className="py-2 pr-4 text-right font-medium">Flows</th>
                 </tr>
@@ -122,16 +128,19 @@ export function Status() {
               <tbody>
                 {routers.length === 0 && (
                   <tr>
-                    <td colSpan={3} className="py-3 text-muted-foreground">
+                    <td colSpan={4} className="py-3 text-muted-foreground">
                       No routers have sent flows recently.
                     </td>
                   </tr>
                 )}
                 {routers.map((r) => (
                   <tr key={r.router_ip} className="border-b border-border/40">
-                    <td className="py-2 pr-4 font-mono">{r.router_ip}</td>
+                    <td className="py-2 pr-4 font-ip">{displayIP(r.router_ip)}</td>
+                    <td className="py-2 pr-4">
+                      <RouterState state={stateByIP.get(displayIP(r.router_ip))} />
+                    </td>
                     <td className="py-2 pr-4 text-muted-foreground">{fmtTime(r.last_seen)}</td>
-                    <td className="py-2 pr-4 text-right font-mono tabular-nums">{formatNumber(r.flow_count)}</td>
+                    <td className="py-2 pr-4 text-right tabular-nums">{formatNumber(r.flow_count)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -152,7 +161,7 @@ export function Status() {
           {disks.map((d) => (
             <div key={d.name}>
               <div className="mb-1 flex items-center justify-between text-sm">
-                <span className="font-mono">{d.name}</span>
+                <span className="">{d.name}</span>
                 <span className="tabular-nums text-muted-foreground">
                   {formatBytes(d.used_bytes)} / {formatBytes(d.total_bytes)} ({d.used_percent.toFixed(1)}%)
                 </span>
@@ -167,16 +176,16 @@ export function Status() {
           ))}
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 pt-2 text-sm">
             <span className="text-muted-foreground">
-              Tables tracked: <span className="font-mono tabular-nums text-foreground">{tables.length}</span>
+              Tables tracked: <span className="tabular-nums text-foreground">{tables.length}</span>
             </span>
             <span className="text-muted-foreground">
               TTL lag:{" "}
-              <span className={cn("font-mono tabular-nums", ttlLagTables > 0 ? "text-warning" : "text-foreground")}>
+              <span className={cn("tabular-nums", ttlLagTables > 0 ? "text-warning": "text-foreground")}>
                 {ttlLagTables} table{ttlLagTables === 1 ? "" : "s"} with pending mutations
               </span>
             </span>
-            <Link to="/admin" className="text-primary hover:underline">
-              Manage retention →
+            <Link to="/admin" className="underline underline-offset-2">
+              Manage retention
             </Link>
           </div>
         </CardContent>
@@ -198,7 +207,7 @@ export function Status() {
             </div>
             {typeof features.local_as === "number" && features.local_as > 0 && (
               <p className="mt-3 text-sm text-muted-foreground">
-                Local AS: <span className="font-mono text-foreground">AS{features.local_as}</span>
+                Local AS: <span className="text-foreground">AS{features.local_as}</span>
               </p>
             )}
           </CardContent>
@@ -215,8 +224,8 @@ export function Status() {
             ) : (
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 <Stat label="Total" value={formatNumber(alerts?.total ?? 0)} />
-                <Stat label="Critical" value={formatNumber(alerts?.by_severity?.critical ?? 0)} tone="destructive" />
-                <Stat label="Warning" value={formatNumber(alerts?.by_severity?.warning ?? 0)} tone="warning" />
+                <Stat label="Critical" value={formatNumber(alerts?.by_severity?.critical ?? 0)} tone={(alerts?.by_severity?.critical ?? 0) > 0 ? "destructive" : undefined} />
+                <Stat label="Warning" value={formatNumber(alerts?.by_severity?.warning ?? 0)} tone={(alerts?.by_severity?.warning ?? 0) > 0 ? "warning" : undefined} />
                 <Stat label="Info" value={formatNumber(alerts?.by_severity?.info ?? 0)} />
               </div>
             )}
@@ -248,12 +257,28 @@ function FeatureBadge({ label, on }: { label: string; on: boolean }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium",
-        on ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
+        "inline-flex items-center rounded-sm border px-2 py-0.5 text-[13px]",
+        on ? "border-foreground text-foreground" : "border-border text-muted-foreground line-through"
+      )}
+      title={on ? `${label} is on` : `${label} is off`}
+    >
+      {label}
+    </span>
+  )
+}
+
+function RouterState({ state }: { state: "ok" | "stale" | "missing" | undefined }) {
+  if (!state) return <span className="text-muted-foreground">unknown</span>
+  return (
+    <span
+      className={cn(
+        "text-[13px]",
+        state === "ok" && "text-foreground-secondary",
+        state === "stale" && "rounded-sm bg-warning-muted px-1.5 font-semibold text-warning",
+        state === "missing" && "rounded-sm bg-destructive px-1.5 font-semibold text-destructive-foreground",
       )}
     >
-      <span className={cn("h-1.5 w-1.5 rounded-full", on ? "bg-success" : "bg-muted-foreground/50")} />
-      {label}
+      {ROUTER_STATE_LABEL[state]}
     </span>
   )
 }

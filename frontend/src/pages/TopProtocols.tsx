@@ -45,11 +45,11 @@ export function TopProtocols() {
   ]
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-4">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Top Protocols</h1>
+        <h1 className="text-2xl font-semibold">Top Protocols</h1>
         <div className="flex items-center gap-3">
-          <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
+          <span className="text-xs text-muted-foreground">
             5-min aggregation
           </span>
           <ViewToggle />
@@ -115,7 +115,7 @@ interface ProtocolVizProps {
   rows: ProtocolTraffic[]
   view: "treemap" | "donut"
   accent: string
-  formatTraffic: (bytes: number, periodSeconds: number) => string
+  formatTraffic: (bytes: number, periodSeconds: number, packets?: number) => string
   periodSeconds: number
   filterSearch: string
   direction: "in" | "out"
@@ -125,7 +125,7 @@ function ProtocolViz({ title, rows, view, accent, formatTraffic, periodSeconds, 
   const sep = filterSearch ? "&" : "?"
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader>
         <CardTitle className={accent}>{title}</CardTitle>
       </CardHeader>
       <CardContent>
@@ -154,7 +154,7 @@ interface ProtocolTableProps {
   rows: ProtocolTraffic[]
   loading: boolean
   accent: string
-  formatTraffic: (bytes: number, periodSeconds: number) => string
+  formatTraffic: (bytes: number, periodSeconds: number, packets?: number) => string
   periodSeconds: number
   filterSearch: string
   direction: "in" | "out"
@@ -163,7 +163,7 @@ interface ProtocolTableProps {
 function ProtocolTable({ title, rows, loading, accent, formatTraffic, periodSeconds, filterSearch, direction }: ProtocolTableProps) {
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader>
         <CardTitle className={accent}>{title}</CardTitle>
       </CardHeader>
       <CardContent>
@@ -172,7 +172,7 @@ function ProtocolTable({ title, rows, loading, accent, formatTraffic, periodSeco
         ) : rows.length === 0 ? (
           <EmptyState message="No data" icon={<BarChart3 className="size-8" />} />
         ) : (
-          <table className="w-full text-xs">
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
                 <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Protocol</th>
@@ -183,8 +183,8 @@ function ProtocolTable({ title, rows, loading, accent, formatTraffic, periodSeco
             </thead>
             <tbody>
               {rows.map((p) => (
-                <tr key={`${p.protocol}-${p.direction}`} className="border-b border-border/40 last:border-0 hover:bg-accent/50 transition-colors">
-                  <td className="py-1.5 font-mono">
+                <tr key={`${p.protocol}-${p.direction}`} className="border-b border-border-soft last:border-0 hover:bg-accent/50 transition-colors">
+                  <td className="py-1.5">
                     <Link
                       to={`/top/port${filterSearch}${filterSearch ? "&" : "?"}protocol=${p.protocol}&direction=${direction}`}
                       className="text-primary hover:underline"
@@ -192,8 +192,8 @@ function ProtocolTable({ title, rows, loading, accent, formatTraffic, periodSeco
                       {p.protocol_name || `proto:${p.protocol}`}
                     </Link>
                   </td>
-                  <td className="py-1.5 text-right font-mono">{formatTraffic(p.bytes, periodSeconds)}</td>
-                  <td className="py-1.5 text-right font-mono text-muted-foreground hidden sm:table-cell">
+                  <td className="py-1.5 text-right">{formatTraffic(p.bytes, periodSeconds, p.packets)}</td>
+                  <td className="py-1.5 text-right text-muted-foreground hidden sm:table-cell">
                     {p.flows.toLocaleString()}
                   </td>
                   <td className="py-1.5 text-right">

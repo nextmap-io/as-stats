@@ -72,10 +72,10 @@ export function TopPorts() {
   ]
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-4">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Top Ports</h1>
-        <span className="text-[10px] text-muted-foreground uppercase tracking-widest">
+        <h1 className="text-2xl font-semibold">Top Ports</h1>
+        <span className="text-xs text-muted-foreground">
           5-min aggregation
         </span>
       </div>
@@ -83,12 +83,12 @@ export function TopPorts() {
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">Direction</span>
+          <span className="text-xs font-medium text-muted-foreground">Direction</span>
           <div className="flex gap-0.5">
             <button
               onClick={() => setDirection("in")}
               className={cn(
-                "px-2 py-0.5 text-[11px] font-medium rounded transition-all",
+                "px-2 py-0.5 text-[13px] font-medium rounded transition-colors",
                 direction === "in" ? "bg-traffic-in text-background" : "text-muted-foreground hover:bg-accent"
               )}
             >
@@ -97,7 +97,7 @@ export function TopPorts() {
             <button
               onClick={() => setDirection("out")}
               className={cn(
-                "px-2 py-0.5 text-[11px] font-medium rounded transition-all",
+                "px-2 py-0.5 text-[13px] font-medium rounded transition-colors",
                 direction === "out" ? "bg-traffic-out text-background" : "text-muted-foreground hover:bg-accent"
               )}
             >
@@ -109,14 +109,14 @@ export function TopPorts() {
         <div className="h-4 w-px bg-border" aria-hidden="true" />
 
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">Protocol</span>
+          <span className="text-xs font-medium text-muted-foreground">Protocol</span>
           <div className="flex gap-0.5">
             {PROTOCOL_OPTIONS.map((p) => (
               <button
                 key={p.value}
                 onClick={() => setProtocol(p.value)}
                 className={cn(
-                  "px-2 py-0.5 text-[11px] font-medium rounded transition-all",
+                  "px-2 py-0.5 text-[13px] font-medium rounded transition-colors",
                   protocol === p.value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
                 )}
               >
@@ -128,12 +128,12 @@ export function TopPorts() {
       </div>
 
       <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between gap-2">
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>
               {direction === "in" ? "Destination ports (services accessed)" : "Source ports (services exposed)"}
             </CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <ViewToggle />
               <ExportButton rows={rows} columns={exportColumns} filename={`top-ports-${direction}`} />
             </div>
@@ -156,7 +156,7 @@ export function TopPorts() {
               label={`Top ${direction === "in" ? "destination" : "source"} ports by traffic`}
             />
           ) : (
-            <table className="w-full text-xs">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
                   <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">#</th>
@@ -170,9 +170,9 @@ export function TopPorts() {
               </thead>
               <tbody>
                 {rows.map((p, i) => (
-                  <tr key={`${p.protocol}-${p.port}`} className="border-b border-border/40 last:border-0 hover:bg-accent/50 transition-colors">
+                  <tr key={`${p.protocol}-${p.port}`} className="border-b border-border-soft last:border-0 hover:bg-accent/50 transition-colors">
                     <td className="py-1.5 text-muted-foreground tabular-nums">{i + 1}</td>
-                    <td className="py-1.5 font-mono">
+                    <td className="py-1.5">
                       <Link
                         to={`/flows${filterSearch}${filterSearch ? "&" : "?"}protocol=${p.protocol}&${direction === "in" ? "dst_port" : "src_port"}=${p.port}`}
                         className="text-primary hover:underline"
@@ -182,12 +182,12 @@ export function TopPorts() {
                     </td>
                     <td className="py-1.5 text-foreground/80">{p.service || "-"}</td>
                     <td className="py-1.5">
-                      <span className="px-1.5 py-0.5 text-[9px] font-mono rounded bg-muted/50 text-foreground">
+                      <span className="px-1.5 py-0.5 text-xs rounded bg-muted/50 text-foreground">
                         {p.protocol_name || `proto:${p.protocol}`}
                       </span>
                     </td>
-                    <td className="py-1.5 text-right font-mono">{formatTraffic(p.bytes, periodSeconds)}</td>
-                    <td className="py-1.5 text-right font-mono text-muted-foreground hidden sm:table-cell">
+                    <td className="py-1.5 text-right">{formatTraffic(p.bytes, periodSeconds, p.packets)}</td>
+                    <td className="py-1.5 text-right text-muted-foreground hidden sm:table-cell">
                       {p.flows.toLocaleString()}
                     </td>
                     <td className="py-1.5 text-right">

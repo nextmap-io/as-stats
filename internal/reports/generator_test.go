@@ -23,13 +23,31 @@ type fakeStore struct {
 	country  []model.CountryTraffic
 	capacity []model.LinkCapacity
 	alerts   map[string]uint64
+	// lastTopAS records the params of the last TopAS call.
+	lastTopAS store.QueryParams
 }
 
 func (f *fakeStore) Overview(_ context.Context, _ store.QueryParams) (*model.Overview, error) {
 	return f.overview, nil
 }
-func (f *fakeStore) TopAS(_ context.Context, _ store.QueryParams) ([]model.ASTraffic, uint64, error) {
+func (f *fakeStore) TopAS(_ context.Context, p store.QueryParams) ([]model.ASTraffic, uint64, error) {
+	f.lastTopAS = p
 	return f.topAS, 0, nil
+}
+
+func TestGenerateTopASExcludesLocalAS(t *testing.T) {
+	fs := &fakeStore{}
+	gen, err := NewGenerator(fs, WithExcludeAS(64500))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sched := model.ReportSchedule{Name: "x", Frequency: "daily", Sections: "top_as", Format: "html"}
+	if _, err := gen.Generate(context.Background(), sched, ts(2026, 6, 30, 9, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if fs.lastTopAS.ExcludeAS != 64500 {
+		t.Fatalf("TopAS ExcludeAS = %d, want LOCAL_AS 64500", fs.lastTopAS.ExcludeAS)
+	}
 }
 func (f *fakeStore) TopCountry(_ context.Context, _ store.QueryParams) ([]model.CountryTraffic, uint64, error) {
 	return f.country, 0, nil

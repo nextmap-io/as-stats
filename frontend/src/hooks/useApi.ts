@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { api } from "@/lib/api"
+import { api, isApiError } from "@/lib/api"
+import { liveStatusFromLegacy } from "@/lib/status"
 import type { QueryFilters, ReportSchedule } from "@/lib/types"
 
 const REFETCH = 300_000 // 5 minutes
@@ -185,17 +186,46 @@ export function useStatus(filters?: QueryFilters) {
   })
 }
 
-// useHealthStatus backs the header's health dot, which is mounted on every
-// route in every open tab. /status has no server-side cache, so it polls on the
-// slow app-wide interval instead of the Status page's 30s — router liveness is
-// derived from a multi-minute window anyway, so a faster poll buys nothing.
-// Its own cache key keeps it from invalidating the filtered Status page query.
-export function useHealthStatus() {
+// useLiveStatus backs the header health dot and the home status strip. It reads
+// GET /status/live (3.1: last 10 minutes only, server-cached 30 s). On an older
+// server that answers 404 it falls back to the windowed /status over the last
+// hour and derives the same shape client-side (see liveStatusFromLegacy).
+// One shared key, so the header and the home page share a single poll.
+export function useLiveStatus() {
   return useQuery({
-    queryKey: ["status", "health"],
-    queryFn: () => api.status(),
-    staleTime: REFETCH,
-    refetchInterval: REFETCH,
+    queryKey: ["status", "live"],
+    queryFn: async () => {
+      try {
+        return (await api.statusLive()).data
+      } catch (err) {
+        if (!isApiError(err, 404, 405)) throw err
+        const legacy = await api.status({ period: "1h" })
+        return liveStatusFromLegacy(legacy.data, Date.now())
+      }
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    retry: false,
+  })
+}
+
+// Shared by the header badge and the home status strip (one poll, one key).
+export function useAlertsSummary(enabled: boolean) {
+  return useQuery({
+    queryKey: ["alerts-summary"],
+    queryFn: () => api.alertsSummary(),
+    refetchInterval: 30_000,
+    enabled,
+    retry: false,
+  })
+}
+
+export function useActiveAlerts(enabled: boolean, limit = 50) {
+  return useQuery({
+    queryKey: ["alerts", "active", limit],
+    queryFn: () => api.alerts("active", limit),
+    refetchInterval: 30_000,
+    enabled,
     retry: false,
   })
 }

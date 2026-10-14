@@ -116,20 +116,29 @@ export interface Overview {
   total_bytes_out: number
   total_flows: number
   active_as_count: number
-  top_as: ASTraffic[]
-  top_ip: IPTraffic[]
+  /** Removed from the payload in 3.1 (nothing rendered them); older servers
+   *  still send them. */
+  top_as?: ASTraffic[]
+  top_ip?: IPTraffic[]
   links: LinkTraffic[]
+}
+
+export interface ResponseMeta {
+  from: string
+  to: string
+  total_bytes?: number
+  limit?: number
+  offset?: number
+  /** Bucket width in seconds the backend actually used for any per-bucket
+   *  value in the payload (series points, percentiles of buckets). Bytes per
+   *  bucket / step_seconds * 8 = bps. Absent on servers older than 3.1: use
+   *  `stepSecondsOf()` in lib/rate.ts, which falls back to the old guess. */
+  step_seconds?: number
 }
 
 export interface ApiResponse<T> {
   data: T
-  meta?: {
-    from: string
-    to: string
-    total_bytes?: number
-    limit?: number
-    offset?: number
-  }
+  meta?: ResponseMeta
   error?: string
 }
 
@@ -159,6 +168,8 @@ export interface QueryFilters {
   compare?: string
   /** Anomaly explainability target (Module E): the link tag to decompose. */
   target?: string
+  /** Live Threats: 1 lists every busy host, not only abnormal ones. */
+  all?: number
 }
 
 export interface ASDetailData {
@@ -268,8 +279,12 @@ export interface TalkersResponse {
 // =============================================================================
 
 // LinkCapacity mirrors internal/model.LinkCapacity — one row of GET /links/capacity.
-// current_bps / p95_bps are bits-per-second (already scaled server-side).
-// utilization_pct is null when the link has no configured capacity.
+// All rates are bits-per-second (already scaled server-side). A link is full
+// duplex: from 3.1 every utilisation figure is the BUSIER direction against
+// capacity (never in+out). current_bps = max(current_in, current_out) over the
+// last complete bucket; p95_bps = max(p95_in, p95_out); utilization_pct =
+// p95_bps / capacity, null when the link has no configured capacity.
+// The per-direction and peak fields are new in 3.1 and absent on older servers.
 // forecast_days_* estimate days until the daily p95 trend crosses NN% of capacity:
 // absent/null when capacity is unset or the trend is flat/declining; 0 when
 // already at/over the level; >0 otherwise.
@@ -278,6 +293,14 @@ export interface LinkCapacity {
   description: string
   capacity_mbps: number
   current_bps: number
+  current_in_bps?: number
+  current_out_bps?: number
+  peak_in_bps?: number
+  peak_out_bps?: number
+  /** max(peak_in, peak_out) / capacity * 100; null without a capacity. */
+  peak_utilization_pct?: number | null
+  p95_in_bps?: number
+  p95_out_bps?: number
   p95_bps: number
   utilization_pct: number | null
   trend_bps_per_day?: number
@@ -334,6 +357,38 @@ export interface LinkConfig {
   description: string
   capacity_mbps: number
   color: string
+}
+
+// =============================================================================
+// Liveness (GET /status/live, 3.1) — header health dot and home status strip
+// =============================================================================
+
+/** "ok": last flow < 120 s ago; "stale": 120–600 s; "missing": a router that a
+ *  configured link references but that sent nothing in the last 10 minutes. */
+export type RouterState = "ok" | "stale" | "missing"
+
+export interface LiveRouter {
+  /** IPv4 is shown without the ::ffff: prefix. */
+  router_ip: string
+  /** RFC 3339, or "" when the router sent nothing in the window. */
+  last_seen: string
+  flows_10m: number
+  state: RouterState
+}
+
+export interface LiveStatus {
+  /** true iff there is at least one router and every router is "ok". */
+  healthy: boolean
+  routers: LiveRouter[]
+  /** Max used % over the ClickHouse data disks; null when unknown. */
+  disk_used_pct: number | null
+}
+
+/** Payload of the windowed GET /status (Status page). */
+export interface StatusData {
+  routers: { router_ip: string; last_seen: string; flow_count: number }[]
+  total_rows: number
+  db_size: number
 }
 
 export interface UserInfo {
@@ -547,7 +602,7 @@ export interface Alert {
   protocol?: number
   metric_value: number
   threshold: number
-  metric_type: "bps" | "pps" | "count"
+  metric_type: "bps" | "pps" | "count" | "percent"
   details?: string
   status: AlertStatus
   acknowledged_by?: string
@@ -725,6 +780,78 @@ export interface LiveThreat {
   worst_pct: number
   worst_rule?: string
   status: ThreatStatus
+}
+
+// ─── Live Threats v2 (GET /threats/live, object envelope) ─────────────────
+// Each host is compared with its own usual level (same hour of day over the
+// previous 7 days). Servers before this contract return LiveThreat[] instead;
+// lib/threats.ts normalises both shapes.
+
+export type ThreatDirection = "in" | "out"
+export type ThreatLevel = "normal" | "watch" | "incident"
+
+export interface ThreatNow {
+  bps: number
+  pps: number
+  flows_per_sec: number
+  tcp_pps: number
+  udp_pps: number
+  icmp_pps: number
+  syn_pps: number
+  avg_packet_bytes: number
+  /** in: unique source IPs; out: unique destination IPs. */
+  peers: number
+  /** in: unique source ports; out: unique destination ports. */
+  peer_ports: number
+}
+
+export interface ThreatBaseline {
+  /** Minutes of history found; 0 means the host has no history ("new"). */
+  samples: number
+  bps_p50: number
+  bps_p95: number
+  pps_p50: number
+  pps_p95: number
+}
+
+export interface ThreatSeriesPoint {
+  t: string
+  bps: number
+  pps: number
+}
+
+export interface ThreatPortShare {
+  port: number
+  protocol: number
+  pct: number
+}
+
+export interface ThreatSignature {
+  kind: string
+  top_ports?: ThreatPortShare[]
+}
+
+export interface ThreatRow {
+  ip: string
+  level: ThreatLevel
+  score: number
+  now: ThreatNow
+  baseline: ThreatBaseline
+  ratio: number
+  /** First minute of the current run above p95, "" when not above. */
+  since: string
+  series: ThreatSeriesPoint[]
+  signatures: ThreatSignature[]
+  closest_rule: string
+  rule_pct: number
+}
+
+export interface LiveThreatsData {
+  direction: ThreatDirection
+  window_seconds: number
+  checked: number
+  normal: number
+  rows: ThreatRow[]
 }
 
 // =============================================================================

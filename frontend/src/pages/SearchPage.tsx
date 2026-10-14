@@ -13,13 +13,13 @@ export function SearchPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">
+      <h1 className="text-2xl font-semibold">
         Search: <span className="text-muted-foreground">{q}</span>
       </h1>
 
       <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Results</CardTitle>
+        <CardHeader>
+          <CardTitle>Results</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading && <p className="text-muted-foreground">Searching…</p>}
@@ -41,9 +41,9 @@ export function SearchPage() {
                   </thead>
                   <tbody>
                     {data.data.map(as => (
-                      <tr key={as.number} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
+                      <tr key={as.number} className="border-b border-border/50 last:border-0 hover:bg-accent/60">
                         <td className="py-2">
-                          <Link to={`/as/${as.number}`} className="text-primary hover:underline font-mono">
+                          <Link to={`/as/${as.number}`} className="text-primary hover:underline">
                             {as.number}
                           </Link>
                         </td>

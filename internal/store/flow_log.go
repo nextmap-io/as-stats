@@ -48,16 +48,17 @@ func (s *ClickHouseStore) SearchFlowLog(ctx context.Context, p model.FlowSearchF
 	args = append(args, clickhouse.Named("from", p.From), clickhouse.Named("to", p.To))
 
 	// src_ip / dst_ip are IPv6 columns holding IPv4 as ::ffff:a.b.c.d, so a raw
-	// IPv4 CIDR never matches (CLAUDE.md bug family #1). Normalise it to the
-	// IPv6-mapped equivalent exactly like the alert queries do.
+	// IPv4 CIDR never matches (CLAUDE.md bug family #1). cidrBounds maps it to
+	// the IPv6-mapped range exactly like the alert queries do, and the typed
+	// BETWEEN avoids stringifying every row.
 	if p.SrcIP != "" {
 		if strings.Contains(p.SrcIP, "/") {
-			cidr, ok := normalizeCIDRForIPv6Column(p.SrcIP)
+			lo, hi, ok := cidrBounds(p.SrcIP)
 			if !ok {
 				return nil, fmt.Errorf("invalid src_ip filter %q", p.SrcIP)
 			}
-			where = append(where, "isIPAddressInRange(toString(f.src_ip), @src_cidr)")
-			args = append(args, clickhouse.Named("src_cidr", cidr))
+			where = append(where, "f.src_ip BETWEEN toIPv6(@src_lo) AND toIPv6(@src_hi)")
+			args = append(args, clickhouse.Named("src_lo", lo), clickhouse.Named("src_hi", hi))
 		} else {
 			where = append(where, "f.src_ip = toIPv6(@src_ip)")
 			args = append(args, clickhouse.Named("src_ip", p.SrcIP))
@@ -65,12 +66,12 @@ func (s *ClickHouseStore) SearchFlowLog(ctx context.Context, p model.FlowSearchF
 	}
 	if p.DstIP != "" {
 		if strings.Contains(p.DstIP, "/") {
-			cidr, ok := normalizeCIDRForIPv6Column(p.DstIP)
+			lo, hi, ok := cidrBounds(p.DstIP)
 			if !ok {
 				return nil, fmt.Errorf("invalid dst_ip filter %q", p.DstIP)
 			}
-			where = append(where, "isIPAddressInRange(toString(f.dst_ip), @dst_cidr)")
-			args = append(args, clickhouse.Named("dst_cidr", cidr))
+			where = append(where, "f.dst_ip BETWEEN toIPv6(@dst_lo) AND toIPv6(@dst_hi)")
+			args = append(args, clickhouse.Named("dst_lo", lo), clickhouse.Named("dst_hi", hi))
 		} else {
 			where = append(where, "f.dst_ip = toIPv6(@dst_ip)")
 			args = append(args, clickhouse.Named("dst_ip", p.DstIP))
