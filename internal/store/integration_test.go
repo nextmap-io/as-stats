@@ -380,10 +380,10 @@ func TestIntegrationReadPathSmoke(t *testing.T) {
 	if _, err := s.EvalSMTPAbuse(ctx, 1, 0, 120, local); err != nil {
 		t.Errorf("EvalSMTPAbuse: %v", err)
 	}
-	if lt, err := s.LiveThreats(ctx, 300, 10, local); err != nil {
-		t.Errorf("LiveThreats: %v", err)
+	if _, lt, err := s.ThreatCandidates(ctx, "in", 300, local); err != nil {
+		t.Errorf("ThreatCandidates: %v", err)
 	} else if len(lt) == 0 {
-		t.Errorf("LiveThreats: no rows")
+		t.Errorf("ThreatCandidates: no rows")
 	}
 	if _, err := s.TopSourcesForTarget(ctx, net.ParseIP("198.51.100.0"), 600, 5); err != nil {
 		t.Errorf("TopSourcesForTarget: %v", err)

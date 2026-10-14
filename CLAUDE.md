@@ -156,7 +156,7 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 | `internal/store/names.go` | `asNamesLatest` / `linksLatest`: deduplicated views every name join must use (see bug #15). |
 | `internal/store/status.go` | `LiveStatus` for `GET /status/live` (10-min flows_raw scan + configured routers + disk). |
 | `internal/store/flow_log.go` | `SearchFlowLog`, `FlowLogTimeSeries`, `TopProtocols`, `TopPorts`. (`SetFlowLogRetention` removed — retention is now in `retention.go`.) |
-| `internal/store/threats.go` | `LiveThreats` aggregating query for the `/threats/live` endpoint. |
+| `internal/store/threats.go` | Live Threats queries: `ThreatCandidates`, `ThreatBaselines`, `ThreatPeerBaselines`, `ThreatPorts`, `ThreatSeries`. Classification lives in `api/handler/threat_classify.go` (pure, table-tested). See "Live Threats". |
 | `internal/store/alerts.go` | Alert rules / alerts / webhooks / audit log CRUD. `AlertDetails` JSON marshaling for `details` column. |
 | `internal/store/alert_queries.go` | `Eval*` query helpers used by the alert engine (incl. `EvalDiskUsage`, `EvalLinkCapacity`, `EvalAnomaly`). **`buildCIDRFilter` lives here** — read its docstring before touching any IP filtering code. |
 | `internal/store/retention.go` | v2: table→TTL whitelist, `EnsureRetentionPolicies`, `ReconcileRetention`, `StorageStats`, `PurgeSoftDeleted`. Runtime retention management (replaces `SetFlowLogRetention`). |
@@ -173,7 +173,7 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 | `internal/alerts/webhook.go` | Slack / Teams / Discord / generic webhook notifier. |
 | `internal/bgp/` | `Blocker` interface: `ScriptBlocker` (API side, `BGP_ENABLED=true`, runs gobgp/BIRD/FRR commands), `RemoteBlocker` (collector side, `BGP_API_URL`, proxies to the API), `NoopBlocker` (log-only fallback). |
 | `internal/services/wellknown.go` | IANA protocol + well-known port name resolution (used by Flow Search and Top Ports). |
-| `internal/model/` | Shared types: `FlowRecord`, `ASTraffic`, `IPTraffic`, `LiveThreat`, `AlertRule`, etc. |
+| `internal/model/` | Shared types: `FlowRecord`, `ASTraffic`, `IPTraffic`, `LiveThreats` / `ThreatRow`, `AlertRule`, etc. |
 | `internal/config/` | Env-var config loading. `LoadCollector` and `LoadAPI`. |
 | `migrations/` | ClickHouse DDL, numbered 000001–000015 (000007–000013 include feature-gated tables; 000012 `retention_policies`, 000013 `report_schedules`, 000014 `api_tokens`, 000015 hot-table `SimpleAggregateFunction` fix). Embedded in and applied by `cmd/migrate` (the `migrate` service runs before collector/api), which records each file's SHA-256 — **never edit a released migration**, add a new one. |
 | `frontend/src/pages/` | One React page per route in `App.tsx`. |
@@ -224,7 +224,7 @@ feature flag is enabled.
 | `flows_log` | `FEATURE_FLOW_SEARCH` | Full per-tuple log, 1-min buckets, 180d default TTL, bloom-filter skip indexes on `src_ip` / `dst_ip`. |
 | `report_schedules` | `FEATURE_REPORTS` | Scheduled HTML+CSV email reports (`ReplacingMergeTree`, soft-delete). Cron goroutine in the collector sends via SMTP. |
 | `traffic_by_port` | `FEATURE_PORT_STATS` | Aggregates per `(link, direction, protocol, port)`, 5-min, 1y TTL. |
-| `traffic_by_dst_1min` | `FEATURE_ALERTS` | `AggregatingMergeTree` keyed by `(ts, dst_ip, protocol)`. Stores `bytes`, `packets`, `flow_count`, `syn_count`, plus HyperLogLog sketches `unique_src_ips` / `unique_src_ports`. 7d TTL. **Used exclusively by the alert engine and Live Threats** — no on-demand queries. |
+| `traffic_by_dst_1min` | `FEATURE_ALERTS` | `AggregatingMergeTree` keyed by `(ts, dst_ip, protocol)`. Stores `bytes`, `packets`, `flow_count`, `syn_count`, plus HyperLogLog sketches `unique_src_ips` / `unique_src_ports`. 7d TTL. **Used exclusively by the alert engine and Live Threats** — no other on-demand queries. |
 | `traffic_by_src_1min` | `FEATURE_ALERTS` | Symmetric for outbound traffic. Used by `volume_out` / `port_scan`. |
 | `alert_rules` | `FEATURE_ALERTS` | Configurable detection rules (`ReplacingMergeTree`). 10 default rules seeded on first startup (idempotent — only if the table is empty). |
 | `alerts` | `FEATURE_ALERTS` | Triggered instances with full lifecycle (active → ack → resolved). 1y TTL. |
@@ -319,7 +319,7 @@ Registered only when the corresponding `FEATURE_*` env var is set.
 | `GET` | `/top/port` | `PORT_STATS` | |
 | `GET` | `/alerts` | `ALERTS` | |
 | `GET` | `/alerts/summary` | `ALERTS` | header badge counts |
-| `GET` | `/threats/live` | `ALERTS` | Live Threats — real-time top destinations |
+| `GET` | `/threats/live` | `ALERTS` | Live Threats — local hosts ranked by deviation from their own history (`direction=in/out`, `window`, `limit`, `all=0/1`); 30 s cache group. See "Live Threats" |
 | `POST` | `/alerts/{id}/ack` | `ALERTS` | CSRF |
 | `POST` | `/alerts/{id}/resolve` | `ALERTS` | CSRF |
 | `POST` | `/alerts/{id}/block` | `ALERTS` | CSRF, **admin only**. 409 when BGP is off or fell back to `NoopBlocker`; 422 when the alert has no single host target (link_capacity / anomaly / disk_usage / subnet_flood, zero or 0100::/64 address) |
@@ -471,6 +471,88 @@ noop blocker is wired, and 422 for alerts without a single host target.
 Label-targeted alerts (link tags) are stored under synthetic `0100::/64`
 addresses (`labelTargetIP` in the engine) — never blackhole those.
 
+## Live Threats
+
+`GET /threats/live` (handler `threats.go`, classifier `threat_classify.go`,
+queries `store/threats.go`). Ranks **local** hosts by how far they are from
+their own usual traffic, not by volume. `direction=in` reads
+`traffic_by_dst_1min` (local destinations), `out` reads `traffic_by_src_1min`
+(local sources). Window = complete minutes (`alertWindow`), 60–3600 s.
+
+**Queries** (all `clickhouse.Named`, typed IPv6 membership via
+`ipsInList` → `col IN (SELECT toIPv6(arrayJoin(@ips)))`, table-aliased, later
+ones pinned to the anchor minute the first returns):
+
+1. `ThreatCandidates` — one pass over the window: per (host, minute), then
+   per host (HLL states carried with `uniqMergeState`, so window-wide peers
+   *and* the max per-minute peers come out of one scan), then
+   `row_number()` four ways. Candidates = top 50 bytes ∪ top 50 packets ∪
+   top 25 peers ∪ top 25 SYN, local prefixes only (`buildCIDRFilter`).
+2. `ThreatBaselines` — candidates only; the 60 minutes centred on the same
+   time of day, 1..7 days ago, as 7 OR-ed `ts` ranges (key pruning).
+   Per-minute p50/p95 of bytes and packets over minutes **with traffic**
+   (`samples` = minutes found; 0 = new host). Does **not** read the HLL
+   column: it tripled the bytes read (10k hosts: 283 MiB vs ~1 GB).
+3. `ThreatPeerBaselines` — usual per-minute peers, only for ≤ 25 inbound
+   hosts with ≥ 1000 peers and history (the only use: `many_sources`).
+4. `ThreatPorts` — `flows_raw`, ≤ 25 hosts that already look abnormal (or
+   have the amplification shape), window ≤ 15 min: remote port breakdown
+   (source port in, destination port out), shares exact (window functions
+   before `LIMIT 6 BY`), TCP/25 always kept for `smtp_burst`.
+5. `ThreatSeries` — the 60 complete minutes before the anchor, rows returned
+   only, zero-filled in Go.
+
+Measured on a throwaway 24.3 with 10k local hosts × 2 protocols × (last hour
++ 7 × 1 h history) = 9.6 M hot rows: full inbound request ~210 ms
+(candidates 90 ms / 12 MiB, baseline 40 ms / 283 MiB, peers 18 ms / 70 MiB,
+ports 7 ms, series 5–8 ms). A prototype of candidates + baseline measured
+on prod (148 candidates) took 178 ms and read 103 MiB.
+
+**"Normal"** = at its usual level: ratio = max(bps / max(p95_bps, 1 Mb/s),
+pps / max(p95_pps, 1000)); a host is *above usual* when ratio > 1 or it has
+no history. **Levels** (constants in `threat_classify.go`):
+
+- `incident`: a non-`info` rule at ≥ 100 %, OR an attack signature
+  (syn/udp/icmp flood, amplification, port_scan, host_sweep, outbound_flood)
+  AND ratio ≥ 10.
+- `watch`: a rule at ≥ 50 % **and above usual**, OR any signature, OR
+  (history AND ratio ≥ 3 AND (≥ 20 Mb/s OR ≥ 5000 pps)), OR (no history AND
+  (≥ 100 Mb/s OR ≥ 20 000 pps)).
+- `normal` otherwise; counted (`normal`) but listed only with `all=1`.
+
+The "above usual" gate on rule proximity and the non-`info` restriction are
+deliberate: a busy server at 63 % of the 500 Mb/s rule every day, or any
+server above the 50 Mb/s *info* exfiltration rule, would otherwise be
+permanently flagged (`TestClassifyProdSnapshot` pins real prod rows that
+must stay normal). Score (ordering inside a level) = max(ratio,
+rule_pct / 10) + 2 per signature.
+
+**Signatures**: in — `syn_flood` (≥ 1000 SYN/s and ≥ 50 % of TCP pps),
+`udp_flood` (≥ 80 % UDP, ≥ 10k pps), `icmp_flood` (≥ 80 % ICMP/ICMPv6,
+≥ 2000 pps), `amplification` (one reflector UDP source port — 0, 19, 53,
+111, 123, 137, 161, 389, 1900, 3283, 3702, 5353, 11211, 27015 — ≥ 50 % of
+bytes, ≥ 50 peers, avg packet ≥ 400 B; `top_ports`), `small_packets`
+(< 100 B avg, ≥ 5000 pps), `many_sources` (≥ 1000 peers and max per-minute
+peers ≥ 10 × usual). Out — `port_scan` (≥ 500 peer ports), `host_sweep`
+(≥ 1000 peers, < 200 B), `smtp_burst` (≥ 100 flows/min to TCP/25;
+`top_ports`), `outbound_flood` (ratio ≥ 5, ≥ 10k pps), `small_packets`.
+Shape-only signatures (udp/icmp flood, amplification, small_packets,
+host_sweep) require *above usual* — an authoritative DNS server is all small
+UDP packets every day.
+
+**Rule proximity** (`closestRule`): in → volume_in, syn_flood, icmp_flood /
+udp_flood (per-protocol pps — the hot table is keyed by protocol),
+amplification (the farther of peers / bps), connection_flood (flows/s × rule
+window), subnet_flood (per-host lower bound); out → volume_out, port_scan.
+Peers are over the Live Threats window (may exceed the rule's), so proximity
+over-estimates, never under-estimates.
+
+`since` = first minute of the run of minutes above the usual p95 (floors
+applied) that reaches the last complete minute; `""` if that minute is not
+above. Integration test: `TestIntegrationLiveThreats` (handler package)
+seeds busy-steady hosts, a ×20 jump, a SYN flood, an NTP amplification and
+an outbound port scan and checks every level end to end.
+
 ## Time-series resolution rules
 
 Every series / percentile query picks its **source table first**, then
@@ -530,9 +612,10 @@ alert rule use the same busier-direction definition.
   `as_names` / `links` tables (bug #15).
 - **SQL**: group and filter on typed `IPv6` columns; `toString()` only the
   rows you return (after `LIMIT`).
-- **Tests**: `ASSTATS_IT_CLICKHOUSE=host:9000 go test ./internal/store -run
-  Integration` runs every read / alert query against a throwaway ClickHouse
-  with the migrations applied (skipped when unset).
+- **Tests**: `ASSTATS_IT_CLICKHOUSE=host:9000 go test ./internal/store
+  ./internal/api/handler -run Integration` runs every read / alert query
+  (and Live Threats end to end) against a throwaway ClickHouse with the
+  migrations applied (skipped when unset).
 - **Docker**: `FROM --platform=$BUILDPLATFORM` + `TARGETARCH` for
   cross-compilation.
 
