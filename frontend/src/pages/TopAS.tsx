@@ -15,7 +15,7 @@ import { RatioBar, AsymmetryBadge } from "@/components/Asymmetry"
 import { formatNumber, formatBytes, cn } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 import { countryFlag, hasCountry } from "@/lib/countries"
-import { asPath, isPrivateASGroup, PRIVATE_AS_GROUP_NAME } from "@/lib/asn"
+import { asPath, isPrivateASGroup, PRIVATE_AS_GROUP_NAME, ourView } from "@/lib/asn"
 import { ASRef } from "@/components/ASRef"
 import type { ASTraffic } from "@/lib/types"
 
@@ -54,7 +54,7 @@ export function TopAS() {
             asn={as.as_number}
             search={filterSearch}
             prefix={false}
-            className="text-primary hover:underline font-mono"
+            className="text-primary hover:underline"
           />
         ),
       },
@@ -81,7 +81,7 @@ export function TopAS() {
         numeric: true,
         sortable: true,
         headerClassName: metricHeader("bytes"),
-        render: (as) => formatTraffic(as.bytes, periodSeconds),
+        render: (as) => formatTraffic(as.bytes, periodSeconds, as.packets),
       },
       {
         key: "packets",
@@ -117,12 +117,16 @@ export function TopAS() {
       },
       {
         key: "ratio",
-        header: "In / Out",
+        header: "In / out",
         align: "right",
         sortable: true,
         hideOnMobile: true,
         sortValue: (as) => as.ratio ?? 0,
-        render: (as) => <RatioBar bytesIn={as.bytes_in ?? 0} bytesOut={as.bytes_out ?? 0} />,
+        // From your side: in = received from this AS (see ourView).
+        render: (as) => {
+          const v = ourView(as)
+          return <RatioBar bytesIn={v.inBytes} bytesOut={v.outBytes} />
+        },
       },
       {
         key: "class",
@@ -162,8 +166,8 @@ export function TopAS() {
     { key: "packets", header: "Packets", value: (r) => r.packets },
     { key: "flows", header: "Flows", value: (r) => r.flows },
     { key: "avg_pkt_size", header: "Avg Pkt Size", value: (r) => Math.round(r.avg_pkt_size || 0) },
-    { key: "bytes_in", header: "Bytes In", value: (r) => r.bytes_in ?? 0 },
-    { key: "bytes_out", header: "Bytes Out", value: (r) => r.bytes_out ?? 0 },
+    { key: "bytes_in", header: "Bytes in (received from the AS)", value: (r) => ourView(r).inBytes },
+    { key: "bytes_out", header: "Bytes out (sent to the AS)", value: (r) => ourView(r).outBytes },
     { key: "ratio", header: "Out/In Ratio", value: (r) => (r.ratio ?? 0).toFixed(3) },
     { key: "class", header: "Class", value: (r) => r.class ?? "" },
     { key: "pct", header: "Percent", value: (r) => r.pct },
@@ -171,15 +175,13 @@ export function TopAS() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Top AS</h1>
+      <h1 className="text-2xl font-semibold">Top AS</h1>
 
       <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-base">
-              Autonomous Systems by traffic volume
-            </CardTitle>
-            <div className="flex items-center gap-2">
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle>Networks by traffic</CardTitle>
+            <div className="flex flex-wrap items-center gap-2">
               <ViewToggle />
               <MetricToggle value={metric} onChange={(v) => setFilter("metric", v)} />
               <ExportButton rows={rows} columns={exportColumns} filename="top-as" />
@@ -187,7 +189,7 @@ export function TopAS() {
           </div>
         </CardHeader>
         <CardContent>
-          <QueryBoundary query={query} isEmpty={(d) => d.data.length === 0} loadingCols={10}>
+          <QueryBoundary query={query} isEmpty={(d) => !d.data?.length} loadingCols={10}>
             {(data) =>
               view !== "table" ? (
                 <TopNViz
@@ -211,7 +213,7 @@ export function TopAS() {
                   <button
                     disabled={!filters.offset || filters.offset === 0}
                     onClick={() => setFilter("offset", String(Math.max(0, offset - 50)))}
-                    className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent disabled:opacity-50"
+                    className="px-3 py-1.5 text-sm border border-input rounded hover:bg-accent disabled:opacity-40"
                   >
                     Previous
                   </button>
@@ -221,7 +223,7 @@ export function TopAS() {
                   <button
                     disabled={data.data.length < 50}
                     onClick={() => setFilter("offset", String(offset + 50))}
-                    className="px-3 py-1.5 text-sm border border-input rounded-md hover:bg-accent disabled:opacity-50"
+                    className="px-3 py-1.5 text-sm border border-input rounded hover:bg-accent disabled:opacity-40"
                   >
                     Next
                   </button>

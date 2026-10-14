@@ -3,10 +3,12 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -64,7 +66,7 @@ func (h *Handler) AlertsSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, Response{Data: map[string]any{
-		"total":      total,
+		"total":       total,
 		"by_severity": counts,
 	}})
 }
@@ -108,13 +110,18 @@ func (h *Handler) ResolveAlert(w http.ResponseWriter, r *http.Request) {
 
 // BlockAlertBGP handles POST /api/v1/alerts/{id}/block
 // Uses the BGP blocker to announce a blackhole for the alert's target IP.
+//
+// The answers are deliberately honest: 409 when no real BGP backend is wired
+// (the NoopBlocker only logs, and used to answer "blackholed" for an
+// announcement that never happened), 422 when the alert has no single host to
+// blackhole (link / disk / subnet alerts and their synthetic 0100::/64 ids).
 func (h *Handler) BlockAlertBGP(w http.ResponseWriter, r *http.Request) {
 	if !h.FeatureAlerts {
 		writeError(w, http.StatusNotFound, "alerts feature disabled")
 		return
 	}
-	if h.BGPBlocker == nil {
-		writeError(w, http.StatusServiceUnavailable, "BGP blocker not configured")
+	if !h.bgpBlockingEnabled() {
+		writeError(w, http.StatusConflict, "BGP blackholing is not enabled")
 		return
 	}
 
@@ -143,7 +150,7 @@ func (h *Handler) BlockAlertBGP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load the alert's target IP by id.
-	targetIP, found, err := h.alertTargetIP(r.Context(), id)
+	target, found, err := h.alertTarget(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -153,9 +160,9 @@ func (h *Handler) BlockAlertBGP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := net.ParseIP(targetIP)
-	if ip == nil {
-		writeError(w, http.StatusBadRequest, "invalid target IP")
+	ip := net.ParseIP(target.ip)
+	if !isHostTarget(ip, target.ruleType) {
+		writeError(w, http.StatusUnprocessableEntity, "this alert does not target a single IP")
 		return
 	}
 
@@ -172,27 +179,79 @@ func (h *Handler) BlockAlertBGP(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
-// alertTargetIP resolves a single alert's blackhole target by id.
+// bgpBlockingEnabled reports whether a block request can actually reach a
+// router: BGP must be enabled and the blocker must be a real backend, not the
+// log-only NoopBlocker the router falls back to when BGP init fails.
+func (h *Handler) bgpBlockingEnabled() bool {
+	if !h.FeatureBGP || h.BGPBlocker == nil {
+		return false
+	}
+	_, noop := h.BGPBlocker.(*bgp.NoopBlocker)
+	return !noop
+}
+
+// labelTargetPrefix is 0100::/64 (RFC 6666 discard-only), where the alert
+// engine maps non-IP targets (link tags) onto synthetic target_ip values.
+var labelTargetPrefix = &net.IPNet{IP: net.ParseIP("100::"), Mask: net.CIDRMask(64, 128)}
+
+// nonHostRuleTypes are the rule types whose target_ip is not a single host:
+// link-level rules (synthetic 0100::/64 ids), disk usage (the zero address)
+// and subnet_flood (the network address of an aggregate — blackholing its
+// first address would protect nothing).
+var nonHostRuleTypes = map[string]bool{
+	"link_capacity": true,
+	"anomaly":       true,
+	"disk_usage":    true,
+	"subnet_flood":  true,
+}
+
+// isHostTarget reports whether an alert's stored target is a real host
+// address that a /32 or /128 blackhole would protect.
+func isHostTarget(ip net.IP, ruleType string) bool {
+	if ip == nil || ip.IsUnspecified() || nonHostRuleTypes[ruleType] {
+		return false
+	}
+	return !labelTargetPrefix.Contains(ip)
+}
+
+// alertTargetRow is what the block action needs to know about one alert.
+type alertTargetRow struct {
+	ip       string // IPv4 as dotted quad, IPv6 as-is
+	ruleType string // "" when the rule has since been deleted
+}
+
+// alertTarget resolves a single alert's blackhole target by id.
 //
 // This used to page the 1000 most recent alerts and scan them in memory, so
 // blocking anything older than that page 404'd even though the row was right
 // there. Aggregating means the query always yields exactly one row, so "not
 // found" is a count of zero rather than a driver-specific no-rows error.
-func (h *Handler) alertTargetIP(ctx context.Context, id string) (string, bool, error) {
+func (h *Handler) alertTarget(ctx context.Context, id string) (alertTargetRow, bool, error) {
 	var count uint64
-	var targetIP string
+	var target alertTargetRow
+	var ruleID string
 	err := h.Store.QueryRow(ctx, `
-		SELECT count(), toString(argMax(a.target_ip, a.triggered_at))
+		SELECT count(), toString(argMax(a.target_ip, a.triggered_at)), toString(argMax(a.rule_id, a.triggered_at))
 		FROM alerts a
 		WHERE a.id = @id
-	`, clickhouse.Named("id", id)).Scan(&count, &targetIP)
+	`, clickhouse.Named("id", id)).Scan(&count, &target.ip, &ruleID)
 	if err != nil {
-		return "", false, err
+		return target, false, err
 	}
 	if count == 0 {
-		return "", false, nil
+		return target, false, nil
 	}
-	return targetIP, true, nil
+	target.ip = strings.TrimPrefix(target.ip, "::ffff:")
+	// The rule type tells link/disk/subnet alerts apart from host alerts. A
+	// deleted rule just leaves it empty; the address checks still apply.
+	// (An aggregate without GROUP BY always yields one row: '' when absent.)
+	if err := h.Store.QueryRow(ctx, `
+		SELECT toString(any(r.rule_type)) FROM alert_rules AS r FINAL
+		WHERE r.id = toUUIDOrZero(@rule_id)
+	`, clickhouse.Named("rule_id", ruleID)).Scan(&target.ruleType); err != nil {
+		return target, false, err
+	}
+	return target, true, nil
 }
 
 // =============================================================================
@@ -224,7 +283,7 @@ func (h *Handler) CreateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := validateRule(rule); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, ruleErrStatus(err), err.Error())
 		return
 	}
 	if rule.ID == "" {
@@ -251,7 +310,7 @@ func (h *Handler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	}
 	rule.ID = id
 	if err := validateRule(rule); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, ruleErrStatus(err), err.Error())
 		return
 	}
 	if err := h.Store.UpsertAlertRule(r.Context(), rule); err != nil {
@@ -280,10 +339,15 @@ func validateRule(r model.AlertRule) error {
 		"amplification": true, "port_scan": true, "icmp_flood": true,
 		"udp_flood": true, "connection_flood": true, "subnet_flood": true,
 		"smtp_abuse": true, "disk_usage": true, "link_capacity": true,
-		"anomaly": true, "custom": true,
+		"anomaly": true,
+	}
+	if r.RuleType == "custom" {
+		// Accepted by the schema but never evaluated by the engine: storing it
+		// would give the operator a rule that silently never fires.
+		return errUnprocessable("rule_type custom is not supported: the alert engine cannot evaluate it")
 	}
 	if !validTypes[r.RuleType] {
-		return errBadField("rule_type must be one of: volume_in, volume_out, syn_flood, amplification, port_scan, icmp_flood, udp_flood, connection_flood, subnet_flood, smtp_abuse, disk_usage, link_capacity, anomaly, custom")
+		return errBadField("rule_type must be one of: volume_in, volume_out, syn_flood, amplification, port_scan, icmp_flood, udp_flood, connection_flood, subnet_flood, smtp_abuse, disk_usage, link_capacity, anomaly")
 	}
 	if r.Name == "" {
 		return errBadField("name is required")
@@ -302,11 +366,28 @@ func validateRule(r model.AlertRule) error {
 	return nil
 }
 
-type validationError struct{ msg string }
+type validationError struct {
+	msg    string
+	status int
+}
 
 func (e validationError) Error() string { return e.msg }
 
-func errBadField(msg string) error { return validationError{msg: msg} }
+func errBadField(msg string) error { return validationError{msg: msg, status: http.StatusBadRequest} }
+
+// errUnprocessable is a well-formed request the server cannot act on (422).
+func errUnprocessable(msg string) error {
+	return validationError{msg: msg, status: http.StatusUnprocessableEntity}
+}
+
+// ruleErrStatus maps a validateRule error to its HTTP status (400 default).
+func ruleErrStatus(err error) int {
+	var ve validationError
+	if errors.As(err, &ve) && ve.status != 0 {
+		return ve.status
+	}
+	return http.StatusBadRequest
+}
 
 // =============================================================================
 // Webhooks CRUD (admin only)

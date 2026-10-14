@@ -53,6 +53,11 @@ func DecodeV5(data []byte, routerIP net.IP) ([]*model.FlowRecord, error) {
 	samplingRate := uint32(header.SamplingRate)
 	if samplingRate == 0 {
 		samplingRate = 1
+		// The header field is optional; an exporter that leaves it at 0 while
+		// sampling can only be corrected by the operator override.
+		if r, ok := overrideRate(ipToKey(routerIP)); ok {
+			samplingRate = r
+		}
 	}
 
 	ts := time.Unix(int64(header.UnixSecs), int64(header.UnixNsecs)).UTC()

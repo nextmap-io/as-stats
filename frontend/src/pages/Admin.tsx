@@ -64,9 +64,9 @@ export function Admin() {
   const visibleTabs = TABS.filter((t) => !t.requiresFeature || features[t.requiresFeature])
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-4">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2">
+        <h1 className="text-2xl font-semibold flex items-center gap-2">
           <Shield className="size-4" />
           Admin
         </h1>
@@ -114,7 +114,7 @@ function LinksTab() {
 
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader>
         <CardTitle>Configured links</CardTitle>
       </CardHeader>
       <CardContent>
@@ -123,24 +123,24 @@ function LinksTab() {
         ) : !data?.data || data.data.length === 0 ? (
           <EmptyState message="No links configured" />
         ) : (
-          <table className="w-full text-xs">
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
                 <th className="pb-1.5 text-left font-medium text-muted-foreground">Tag</th>
                 <th className="pb-1.5 text-left font-medium text-muted-foreground">Router IP</th>
                 <th className="pb-1.5 text-right font-medium text-muted-foreground">SNMP idx</th>
-                <th className="pb-1.5 text-left font-medium text-muted-foreground">Description</th>
+                <th className="pb-1.5 pl-6 text-left font-medium text-muted-foreground">Description</th>
                 <th className="pb-1.5 text-right font-medium text-muted-foreground">Capacity</th>
               </tr>
             </thead>
             <tbody>
               {data.data.map((l) => (
-                <tr key={l.tag} className="border-b border-border/40 last:border-0 hover:bg-accent/50">
-                  <td className="py-1.5 font-mono">{l.tag}</td>
-                  <td className="py-1.5 font-mono text-[11px]">{l.router_ip}</td>
-                  <td className="py-1.5 text-right font-mono">{l.snmp_index}</td>
-                  <td className="py-1.5 text-muted-foreground">{l.description || "-"}</td>
-                  <td className="py-1.5 text-right font-mono text-muted-foreground">
+                <tr key={l.tag} className="border-b border-border-soft last:border-0 hover:bg-accent/50">
+                  <td className="py-1.5">{l.tag}</td>
+                  <td className="py-1.5 font-ip text-[13px]">{l.router_ip}</td>
+                  <td className="py-1.5 text-right">{l.snmp_index}</td>
+                  <td className="py-1.5 pl-6 text-muted-foreground">{l.description || "-"}</td>
+                  <td className="py-1.5 text-right text-muted-foreground">
                     {l.capacity_mbps ? `${l.capacity_mbps} Mbps` : "-"}
                   </td>
                 </tr>
@@ -169,7 +169,7 @@ function StorageTab() {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <HardDrive className="size-3.5" />
             Disk usage
@@ -191,12 +191,12 @@ function StorageTab() {
       </Card>
 
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader>
           <div className="flex items-baseline justify-between">
             <CardTitle>Tables ({tables.length})</CardTitle>
             {pendingTotal > 0 && (
               <span
-                className="px-1.5 py-0.5 text-[9px] font-medium rounded border border-warning/40 bg-warning/10 text-warning uppercase"
+                className="px-1.5 py-0.5 text-xs font-medium rounded border border-warning/40 bg-warning/10 text-warning"
                 title={`${formatNumber(pendingTotal)} pending mutation(s) across all tables — TTL changes are still materializing`}
               >
                 TTL lag · {formatNumber(pendingTotal)}
@@ -210,8 +210,8 @@ function StorageTab() {
           ) : tables.length === 0 ? (
             <EmptyState message="No tables found" />
           ) : (
-            <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
-              <table className="w-full text-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
                     <th className="pb-1.5 text-left font-medium text-muted-foreground">Table</th>
@@ -241,25 +241,25 @@ function DiskGauge({ disk }: { disk: DiskStats }) {
   const pct = Math.min(100, Math.max(0, disk.used_percent))
   // Color by threshold — mirrors the disk_usage alert defaults (80% warn, 90% crit).
   const barColor =
-    pct >= 90 ? "bg-destructive" : pct >= 80 ? "bg-warning" : "bg-success"
+    pct >= 90 ? "bg-destructive" : pct >= 80 ? "bg-warning-mark" : "bg-foreground-secondary"
   const textColor =
     pct >= 90 ? "text-destructive" : pct >= 80 ? "text-warning" : "text-success"
 
   return (
     <div>
       <div className="flex items-baseline justify-between mb-1">
-        <span className="font-mono text-[11px] text-muted-foreground">{disk.name}</span>
-        <span className={cn("font-mono tabular-nums text-[11px]", textColor)}>
+        <span className="text-[13px] text-muted-foreground">{disk.name}</span>
+        <span className={cn("tabular-nums text-[13px]", textColor)}>
           {formatPercent(pct)}
         </span>
       </div>
       <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
         <div
-          className={cn("h-full rounded-full transition-all", barColor)}
+          className={cn("h-full rounded-full transition-colors", barColor)}
           style={{ width: `${pct}%` }}
         />
       </div>
-      <div className="mt-1 text-[10px] text-muted-foreground tabular-nums">
+      <div className="mt-1 text-xs text-muted-foreground tabular-nums">
         {formatBytes(disk.used_bytes)} used · {formatBytes(disk.free_bytes)} free · {formatBytes(disk.total_bytes)} total
       </div>
     </div>
@@ -302,13 +302,13 @@ function StorageRow({ table }: { table: TableStorageStats }) {
   }
 
   return (
-    <tr className="border-b border-border/40 last:border-0 hover:bg-accent/50">
-      <td className="py-1.5 font-mono text-[11px]">
+    <tr className="border-b border-border-soft last:border-0 hover:bg-accent/50">
+      <td className="py-1.5 text-[13px]">
         <div className="flex items-center gap-1.5">
           {table.table}
           {table.pending_mutations > 0 && (
             <span
-              className="px-1 py-0.5 text-[8px] font-medium rounded border border-warning/40 bg-warning/10 text-warning uppercase"
+              className="px-1 py-0.5 text-xs font-medium rounded border border-warning/40 bg-warning/10 text-warning"
               title={`${formatNumber(table.pending_mutations)} pending mutation(s) — TTL change still materializing`}
             >
               TTL lag
@@ -316,10 +316,10 @@ function StorageRow({ table }: { table: TableStorageStats }) {
           )}
         </div>
       </td>
-      <td className="py-1.5 text-right font-mono tabular-nums">{formatBytes(table.compressed_bytes)}</td>
-      <td className="py-1.5 text-right font-mono tabular-nums text-muted-foreground">{formatNumber(table.rows)}</td>
-      <td className="py-1.5 text-right font-mono tabular-nums text-muted-foreground">{formatNumber(table.parts)}</td>
-      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden md:table-cell whitespace-nowrap">
+      <td className="py-1.5 text-right tabular-nums">{formatBytes(table.compressed_bytes)}</td>
+      <td className="py-1.5 text-right tabular-nums text-muted-foreground">{formatNumber(table.rows)}</td>
+      <td className="py-1.5 text-right tabular-nums text-muted-foreground">{formatNumber(table.parts)}</td>
+      <td className="py-1.5 text-xs text-muted-foreground hidden md:table-cell whitespace-nowrap">
         {table.oldest_data ? new Date(table.oldest_data).toLocaleString() : "—"}
       </td>
       <td className="py-1.5 text-right">
@@ -333,7 +333,7 @@ function StorageRow({ table }: { table: TableStorageStats }) {
             onFocus={() => { editingRef.current = true }}
             onBlur={() => { editingRef.current = false }}
             onKeyDown={(e) => { if (e.key === "Enter") saveDays() }}
-            className="w-16 h-6 px-1.5 rounded border border-input bg-background text-xs font-mono tabular-nums text-right outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+            className="w-16 h-6 px-1.5 rounded border border-input bg-background text-xs tabular-nums text-right outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
           />
           {dirty && (
             <div className="flex gap-0.5">
@@ -362,10 +362,10 @@ function StorageRow({ table }: { table: TableStorageStats }) {
           onClick={toggleEnabled}
           disabled={setRetention.isPending}
           className={cn(
-            "px-1.5 py-0.5 text-[10px] rounded border font-medium disabled:opacity-50",
+            "px-1.5 py-0.5 text-xs rounded border font-medium disabled:opacity-50",
             table.ttl_enabled
               ? "border-success/40 bg-success/10 text-success"
-              : "border-input bg-muted/50 text-muted-foreground"
+              : "border-input bg-background text-muted-foreground"
           )}
           title={table.ttl_enabled ? "Reconciler manages this table — click to disable" : "Unmanaged — click to enable reconciler"}
         >
@@ -466,7 +466,7 @@ function TokensTab() {
 
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <KeyRound className="size-3.5" />
@@ -474,7 +474,7 @@ function TokensTab() {
           </CardTitle>
           <button
             onClick={() => (showForm ? resetForm() : setShowForm(true))}
-            className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+            className="inline-flex items-center gap-1 px-2 py-0.5 text-[13px] font-medium rounded border border-input bg-background hover:bg-accent transition-colors"
           >
             <Plus className="size-3" />
             {showForm ? "Cancel" : "Mint token"}
@@ -482,9 +482,9 @@ function TokensTab() {
         </div>
       </CardHeader>
       <CardContent>
-        <p className="text-[10px] text-muted-foreground mb-3">
+        <p className="text-xs text-muted-foreground mb-3">
           Read-only tokens grant <span className="font-mono">GET</span>-only programmatic access via an{" "}
-          <span className="font-mono">Authorization: Bearer</span> header. They carry viewer permissions and
+          <span className="">Authorization: Bearer</span> header. They carry viewer permissions and
           bypass CSRF for token auth only.
         </p>
 
@@ -495,21 +495,21 @@ function TokensTab() {
               <KeyRound className="size-3.5" />
               <span className="text-xs font-semibold">Copy your new token now</span>
             </div>
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               This is the only time <span className="font-medium">{minted.name}</span> will be shown. It cannot be
               retrieved again — store it somewhere safe.
             </p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 px-2 py-1.5 rounded border border-input bg-background font-mono text-[11px] break-all select-all">
+            <div className="flex flex-wrap items-center gap-2">
+              <code className="flex-1 px-2 py-1.5 rounded border border-input bg-background font-mono text-[13px] break-all select-all">
                 {minted.token}
               </code>
               <button
                 onClick={copyToken}
                 className={cn(
-                  "inline-flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium rounded border transition-colors shrink-0",
+                  "inline-flex items-center gap-1 px-2 py-1.5 text-[13px] font-medium rounded border transition-colors shrink-0",
                   copied
                     ? "border-success/40 bg-success/10 text-success"
-                    : "border-input bg-muted/50 hover:bg-accent"
+                    : "border-input bg-background hover:bg-accent"
                 )}
                 title="Copy token to clipboard"
               >
@@ -519,7 +519,7 @@ function TokensTab() {
             </div>
             <button
               onClick={() => setMinted(null)}
-              className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
             >
               I&apos;ve saved it — dismiss
             </button>
@@ -545,11 +545,11 @@ function TokensTab() {
                   value={expiryDate}
                   min={minExpiryDate()}
                   onChange={(e) => setExpiryDate(e.target.value)}
-                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 />
               </Field>
             </div>
-            <p className="text-[10px] text-muted-foreground italic px-1">
+            <p className="text-xs text-muted-foreground italic px-1">
               Leave the expiry empty for a token that never expires.
             </p>
             <button
@@ -567,8 +567,8 @@ function TokensTab() {
         ) : tokens.length === 0 ? (
           <EmptyState message="No API tokens — mint one for read-only programmatic access" />
         ) : (
-          <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
-            <table className="w-full text-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
                   <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
@@ -597,23 +597,23 @@ function TokensTab() {
 function TokenRow({ token, onRevoke, revoking }: { token: APIToken; onRevoke: (id: string) => void; revoking: boolean }) {
   const status = tokenStatus(token)
   return (
-    <tr className="border-b border-border/40 last:border-0 hover:bg-accent/50">
+    <tr className="border-b border-border-soft last:border-0 hover:bg-accent/50">
       <td className="py-1.5 font-medium">{token.name}</td>
-      <td className="py-1.5 font-mono text-[10px] text-muted-foreground">{token.token_prefix}…</td>
-      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden md:table-cell truncate max-w-[14rem]">{token.owner || "—"}</td>
-      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden lg:table-cell whitespace-nowrap">
+      <td className="py-1.5 font-mono text-xs text-muted-foreground">{token.token_prefix}…</td>
+      <td className="py-1.5 text-xs text-muted-foreground hidden md:table-cell truncate max-w-[14rem]">{token.owner || "—"}</td>
+      <td className="py-1.5 text-xs text-muted-foreground hidden lg:table-cell whitespace-nowrap">
         {new Date(token.created_at).toLocaleString()}
       </td>
-      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden lg:table-cell whitespace-nowrap">
+      <td className="py-1.5 text-xs text-muted-foreground hidden lg:table-cell whitespace-nowrap">
         {isUnsetTime(token.last_used_at) ? "never" : new Date(token.last_used_at).toLocaleString()}
       </td>
-      <td className="py-1.5 font-mono text-[10px] text-muted-foreground whitespace-nowrap">
+      <td className="py-1.5 text-xs text-muted-foreground whitespace-nowrap">
         {isUnsetTime(token.expires_at) ? "never" : new Date(token.expires_at).toLocaleString()}
       </td>
       <td className="py-1.5">
         <span
           className={cn(
-            "px-1.5 py-0.5 text-[9px] font-medium rounded border uppercase",
+            "px-1.5 py-0.5 text-xs font-medium rounded border ",
             status === "active" && "border-success/40 bg-success/10 text-success",
             status === "revoked" && "border-destructive/40 bg-destructive/10 text-destructive",
             status === "expired" && "border-warning/40 bg-warning/10 text-warning"
@@ -666,7 +666,7 @@ const RULE_TYPE_META: Record<string, {
 }
 
 // Anomaly rules carry sensitivity k as threshold_count = round(k*10) so the
-// feature needs no schema change (e.g. k=2.5 → threshold_count=25). These two
+// feature needs no schema change (e.g. k=2.5 threshold_count=25). These two
 // helpers convert between the two representations for the rule editor.
 const ANOMALY_DEFAULT_K = 2.5
 
@@ -714,12 +714,12 @@ function RulesTab() {
 
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Alert rules ({rules.length})</CardTitle>
           <button
             onClick={() => { setShowForm((s) => !s); if (!showForm) setDraft(emptyRule()) }}
-            className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+            className="inline-flex items-center gap-1 px-2 py-0.5 text-[13px] font-medium rounded border border-input bg-background hover:bg-accent transition-colors"
           >
             <Plus className="size-3" />
             {showForm ? "Cancel" : "Add rule"}
@@ -771,7 +771,7 @@ function RulesTab() {
               </Field>
             </div>
             {meta && (
-              <p className="text-[10px] text-muted-foreground italic px-1">{meta.description}</p>
+              <p className="text-xs text-muted-foreground italic px-1">{meta.description}</p>
             )}
             <Field label="Description">
               <input
@@ -792,7 +792,7 @@ function RulesTab() {
                       value={draft.threshold_bps || ""}
                       onChange={(e) => setDraft((d) => ({ ...d, threshold_bps: Number(e.target.value) }))}
                       placeholder="500000000"
-                      className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     />
                   </Field>
                 )}
@@ -804,7 +804,7 @@ function RulesTab() {
                       value={draft.threshold_pps || ""}
                       onChange={(e) => setDraft((d) => ({ ...d, threshold_pps: Number(e.target.value) }))}
                       placeholder="50000"
-                      className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     />
                   </Field>
                 )}
@@ -816,7 +816,7 @@ function RulesTab() {
                       value={draft.threshold_count || ""}
                       onChange={(e) => setDraft((d) => ({ ...d, threshold_count: Number(e.target.value) }))}
                       placeholder="10000"
-                      className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     />
                   </Field>
                 )}
@@ -830,9 +830,9 @@ function RulesTab() {
                   max={32}
                   value={draft.subnet_prefix_len || 24}
                   onChange={(e) => setDraft((d) => ({ ...d, subnet_prefix_len: Number(e.target.value) }))}
-                  className="w-20 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="w-20 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 />
-                <span className="text-[10px] text-muted-foreground ml-1">/{draft.subnet_prefix_len || 24} IPv4 aggregation</span>
+                <span className="text-xs text-muted-foreground ml-1">/{draft.subnet_prefix_len || 24} IPv4 aggregation</span>
               </Field>
             )}
             {draft.rule_type === "anomaly" && (
@@ -843,10 +843,10 @@ function RulesTab() {
                     value={draft.target_filter || ""}
                     onChange={(e) => setDraft((d) => ({ ...d, target_filter: e.target.value }))}
                     placeholder="(all links)"
-                    className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   />
                 </Field>
-                <p className="text-[10px] text-muted-foreground italic px-1">
+                <p className="text-xs text-muted-foreground italic px-1">
                   Optional — restrict evaluation to a single link tag. Empty evaluates every link.
                 </p>
                 <Field label="Sensitivity (k)">
@@ -856,13 +856,13 @@ function RulesTab() {
                     step={0.1}
                     value={kFromThresholdCount(draft.threshold_count)}
                     onChange={(e) => setDraft((d) => ({ ...d, threshold_count: thresholdCountFromK(Number(e.target.value)) }))}
-                    className="w-24 h-7 px-2 rounded border border-input bg-background text-xs font-mono tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    className="w-24 h-7 px-2 rounded border border-input bg-background text-xs tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   />
-                  <span className="text-[10px] text-muted-foreground ml-1">higher = less sensitive</span>
+                  <span className="text-xs text-muted-foreground ml-1">higher = less sensitive</span>
                 </Field>
-                <p className="text-[10px] text-muted-foreground italic px-1">
+                <p className="text-xs text-muted-foreground italic px-1">
                   Fires when the current hour&apos;s throughput exceeds{" "}
-                  <span className="font-mono">median + k·MAD</span> of the same hour-of-week over the
+                  <span className="">median + k·MAD</span> of the same hour-of-week over the
                   last 8 weeks (median absolute deviation — robust to outliers). k=2.5 flags a moderate
                   spike; raise it to suppress noise, lower it to catch smaller deviations.
                 </p>
@@ -876,7 +876,7 @@ function RulesTab() {
                   min={10}
                   value={draft.window_seconds || 60}
                   onChange={(e) => setDraft((d) => ({ ...d, window_seconds: Number(e.target.value) }))}
-                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 />
               </Field>
               <Field label="Cooldown (s)">
@@ -885,7 +885,7 @@ function RulesTab() {
                   min={0}
                   value={draft.cooldown_seconds || 300}
                   onChange={(e) => setDraft((d) => ({ ...d, cooldown_seconds: Number(e.target.value) }))}
-                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 />
               </Field>
               <Field label="Severity">
@@ -915,8 +915,8 @@ function RulesTab() {
         ) : rules.length === 0 ? (
           <EmptyState message="No rules configured" />
         ) : (
-          <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
-            <table className="w-full text-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
                   <th className="pb-1.5 text-left font-medium text-muted-foreground">Enabled</th>
@@ -930,13 +930,13 @@ function RulesTab() {
               </thead>
               <tbody>
                 {rules.map((r) => (
-                  <tr key={r.id} className="border-b border-border/40 last:border-0 hover:bg-accent/50">
+                  <tr key={r.id} className="border-b border-border-soft last:border-0 hover:bg-accent/50">
                     <td className="py-1.5">
                       <button
                         onClick={() => toggleMutation.mutate(r)}
                         className={cn(
-                          "px-1.5 py-0.5 text-[10px] rounded border font-medium",
-                          r.enabled ? "border-success/40 bg-success/10 text-success" : "border-input bg-muted/50 text-muted-foreground"
+                          "px-1.5 py-0.5 text-xs rounded border font-medium",
+                          r.enabled ? "border-success/40 bg-success/10 text-success" : "border-input bg-background text-muted-foreground"
                         )}
                       >
                         {r.enabled ? "ON" : "OFF"}
@@ -944,13 +944,13 @@ function RulesTab() {
                     </td>
                     <td className="py-1.5 font-medium">
                       {r.name}
-                      {r.description && <div className="text-[10px] text-muted-foreground font-normal">{r.description}</div>}
+                      {r.description && <div className="text-xs text-muted-foreground font-normal">{r.description}</div>}
                     </td>
-                    <td className="py-1.5 font-mono text-[10px] text-muted-foreground">{r.rule_type}</td>
+                    <td className="py-1.5 text-xs text-muted-foreground">{r.rule_type}</td>
                     <td className="py-1.5">
                       <span
                         className={cn(
-                          "px-1.5 py-0.5 text-[9px] font-medium rounded border uppercase",
+                          "px-1.5 py-0.5 text-xs font-medium rounded border ",
                           r.severity === "critical" && "border-destructive/40 bg-destructive/10 text-destructive",
                           r.severity === "warning" && "border-warning/40 bg-warning/10 text-warning",
                           r.severity === "info" && "border-primary/40 bg-primary/10 text-primary"
@@ -959,10 +959,10 @@ function RulesTab() {
                         {r.severity}
                       </span>
                     </td>
-                    <td className="py-1.5 text-right font-mono">
+                    <td className="py-1.5 text-right">
                       {formatThreshold(r)}
                     </td>
-                    <td className="py-1.5 text-right font-mono text-muted-foreground">{r.window_seconds}s</td>
+                    <td className="py-1.5 text-right text-muted-foreground">{r.window_seconds}s</td>
                     <td className="py-1.5 text-right">
                       <button
                         onClick={() => {
@@ -1089,12 +1089,12 @@ function WebhooksTab() {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader>
           <div className="flex items-baseline justify-between">
             <CardTitle>Notification webhooks ({webhooks.length})</CardTitle>
             <button
               onClick={() => setShowForm(!showForm)}
-              className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+              className="inline-flex items-center gap-1 px-2 py-0.5 text-[13px] font-medium rounded border border-input bg-background hover:bg-accent transition-colors"
             >
               <Plus className="size-3" />
               {showForm ? "Cancel" : "Add"}
@@ -1170,7 +1170,7 @@ function WebhooksTab() {
           ) : webhooks.length === 0 ? (
             <EmptyState message="No webhooks configured" />
           ) : (
-            <table className="w-full text-xs">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
                   <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
@@ -1182,10 +1182,10 @@ function WebhooksTab() {
               </thead>
               <tbody>
                 {webhooks.map((w) => (
-                  <tr key={w.id} className="border-b border-border/40 last:border-0 hover:bg-accent/50">
+                  <tr key={w.id} className="border-b border-border-soft last:border-0 hover:bg-accent/50">
                     <td className="py-1.5 font-medium">{w.name}</td>
-                    <td className="py-1.5 font-mono text-[10px] text-muted-foreground">{w.webhook_type}</td>
-                    <td className="py-1.5 font-mono text-[10px] text-muted-foreground truncate max-w-xs">
+                    <td className="py-1.5 text-xs text-muted-foreground">{w.webhook_type}</td>
+                    <td className="py-1.5 font-ip text-xs text-muted-foreground truncate max-w-xs">
                       {/* Mask all but the host part */}
                       {maskUrl(w.url)}
                     </td>
@@ -1350,7 +1350,7 @@ function ReportsTab() {
 
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <Mail className="size-3.5" />
@@ -1358,7 +1358,7 @@ function ReportsTab() {
           </CardTitle>
           <button
             onClick={() => (showForm ? resetForm() : setShowForm(true))}
-            className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+            className="inline-flex items-center gap-1 px-2 py-0.5 text-[13px] font-medium rounded border border-input bg-background hover:bg-accent transition-colors"
           >
             <Plus className="size-3" />
             {showForm ? "Cancel" : "Add"}
@@ -1412,7 +1412,7 @@ function ReportsTab() {
                   required
                   value={draft.hour}
                   onChange={(e) => setDraft((d) => ({ ...d, hour: Number(e.target.value) }))}
-                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 />
               </Field>
               {draft.frequency === "weekly" && (
@@ -1436,7 +1436,7 @@ function ReportsTab() {
                     max={28}
                     value={draft.day_of_month}
                     onChange={(e) => setDraft((d) => ({ ...d, day_of_month: Number(e.target.value) }))}
-                    className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   />
                 </Field>
               )}
@@ -1449,12 +1449,12 @@ function ReportsTab() {
                 value={draft.recipients}
                 onChange={(e) => setDraft((d) => ({ ...d, recipients: e.target.value }))}
                 placeholder="noc@example.net, ops@example.net"
-                className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </Field>
 
             <div className="flex items-start gap-2">
-              <span className="text-[10px] text-muted-foreground w-20 shrink-0 pt-1">Sections</span>
+              <span className="text-xs text-muted-foreground w-20 shrink-0 pt-1">Sections</span>
               <div className="flex flex-wrap gap-x-3 gap-y-1">
                 {REPORT_SECTIONS.map((s) => (
                   <label key={s.value} className="inline-flex items-center gap-1.5 text-xs cursor-pointer">
@@ -1485,8 +1485,8 @@ function ReportsTab() {
         ) : schedules.length === 0 ? (
           <EmptyState message="No report schedules configured" />
         ) : (
-          <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
-            <table className="w-full text-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
                   <th className="pb-1.5 text-left font-medium text-muted-foreground">Enabled</th>
@@ -1530,26 +1530,26 @@ function ReportRow({ schedule, editing, onEdit }: { schedule: ReportSchedule; ed
   }
 
   return (
-    <tr className={cn("border-b border-border/40 last:border-0 hover:bg-accent/50", editing && "bg-primary/5")}>
+    <tr className={cn("border-b border-border-soft last:border-0 hover:bg-accent/50", editing && "bg-primary/5")}>
       <td className="py-1.5">
         <button
           onClick={toggleEnabled}
           disabled={updateMutation.isPending}
           className={cn(
-            "px-1.5 py-0.5 text-[10px] rounded border font-medium disabled:opacity-50",
-            schedule.enabled ? "border-success/40 bg-success/10 text-success" : "border-input bg-muted/50 text-muted-foreground"
+            "px-1.5 py-0.5 text-xs rounded border font-medium disabled:opacity-50",
+            schedule.enabled ? "border-success/40 bg-success/10 text-success" : "border-input bg-background text-muted-foreground"
           )}
         >
           {schedule.enabled ? "ON" : "OFF"}
         </button>
       </td>
       <td className="py-1.5 font-medium">{schedule.name}</td>
-      <td className="py-1.5 font-mono text-[10px] text-muted-foreground whitespace-nowrap">{formatSchedule(schedule)}</td>
-      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden md:table-cell truncate max-w-[16rem]">
+      <td className="py-1.5 text-xs text-muted-foreground whitespace-nowrap">{formatSchedule(schedule)}</td>
+      <td className="py-1.5 font-ip text-xs text-muted-foreground hidden md:table-cell truncate max-w-[16rem]">
         {schedule.recipients}
       </td>
-      <td className="py-1.5 font-mono text-[10px] text-muted-foreground hidden lg:table-cell">{schedule.sections}</td>
-      <td className="py-1.5 font-mono text-[10px] text-muted-foreground">{schedule.format}</td>
+      <td className="py-1.5 text-xs text-muted-foreground hidden lg:table-cell">{schedule.sections}</td>
+      <td className="py-1.5 text-xs text-muted-foreground">{schedule.format}</td>
       <td className="py-1.5 text-right">
         <div className="flex justify-end gap-0.5">
           <button
@@ -1599,13 +1599,13 @@ function AuditTab() {
 
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader>
         <div className="flex items-baseline justify-between">
           <CardTitle className="flex items-center gap-2">
             <FileText className="size-3.5" />
             Audit log (last 200 entries)
           </CardTitle>
-          <span className="text-[10px] text-muted-foreground">365-day retention</span>
+          <span className="text-xs text-muted-foreground">365-day retention</span>
         </div>
       </CardHeader>
       <CardContent>
@@ -1614,8 +1614,8 @@ function AuditTab() {
         ) : entries.length === 0 ? (
           <EmptyState message="No audit entries yet" />
         ) : (
-          <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
-            <table className="w-full text-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
                   <th className="pb-1.5 text-left font-medium text-muted-foreground">Time</th>
@@ -1628,18 +1628,18 @@ function AuditTab() {
               </thead>
               <tbody>
                 {entries.map((e) => (
-                  <tr key={`${e.ts}-${e.action}-${e.resource}-${e.client_ip}`} className="border-b border-border/40 last:border-0 hover:bg-accent/50">
-                    <td className="py-1 text-[10px] font-mono text-muted-foreground whitespace-nowrap">
+                  <tr key={`${e.ts}-${e.action}-${e.resource}-${e.client_ip}`} className="border-b border-border-soft last:border-0 hover:bg-accent/50">
+                    <td className="py-1 text-xs text-muted-foreground whitespace-nowrap">
                       {new Date(e.ts).toLocaleString()}
                     </td>
                     <td className="py-1">{e.user_email || <span className="text-muted-foreground">anonymous</span>}</td>
-                    <td className="py-1 font-mono text-[10px]">{e.action}</td>
-                    <td className="py-1 font-mono text-[10px] text-muted-foreground hidden md:table-cell">{e.resource}</td>
-                    <td className="py-1 font-mono text-[10px] text-muted-foreground hidden md:table-cell">{e.client_ip}</td>
+                    <td className="py-1 text-xs">{e.action}</td>
+                    <td className="py-1 text-xs text-muted-foreground hidden md:table-cell">{e.resource}</td>
+                    <td className="py-1 font-ip text-xs text-muted-foreground hidden md:table-cell">{e.client_ip}</td>
                     <td className="py-1">
                       <span
                         className={cn(
-                          "px-1.5 py-0.5 text-[9px] font-medium rounded uppercase",
+                          "px-1.5 py-0.5 text-xs font-medium rounded ",
                           e.result === "success" && "bg-success/20 text-success",
                           e.result === "denied" && "bg-warning/20 text-warning",
                           e.result === "error" && "bg-destructive/20 text-destructive"
@@ -1729,12 +1729,12 @@ function HostgroupsTab() {
 
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Hostgroups ({groups.length})</CardTitle>
           <button
             onClick={() => showForm ? resetForm() : setShowForm(true)}
-            className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+            className="inline-flex items-center gap-1 px-2 py-0.5 text-[13px] font-medium rounded border border-input bg-background hover:bg-accent transition-colors"
           >
             <Plus className="size-3" />
             {showForm ? "Cancel" : "Add"}
@@ -1765,7 +1765,7 @@ function HostgroupsTab() {
                 onChange={(e) => setDraft((d) => ({ ...d, cidrsText: e.target.value }))}
                 placeholder={"10.0.1.0/24\n10.0.2.0/24"}
                 rows={3}
-                className="flex-1 px-2 py-1 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="flex-1 px-2 py-1 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </Field>
             <button type="submit" disabled={isSaving}
@@ -1780,7 +1780,7 @@ function HostgroupsTab() {
         ) : groups.length === 0 ? (
           <EmptyState message="No hostgroups — rules use global LOCAL_AS prefixes" />
         ) : (
-          <table className="w-full text-xs">
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
                 <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
@@ -1791,9 +1791,9 @@ function HostgroupsTab() {
             </thead>
             <tbody>
               {groups.map((g) => (
-                <tr key={g.id} className={cn("border-b border-border/40 last:border-0 hover:bg-accent/50", editingId === g.id && "bg-primary/5")}>
+                <tr key={g.id} className={cn("border-b border-border-soft last:border-0 hover:bg-accent/50", editingId === g.id && "bg-primary/5")}>
                   <td className="py-1.5 font-medium">{g.name}</td>
-                  <td className="py-1.5 font-mono text-[10px] text-muted-foreground">{g.cidrs.join(", ")}</td>
+                  <td className="py-1.5 font-ip text-xs text-muted-foreground">{g.cidrs.join(", ")}</td>
                   <td className="py-1.5 text-muted-foreground hidden md:table-cell">{g.description || "—"}</td>
                   <td className="py-1.5 text-right">
                     <div className="flex justify-end gap-0.5">
@@ -1842,7 +1842,7 @@ function HostgroupSelect({ value, onChange }: { value?: string; onChange: (id: s
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex items-center gap-2">
-      <span className="text-[10px] text-muted-foreground w-20 shrink-0">{label}</span>
+      <span className="text-xs text-muted-foreground w-20 shrink-0">{label}</span>
       {children}
     </label>
   )

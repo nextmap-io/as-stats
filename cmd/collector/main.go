@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,10 +14,11 @@ import (
 
 	"github.com/nextmap-io/as-stats/internal/alerts"
 	"github.com/nextmap-io/as-stats/internal/api/handler"
+	"github.com/nextmap-io/as-stats/internal/api/middleware"
 	"github.com/nextmap-io/as-stats/internal/bgp"
 	"github.com/nextmap-io/as-stats/internal/collector"
 	"github.com/nextmap-io/as-stats/internal/config"
-	_ "github.com/nextmap-io/as-stats/internal/metrics" // register metrics
+	"github.com/nextmap-io/as-stats/internal/metrics"
 	"github.com/nextmap-io/as-stats/internal/reports"
 	"github.com/nextmap-io/as-stats/internal/ripestat"
 	"github.com/nextmap-io/as-stats/internal/store"
@@ -38,6 +40,10 @@ func main() {
 	log.Printf("  Batch size:     %d", cfg.BatchSize)
 	log.Printf("  Flush interval: %s", cfg.FlushInterval)
 	log.Printf("  Workers:        %d", cfg.Workers)
+	log.Printf("  Flush timeout:  %s (shutdown drain %s)", cfg.FlushTimeout, cfg.ShutdownTimeout)
+	for router, rate := range cfg.SamplingOverride {
+		log.Printf("  Sampling override: %s = 1:%d (only when the exporter announces none)", router, rate)
+	}
 
 	chStore, err := store.NewClickHouseStore(cfg.ClickHouse)
 	if err != nil {
@@ -160,6 +166,7 @@ func main() {
 			cfg.PrometheusUser,
 			cfg.PrometheusPass,
 		))
+		registerPprof(mux, cfg)
 		go func() {
 			log.Printf("Prometheus /metrics listening on %s", cfg.PrometheusAddr)
 			srv := &http.Server{Addr: cfg.PrometheusAddr, Handler: mux}
@@ -234,7 +241,7 @@ func main() {
 	// delivers them via SMTP on the schedule stored in report_schedules.
 	if cfg.FeatureReports {
 		log.Printf("FEATURE_REPORTS=true — starting report scheduler (SMTP %s:%d)", cfg.SMTP.Host, cfg.SMTP.Port)
-		gen, err := reports.NewGenerator(chStore)
+		gen, err := reports.NewGenerator(chStore, reports.WithExcludeAS(cfg.LocalAS))
 		if err != nil {
 			log.Printf("warning: could not init report generator: %v", err)
 		} else {
@@ -248,6 +255,34 @@ func main() {
 	}
 
 	log.Println("Collector stopped")
+}
+
+// registerPprof serves net/http/pprof on the metrics listener behind the same
+// CIDR / basic-auth guard as /metrics (never on /healthz, which is open for
+// the container healthcheck). With no guard configured /metrics is
+// deliberately open, but profiles expose heap contents and a CPU profile
+// request ties up the process for its whole duration — so pprof is only
+// mounted when PROMETHEUS_ALLOW_CIDR or PROMETHEUS_USER/PASS is set.
+func registerPprof(mux *http.ServeMux, cfg *config.CollectorConfig) {
+	guard := func(h http.HandlerFunc) (http.Handler, bool) {
+		return metrics.AccessGuard(h, cfg.PrometheusAllowCIDR, cfg.PrometheusUser, cfg.PrometheusPass, middleware.ClientIP)
+	}
+	index, enabled := guard(pprof.Index)
+	if !enabled {
+		log.Println("pprof disabled: set PROMETHEUS_ALLOW_CIDR or PROMETHEUS_USER/PROMETHEUS_PASS to serve /debug/pprof/")
+		return
+	}
+	mux.Handle("/debug/pprof/", index)
+	for path, h := range map[string]http.HandlerFunc{
+		"/debug/pprof/cmdline": pprof.Cmdline,
+		"/debug/pprof/profile": pprof.Profile,
+		"/debug/pprof/symbol":  pprof.Symbol,
+		"/debug/pprof/trace":   pprof.Trace,
+	} {
+		guarded, _ := guard(h)
+		mux.Handle(path, guarded)
+	}
+	log.Println("pprof enabled on the metrics listener at /debug/pprof/ (same guard as /metrics)")
 }
 
 // fetchPrefixesWithRetry fetches the announced prefixes for asn, retrying a few

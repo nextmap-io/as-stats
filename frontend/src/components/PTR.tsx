@@ -14,7 +14,7 @@ export function IPWithPTR({ ip }: { ip: string }) {
     <span className="inline-flex items-baseline gap-1 max-w-full" title={ptr || ip}>
       <span className="shrink-0">{ip}</span>
       {ptr && (
-        <span className="text-muted-foreground text-[9px] hidden lg:inline truncate min-w-0">
+        <span className="text-muted-foreground text-xs hidden lg:inline truncate min-w-0">
           ({ptr})
         </span>
       )}

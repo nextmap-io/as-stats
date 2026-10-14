@@ -42,15 +42,32 @@ type Rendered struct {
 type Generator struct {
 	store DataStore
 	tmpl  *template.Template
+	// excludeAS is the operator's own AS (LOCAL_AS), left out of Top AS like
+	// on the dashboard: as the far end of almost every flow it would otherwise
+	// sit at #1 and push a real peer off the list. 0 = exclude nothing.
+	excludeAS uint32
+}
+
+// Option configures a Generator.
+type Option func(*Generator)
+
+// WithExcludeAS leaves asn (LOCAL_AS) out of the report's Top AS section,
+// matching /top/as. Pass 0 to keep every AS.
+func WithExcludeAS(asn uint32) Option {
+	return func(g *Generator) { g.excludeAS = asn }
 }
 
 // NewGenerator builds a Generator with the HTML template compiled once.
-func NewGenerator(s DataStore) (*Generator, error) {
+func NewGenerator(s DataStore, opts ...Option) (*Generator, error) {
 	tmpl, err := template.New("report").Funcs(templateFuncs()).Parse(reportTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("parse report template: %w", err)
 	}
-	return &Generator{store: s, tmpl: tmpl}, nil
+	g := &Generator{store: s, tmpl: tmpl}
+	for _, o := range opts {
+		o(g)
+	}
+	return g, nil
 }
 
 // reportData is the view model handed to the HTML template.
@@ -103,7 +120,9 @@ func (g *Generator) Generate(ctx context.Context, s model.ReportSchedule, at tim
 		data.Overview = ov
 	}
 	if set["top_as"] {
-		rows, _, err := g.store.TopAS(ctx, p)
+		pt := p
+		pt.ExcludeAS = g.excludeAS
+		rows, _, err := g.store.TopAS(ctx, pt)
 		if err != nil {
 			return Rendered{}, fmt.Errorf("top_as: %w", err)
 		}

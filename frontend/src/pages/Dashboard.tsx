@@ -1,420 +1,89 @@
 import { Link } from "react-router-dom"
-import { useOverview, useLinksTraffic, useTopASTraffic, useLinkColors, useTrafficHeatmap } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ErrorDisplay, EmptyState } from "@/components/ui/error"
-import { PageSkeleton } from "@/components/ui/skeleton"
-import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
-import { TrafficChart } from "@/components/charts/TrafficChart"
-import { TrafficHeatmap } from "@/components/charts/TrafficHeatmap"
-import { QueryBoundary } from "@/components/QueryBoundary"
-import { ExpandableChart } from "@/components/ExpandableChart"
-import { ComparisonToggle } from "@/components/ComparisonToggle"
-import { previousWindow, shiftSeries, sumLinkSeries, useCompareEnabled } from "@/lib/comparison"
-import { formatNumber, cn } from "@/lib/utils"
-import { ASRef } from "@/components/ASRef"
-import { asLabel, isPrivateASGroup } from "@/lib/asn"
-import { useUnit } from "@/hooks/useUnit"
-import { useMemo, useState } from "react"
-import { BarChart3 } from "lucide-react"
-import type { LinkTraffic, ASTrafficDetail } from "@/lib/types"
+import { ErrorDisplay } from "@/components/ui/error"
+import { ChartSkeleton, TableSkeleton } from "@/components/ui/skeleton"
+import { Section } from "@/components/home/Section"
+import { StatusStrip } from "@/components/home/StatusStrip"
+import { TotalTraffic } from "@/components/home/TotalTraffic"
+import { LinkTable } from "@/components/home/LinkTable"
+import { TopNetworks } from "@/components/home/TopNetworks"
+import { FurtherAnalysis } from "@/components/home/FurtherAnalysis"
+import { useHomeData } from "@/components/home/useHomeData"
 
-const DEFAULT_LINK_COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6", "#1abc9c", "#e67e22", "#2980b9"]
-
+/**
+ * The home page is ordered by the operator's questions: is anything wrong,
+ * how much traffic and where is it going, are the links OK, who is it with.
+ * Pattern views (heatmap, per-AS chart walls, stacked link charts) live on
+ * their own pages; the footer points to them.
+ */
 export function Dashboard() {
-  const { filters, filterSearch, periodSeconds, bucketSeconds, timeBounds, bounds } = useFilters()
-  const { data, isLoading, error, refetch } = useOverview(filters)
-  const { data: ipv4Traffic } = useLinksTraffic(4, filters)
-  const { data: ipv6Traffic } = useLinksTraffic(6, filters)
-  const { data: topASv4 } = useTopASTraffic(4, filters)
-  const { data: topASv6 } = useTopASTraffic(6, filters)
-  const { formatTraffic } = useUnit()
-  const linkColors = useLinkColors()
-  const [showAll, setShowAll] = useState(false)
-
-  // The day×hour heatmap is a *pattern* view: each of the 7×24 slots only
-  // becomes meaningful once several weeks of samples land in it. So it uses its
-  // own multi-week lookback instead of the (often 24h/7d) global time filter —
-  // while still honouring the link / direction / ip_version filters. `to` is
-  // snapped to the hour to keep the TanStack Query key stable between renders.
-  const [heatmapWeeks, setHeatmapWeeks] = useState(12)
-  const heatmapFilters = useMemo(() => {
-    const nowHour = Math.floor(new Date().getTime() / 3_600_000) * 3_600_000
-    return {
-      ...filters,
-      period: undefined,
-      from: new Date(nowHour - heatmapWeeks * 7 * 86_400_000).toISOString(),
-      to: new Date(nowHour).toISOString(),
-    }
-  }, [filters, heatmapWeeks])
-  const heatmap = useTrafficHeatmap(heatmapFilters)
-
-  // Comparison overlay (Module D). The dashboard has no single total series, so
-  // build one by summing the per-link series it already fetches (v4 + v6). When
-  // off, the prev queries reuse the active filters so they dedupe with the main
-  // link-traffic queries — no extra requests.
-  const compare = useCompareEnabled()
-  // Memoized on the minute-snapped bounds: prevFilters feeds a query key.
-  const { prevFilters, windowMs } = useMemo(
-    () => previousWindow(filters, bounds),
-    [filters, bounds],
-  )
-  const { data: prevV4 } = useLinksTraffic(4, compare ? prevFilters : filters)
-  const { data: prevV6 } = useLinksTraffic(6, compare ? prevFilters : filters)
-  const totalSeries = useMemo(
-    () => (compare ? sumLinkSeries([...(ipv4Traffic?.data || []), ...(ipv6Traffic?.data || [])]) : []),
-    [compare, ipv4Traffic, ipv6Traffic],
-  )
-  const prevTotalSeries = useMemo(
-    () =>
-      compare
-        ? shiftSeries(sumLinkSeries([...(prevV4?.data || []), ...(prevV6?.data || [])]), windowMs)
-        : undefined,
-    [compare, prevV4, prevV6, windowMs],
-  )
-
-  if (isLoading) return <PageSkeleton />
-  if (error) return <ErrorDisplay error={error} onRetry={() => refetch()} />
-
-  const overview = data?.data
-  if (!overview) return null
-
-  // Merge top AS from IPv4 and IPv6 into one ordered list (by combined bytes)
-  const asMap = new Map<number, { v4?: ASTrafficDetail; v6?: ASTrafficDetail; total: number; name: string }>()
-  for (const as of topASv4?.data || []) {
-    const entry = asMap.get(as.as_number) || { total: 0, name: as.as_name }
-    entry.v4 = as
-    entry.total += as.bytes
-    entry.name = as.as_name || entry.name
-    asMap.set(as.as_number, entry)
-  }
-  for (const as of topASv6?.data || []) {
-    const entry = asMap.get(as.as_number) || { total: 0, name: as.as_name }
-    entry.v6 = as
-    entry.total += as.bytes
-    entry.name = as.as_name || entry.name
-    asMap.set(as.as_number, entry)
-  }
-  const allAS = Array.from(asMap.entries())
-    .sort(([, a], [, b]) => b.total - a.total)
-    .slice(0, 50)
-
-  const topASList = showAll ? allAS : allAS.slice(0, 10)
-
-  // Extract unique link tags from all series for the sidebar legend
-  const allLinkTags = Array.from(new Set([
-    ...(ipv4Traffic?.data || []).map(s => s.link_tag),
-    ...(ipv6Traffic?.data || []).map(s => s.link_tag),
-  ]))
+  const { filterSearch } = useFilters()
+  const home = useHomeData()
+  const ownIn = home.total.both.reduce((s, p) => s + p.bytes_in, 0)
+  const ownOut = home.total.both.reduce((s, p) => s + p.bytes_out, 0)
 
   return (
-    <div className="space-y-4 animate-fade-in">
-      {/* Stat bar */}
-      <div className="flex items-center gap-4 text-xs flex-wrap">
-        <span className="font-semibold text-sm tracking-tight mr-auto">Dashboard</span>
-        <StatPill label="In" value={formatTraffic(overview.total_bytes_in, periodSeconds)} accent="in" />
-        <StatPill label="Out" value={formatTraffic(overview.total_bytes_out, periodSeconds)} accent="out" />
-        <StatPill label="ASes" value={formatNumber(overview.active_as_count)} />
-        <StatPill label="Flows" value={formatNumber(overview.total_flows)} />
-        <ComparisonToggle />
-      </div>
+    <div>
+      <h1 className="sr-only">Dashboard</h1>
 
-      {/* Total traffic vs previous period (comparison overlay, opt-in) */}
-      {compare && totalSeries.length > 0 && (
-        <Card className="overflow-visible">
-          <CardHeader className="pb-2">
-            <CardTitle>Total traffic vs previous period</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <TrafficChart data={totalSeries} previous={prevTotalSeries} height={280} timeBounds={timeBounds} />
-          </CardContent>
-        </Card>
-      )}
+      <Section id="h-status" title="Right now" note={"Only what needs attention is highlighted. Refreshed every 30\u00a0s."} first>
+        <StatusStrip links={home.links} linksLoading={home.capacityLoading || home.seriesLoading} />
+      </Section>
 
-      {/* Global traffic charts: IPv4 / IPv6 by link */}
-      {((ipv4Traffic?.data && ipv4Traffic.data.length > 0) || (ipv6Traffic?.data && ipv6Traffic.data.length > 0)) && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card className="overflow-visible">
-            <CardHeader className="pb-2">
-              <CardTitle>IPv4 Traffic by Link</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
-                <ExpandableChart title="IPv4 Traffic by Link" fetchType="link-traffic" fetchParams={{ ip_version: 4 }} linkColors={linkColors} currentPeriod={filters.period}>
-                  <LinkTrafficChart series={ipv4Traffic.data} linkColors={linkColors} timeBounds={timeBounds} />
-                </ExpandableChart>
-              ) : (
-                <EmptyState message="No IPv4 link traffic" icon={<BarChart3 className="size-6" />} />
-              )}
-            </CardContent>
-          </Card>
-          <Card className="overflow-visible">
-            <CardHeader className="pb-2">
-              <CardTitle>IPv6 Traffic by Link</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
-                <ExpandableChart title="IPv6 Traffic by Link" fetchType="link-traffic" fetchParams={{ ip_version: 6 }} linkColors={linkColors} currentPeriod={filters.period}>
-                  <LinkTrafficChart series={ipv6Traffic.data} linkColors={linkColors} timeBounds={timeBounds} />
-                </ExpandableChart>
-              ) : (
-                <EmptyState message="No IPv6 link traffic" icon={<BarChart3 className="size-6" />} />
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
+      <Section
+        id="h-traffic"
+        title="Total traffic"
+        note="All links. Inbound above the line, outbound below, on one scale."
+      >
+        {home.seriesLoading ? (
+          <ChartSkeleton height={280} />
+        ) : home.seriesError ? (
+          <ErrorDisplay error={home.seriesError} onRetry={home.refetchSeries} />
+        ) : (
+          <TotalTraffic total={home.total} step={home.step} />
+        )}
+      </Section>
 
-      {/* Traffic heatmap — day-of-week × hour-of-day (U8) */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between gap-2">
-            <CardTitle>Traffic pattern — day × hour</CardTitle>
-            <div
-              className="flex gap-0.5 rounded border border-input bg-muted/30 p-0.5"
-              role="group"
-              aria-label="Heatmap lookback window"
-            >
-              {([4, 8, 12, 26] as const).map((w) => (
-                <button
-                  key={w}
-                  type="button"
-                  onClick={() => setHeatmapWeeks(w)}
-                  aria-pressed={heatmapWeeks === w}
-                  title={`Aggregate the last ${w} weeks`}
-                  className={cn(
-                    "px-2 py-0.5 text-[11px] font-medium rounded transition-colors tabular-nums",
-                    heatmapWeeks === w
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent",
-                  )}
-                >
-                  {w}w
-                </button>
-              ))}
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <QueryBoundary
-            query={heatmap}
-            isEmpty={(d) => d.data.cells.every((c) => c.mean_bps === 0 && c.peak_bps === 0)}
-            loadingRows={7}
-            loadingCols={12}
-          >
-            {(data) => <TrafficHeatmap cells={data.data.cells} />}
-          </QueryBoundary>
-        </CardContent>
-      </Card>
+      <Section
+        id="h-links"
+        title="Links"
+        note="Utilisation is the busier direction against capacity. The bar is now, the tick is the peak in this window, the dashed line is 70%."
+        aside={
+          <Link to={`/capacity${filterSearch}`} className="text-foreground-secondary underline underline-offset-2 hover:text-foreground">
+            Open Capacity
+          </Link>
+        }
+      >
+        {home.capacityLoading || home.seriesLoading ? (
+          <TableSkeleton rows={7} cols={5} />
+        ) : home.capacityError ? (
+          <ErrorDisplay error={home.capacityError} />
+        ) : home.links.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No link has carried traffic in this window. Links are configured in{" "}
+            <Link to="/links" className="underline underline-offset-2">Network › Links</Link>.
+          </p>
+        ) : (
+          <LinkTable rows={home.links} step={home.step} filterSearch={filterSearch} />
+        )}
+      </Section>
 
-      {/* Top AS with IPv4 + IPv6 graphs per AS */}
-      {topASList.length > 0 && (
-        <div className="flex gap-4">
-          {/* Sticky legend sidebar */}
-          <div className="hidden lg:block w-28 shrink-0">
-            <div className="sticky top-14 space-y-1.5 pt-6">
-              <h3 className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Legend</h3>
-              {allLinkTags.map((tag, i) => (
-                <div key={tag} className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
-                  <span className="inline-block size-3 rounded-sm shrink-0" style={{ backgroundColor: linkColors[tag] || DEFAULT_LINK_COLORS[i % DEFAULT_LINK_COLORS.length] }} />
-                  <span className="truncate">{tag}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+      <Section
+        id="h-networks"
+        title="Who it's with"
+        note="Remote networks over the window. All bars share one scale."
+        aside={
+          <Link to={`/top/as${filterSearch}`} className="text-foreground-secondary underline underline-offset-2 hover:text-foreground">
+            Open Top AS
+          </Link>
+        }
+      >
+        <TopNetworks ownIn={ownIn} ownOut={ownOut} />
+      </Section>
 
-          {/* AS list */}
-          <div className="flex-1 space-y-3">
-          <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            Top {topASList.length} AS — IPv4 + IPv6
-          </h2>
-          {topASList.map(([asn, entry]) => (
-            <Card key={asn}>
-              <CardHeader className="pb-1 pt-3 px-4">
-                <div className="flex items-baseline justify-between gap-2">
-                  <ASRef
-                    asn={asn}
-                    search={filterSearch}
-                    className="text-xs font-semibold text-primary hover:underline"
-                    groupClassName="text-xs font-semibold text-muted-foreground"
-                  />
-                  <span className="text-[10px] text-muted-foreground truncate">{entry.name}</span>
-                  <span className="text-[10px] text-muted-foreground ml-auto tabular-nums">
-                    p95: {formatTraffic(
-                      Math.max(entry.v4?.p95_in || 0, entry.v4?.p95_out || 0) + Math.max(entry.v6?.p95_in || 0, entry.v6?.p95_out || 0),
-                      bucketSeconds
-                    )}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent className="px-4 pb-3">
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <div>
-                    {entry.v4 && entry.v4.series.length > 0 ? (
-                      <MaybeExpandable
-                        expandable={!isPrivateASGroup(asn)}
-                        title={`${asLabel(asn)} — IPv4`}
-                        fetchType="as-detail-v4"
-                        asn={asn}
-                        linkColors={linkColors}
-                        period={filters.period}
-                      >
-                        <LinkTrafficChart
-                          series={entry.v4.series}
-                          title="IPv4"
-                          height={140}
-                          linkColors={linkColors}
-                          hideLegend
-                          timeBounds={timeBounds}
-                          p95In={entry.v4.p95_in}
-                          p95Out={entry.v4.p95_out}
-                        />
-                      </MaybeExpandable>
-                    ) : (
-                      <div className="text-[10px] text-muted-foreground py-4 text-center">No IPv4 data</div>
-                    )}
-                  </div>
-                  <div>
-                    {entry.v6 && entry.v6.series.length > 0 ? (
-                      <MaybeExpandable
-                        expandable={!isPrivateASGroup(asn)}
-                        title={`${asLabel(asn)} — IPv6`}
-                        fetchType="as-detail-v6"
-                        asn={asn}
-                        linkColors={linkColors}
-                        period={filters.period}
-                      >
-                        <LinkTrafficChart
-                          series={entry.v6.series}
-                          title="IPv6"
-                          height={140}
-                          linkColors={linkColors}
-                          hideLegend
-                          timeBounds={timeBounds}
-                          p95In={entry.v6?.p95_in}
-                          p95Out={entry.v6?.p95_out}
-                        />
-                      </MaybeExpandable>
-                    ) : (
-                      <div className="text-[10px] text-muted-foreground py-4 text-center">No IPv6 data</div>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-          {!showAll && allAS.length > 10 && (
-            <button
-              onClick={() => setShowAll(true)}
-              className="w-full py-2 text-xs text-primary hover:underline"
-            >
-              Show all {allAS.length} AS
-            </button>
-          )}
-          </div>
-        </div>
-      )}
-
-      {/* Links summary */}
-      {overview.links?.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle>Links</CardTitle>
-              <Link to={`/links${filterSearch}`} className="text-[10px] text-primary hover:underline uppercase tracking-wider">
-                View all
-              </Link>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto -mx-6 px-6">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th scope="col" className="pb-2 text-left font-medium text-muted-foreground">Link</th>
-                    <th scope="col" className="pb-2 text-left font-medium text-muted-foreground hidden md:table-cell">Description</th>
-                    <th scope="col" className="pb-2 text-right font-medium text-muted-foreground">
-                      <span className="text-traffic-in">In</span>
-                    </th>
-                    <th scope="col" className="pb-2 text-right font-medium text-muted-foreground">
-                      <span className="text-traffic-out">Out</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {overview.links.map((l: LinkTraffic) => (
-                    <tr key={l.tag} className="border-b border-border/40 last:border-0 hover:bg-accent/50 transition-colors">
-                      <td className="py-1.5">
-                        <Link to={`/link/${l.tag}${filterSearch}`} className="text-primary hover:underline font-medium">
-                          {l.tag}
-                        </Link>
-                      </td>
-                      <td className="py-1.5 text-muted-foreground truncate max-w-48 hidden md:table-cell" title={l.description}>
-                        {l.description || "-"}
-                      </td>
-                      <td className="py-1.5 text-right text-traffic-in">{formatTraffic(l.bytes_in, periodSeconds)}</td>
-                      <td className="py-1.5 text-right text-traffic-out">{formatTraffic(l.bytes_out, periodSeconds)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <Section id="h-further" title="Further analysis" note="Views that used to sit on this page.">
+        <FurtherAnalysis filterSearch={filterSearch} />
+      </Section>
     </div>
-  )
-}
-
-function StatPill({ label, value, accent }: {
-  label: string
-  value: string
-  accent?: "in" | "out"
-}) {
-  const color = accent === "in"
-    ? "text-traffic-in"
-    : accent === "out"
-      ? "text-traffic-out"
-      : "text-foreground"
-  return (
-    <div className="flex items-baseline gap-1.5">
-      <span className="text-muted-foreground uppercase tracking-widest text-[9px]">{label}</span>
-      <span className={`font-bold tabular-nums ${color}`}>{value}</span>
-    </div>
-  )
-}
-
-// MaybeExpandable wraps a chart in ExpandableChart only when a detail view
-// exists for it. The collapsed private-use group has no /as/{asn} page — the
-// sentinel is not a real ASN — so expanding it would fetch nothing and open an
-// empty modal; there it renders the inline chart alone.
-function MaybeExpandable({
-  expandable,
-  title,
-  fetchType,
-  asn,
-  linkColors,
-  period,
-  children,
-}: {
-  expandable: boolean
-  title: string
-  fetchType: "as-detail-v4" | "as-detail-v6"
-  asn: number
-  linkColors: Record<string, string>
-  period?: string
-  children: React.ReactElement<{ height?: number }>
-}) {
-  if (!expandable) return <>{children}</>
-  return (
-    <ExpandableChart
-      title={title}
-      fetchType={fetchType}
-      fetchParams={{ asn }}
-      linkColors={linkColors}
-      currentPeriod={period}
-    >
-      {children}
-    </ExpandableChart>
   )
 }

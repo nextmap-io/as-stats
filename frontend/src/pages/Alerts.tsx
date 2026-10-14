@@ -2,6 +2,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState, type ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { api } from "@/lib/api"
+import { blockErrorMessage } from "@/lib/block"
+import { useFeatureFlags } from "@/hooks/useFeatures"
+import { hostTarget } from "@/lib/home"
+import { formatAlertMetric } from "@/lib/format"
 import { useAnomalyExplain } from "@/hooks/useApi"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
@@ -57,6 +61,11 @@ export function Alerts() {
     },
   })
 
+  const features = useFeatureFlags()
+  // Known link tags, so a link-scoped alert links to its link page and a disk
+  // alert (also label-targeted) does not.
+  const { data: linkCfg } = useQuery({ queryKey: ["admin-links"], queryFn: () => api.adminLinks(), staleTime: 30_000 })
+  const linkTags = new Set((linkCfg?.data ?? []).map((l) => l.tag))
   const blockMutation = useMutation({
     mutationFn: ({ id, duration, reason }: { id: string; duration: number; reason: string }) =>
       api.blockAlert(id, duration, reason),
@@ -64,6 +73,7 @@ export function Alerts() {
       queryClient.invalidateQueries({ queryKey: ["alerts"] })
     },
   })
+  const blockError = blockMutation.error ? blockErrorMessage(blockMutation.error) : null
 
   if (error) return <ErrorDisplay error={error as Error} onRetry={() => refetch()} />
 
@@ -72,35 +82,35 @@ export function Alerts() {
   const bySev = summary?.data?.by_severity || {}
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-4">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2">
-          <Bell className="size-4" />
+        <h1 className="flex items-center gap-2 text-2xl font-semibold">
+          <Bell className="size-5" aria-hidden />
           Alerts
         </h1>
-        <Link
-          to="/admin?tab=rules"
-          className="text-[10px] text-muted-foreground hover:text-foreground uppercase tracking-widest"
-        >
-          Manage rules →
+        <Link to="/admin?tab=rules" className="text-[13px] text-foreground-secondary underline underline-offset-2 hover:text-foreground">
+          Manage rules
         </Link>
       </div>
 
       {/* Severity summary cards */}
-      <div className="grid gap-3 grid-cols-3">
+      <div className="grid grid-cols-3 gap-6">
         <SeverityCard severity="critical" count={bySev.critical || 0} />
         <SeverityCard severity="warning" count={bySev.warning || 0} />
         <SeverityCard severity="info" count={bySev.info || 0} />
       </div>
 
       {totalActive === 0 && status === "active" && (
-        <Card>
-          <CardContent className="p-6 text-center">
-            <Check className="size-8 mx-auto mb-2 text-success" />
-            <p className="text-sm font-medium text-foreground">All clear</p>
-            <p className="text-xs text-muted-foreground mt-1">No active alerts</p>
-          </CardContent>
-        </Card>
+        <p className="flex items-center gap-2 text-sm text-foreground-secondary">
+          <Check className="size-4 text-success" aria-hidden />
+          No active alerts.
+        </p>
+      )}
+
+      {blockError && (
+        <div role="alert" className="border-l-2 border-destructive py-1 pl-3 text-sm">
+          <span className="font-semibold">Not blocked.</span> {blockError}
+        </div>
       )}
 
       {/* Status filter tabs */}
@@ -108,12 +118,14 @@ export function Alerts() {
         {STATUS_TABS.map((tab) => (
           <button
             key={tab.value}
+            type="button"
             onClick={() => setStatus(tab.value)}
+            aria-pressed={status === tab.value}
             className={cn(
-              "px-3 py-1.5 text-xs font-medium border-b-2 -mb-px transition-colors",
+              "-mb-px border-b-2 px-3 py-1.5 text-sm",
               status === tab.value
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
+                ? "border-foreground font-semibold text-foreground"
+                : "border-transparent text-foreground-secondary hover:text-foreground"
             )}
           >
             {tab.label}
@@ -122,7 +134,7 @@ export function Alerts() {
       </div>
 
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader>
           <CardTitle>{status === "active" ? "Active alerts" : status === "" ? "All alerts" : `${status} alerts`}</CardTitle>
         </CardHeader>
         <CardContent>
@@ -131,8 +143,8 @@ export function Alerts() {
           ) : alerts.length === 0 ? (
             <EmptyState message="No alerts match this filter" />
           ) : (
-            <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
-              <table className="w-full text-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13px]">
                 <thead>
                   <tr className="border-b border-border">
                     <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Severity</th>
@@ -151,8 +163,13 @@ export function Alerts() {
                       alert={a}
                       onAck={() => ackMutation.mutate(a.id)}
                       onResolve={() => resolveMutation.mutate(a.id)}
+                      // Blackholing needs BGP enabled server-side AND a real host to
+                      // announce. Link-scoped alerts carry a synthetic address.
+                      canBlock={features.bgp && hostTarget(a) !== null}
+                      linkTags={linkTags}
                       onBlock={() => {
-                        if (confirm(`BGP blackhole ${a.target_ip} for 60 minutes?`)) {
+                        const host = hostTarget(a)
+                        if (host && confirm(`Blackhole ${host} through BGP for 60 minutes?`)) {
                           blockMutation.mutate({ id: a.id, duration: 60, reason: a.rule_name })
                         }
                       }}
@@ -171,37 +188,34 @@ export function Alerts() {
   )
 }
 
+// Dark-cockpit counts: a severity lights up only when it has active alerts.
 function SeverityCard({ severity, count }: { severity: AlertSeverity; count: number }) {
   const config = {
-    critical: { color: "text-destructive", bg: "bg-destructive/10 border-destructive/30", icon: ShieldAlert },
-    warning: { color: "text-warning", bg: "bg-warning/10 border-warning/30", icon: AlertTriangle },
-    info: { color: "text-primary", bg: "bg-primary/10 border-primary/30", icon: Info },
+    critical: { label: "Critical", color: "text-destructive", icon: ShieldAlert },
+    warning: { label: "Warning", color: "text-warning", icon: AlertTriangle },
+    info: { label: "Info", color: "text-foreground", icon: Info },
   }[severity]
   const Icon = config.icon
-
+  const lit = count > 0
   return (
-    <Card className={cn(config.bg, count > 0 && severity === "critical" && "animate-pulse")}>
-      <CardHeader className="pb-1">
-        <div className="flex items-center justify-between">
-          <CardTitle className={config.color}>{severity.toUpperCase()}</CardTitle>
-          <Icon className={cn("size-4", config.color)} />
-        </div>
-      </CardHeader>
-      <CardContent>
-        <p className={cn("text-2xl font-bold tabular-nums leading-none", config.color)}>{count}</p>
-      </CardContent>
-    </Card>
+    <div className="border-t border-foreground pt-3">
+      <div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+        <Icon className={cn("size-3.5", lit && config.color)} aria-hidden />
+        {config.label}
+      </div>
+      <p className={cn("mt-1 font-display text-4xl leading-none", lit ? config.color : "text-muted-foreground")}>{count}</p>
+    </div>
   )
 }
 
 function SeverityBadge({ severity }: { severity: AlertSeverity }) {
   const styles = {
-    critical: "bg-destructive/20 text-destructive border-destructive/40",
-    warning: "bg-warning/20 text-warning border-warning/40",
-    info: "bg-primary/20 text-primary border-primary/40",
+    critical: "bg-destructive text-destructive-foreground border-destructive",
+    warning: "bg-warning-muted text-warning border-transparent",
+    info: "border-border text-foreground-secondary",
   }[severity]
   return (
-    <span className={cn("px-1.5 py-0.5 text-[9px] font-medium rounded border uppercase tracking-wide", styles)}>
+    <span className={cn("rounded-sm border px-1.5 py-0.5 text-xs font-semibold capitalize", styles)}>
       {severity}
     </span>
   )
@@ -212,6 +226,8 @@ interface AlertRowProps {
   onAck: () => void
   onResolve: () => void
   onBlock: () => void
+  canBlock: boolean
+  linkTags: Set<string>
   ackPending: boolean
   resolvePending: boolean
   blockPending: boolean
@@ -219,7 +235,7 @@ interface AlertRowProps {
 
 const ALERT_COLSPAN = 7
 
-function AlertRow({ alert: a, onAck, onResolve, onBlock, ackPending, resolvePending, blockPending }: AlertRowProps) {
+function AlertRow({ alert: a, onAck, onResolve, onBlock, canBlock, linkTags, ackPending, resolvePending, blockPending }: AlertRowProps) {
   const [expanded, setExpanded] = useState(false)
   const [explainOpen, setExplainOpen] = useState(false)
 
@@ -229,9 +245,10 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, ackPending, resolvePend
   // contributor explanation in details.extra. Detect them from that payload
   // since the Alert record itself doesn't carry the rule type.
   const isAnomaly = !!extra && (extra.explanation !== undefined || extra.baseline !== undefined)
-  // For anomaly alerts target_ip actually holds the link tag; extra.target is
-  // the authoritative source.
-  const target = (extra?.target || a.target_ip || "").trim()
+  // Link-scoped alerts (anomaly, link_capacity, disk_usage) store a synthetic
+  // 0100::/64 address in target_ip; the real target is details.extra.target.
+  const host = hostTarget(a)
+  const target = (extra?.target || "").trim()
   const topSources = details?.top_sources ?? []
   const hasDetails = isAnomaly || topSources.length > 0
 
@@ -246,29 +263,33 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, ackPending, resolvePend
 
   return (
     <>
-      <tr className="border-b border-border/40 last:border-0 hover:bg-accent/50 transition-colors">
+      <tr className="border-b border-border last:border-0 hover:bg-accent/50">
         <td className="py-1.5">
           <SeverityBadge severity={a.severity} />
         </td>
         <td className="py-1.5 font-medium">{a.rule_name}</td>
         <td className="py-1.5">
-          {isAnomaly && target ? (
-            <Link to={`/link/${target}`} className="text-primary hover:underline font-mono text-[11px]">
+          {host ? (
+            <Link to={`/ip/${encodeURIComponent(host)}`} className="font-ip font-medium hover:underline">
+              {host}
+            </Link>
+          ) : target && linkTags.has(target) ? (
+            <Link to={`/link/${encodeURIComponent(target)}`} className="font-medium hover:underline" title="Link">
               {target}
             </Link>
+          ) : target ? (
+            <span className="font-medium">{target}</span>
           ) : (
-            <Link to={`/ip/${a.target_ip}`} className="text-primary hover:underline font-mono text-[11px]">
-              {a.target_ip}
-            </Link>
+            <span className="text-muted-foreground">No single host</span>
           )}
         </td>
-        <td className="py-1.5 text-right font-mono hidden sm:table-cell">
+        <td className="py-1.5 text-right hidden sm:table-cell">
           {formatMetric(a.metric_type, a.metric_value)}
         </td>
-        <td className="py-1.5 pr-3 text-right font-mono text-muted-foreground hidden sm:table-cell">
+        <td className="py-1.5 pr-3 text-right text-muted-foreground hidden sm:table-cell">
           {formatMetric(a.metric_type, a.threshold)}
         </td>
-        <td className="py-1.5 pl-3 text-muted-foreground text-[10px] hidden md:table-cell">
+        <td className="py-1.5 pl-3 text-muted-foreground text-xs hidden md:table-cell">
           {new Date(a.triggered_at).toLocaleString()}
         </td>
         <td className="py-1.5 text-right">
@@ -276,11 +297,11 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, ackPending, resolvePend
             {hasDetails && (
               <button
                 onClick={() => setExpanded((s) => !s)}
-                className="px-1 py-0.5 text-[10px] rounded border border-input bg-muted/50 hover:bg-accent transition-colors inline-flex items-center gap-0.5"
+                className="inline-flex items-center gap-0.5 rounded border border-input px-1.5 py-0.5 text-xs hover:bg-accent"
                 title={expanded ? "Hide details" : "Show details"}
                 aria-expanded={expanded}
               >
-                {expanded ? <ChevronDown className="size-2.5" /> : <ChevronRight className="size-2.5" />}
+                {expanded ? <ChevronDown className="size-3" aria-hidden /> : <ChevronRight className="size-3" aria-hidden />}
                 Details
               </button>
             )}
@@ -289,29 +310,32 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, ackPending, resolvePend
                 <button
                   onClick={onAck}
                   disabled={ackPending}
-                  className="px-1.5 py-0.5 text-[10px] rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+                  className="rounded border border-input px-1.5 py-0.5 text-xs hover:bg-accent"
                   title="Acknowledge"
                 >
                   Ack
                 </button>
-                <button
-                  onClick={onBlock}
-                  disabled={blockPending}
-                  className="px-1.5 py-0.5 text-[10px] rounded border border-destructive/40 text-destructive bg-destructive/10 hover:bg-destructive/20 transition-colors"
-                  title="BGP blackhole (admin only)"
-                >
-                  Block
-                </button>
+                {canBlock && (
+                  <button
+                    type="button"
+                    onClick={onBlock}
+                    disabled={blockPending}
+                    className="rounded border border-destructive px-1.5 py-0.5 text-xs text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                    title="Blackhole this address through BGP (admins only)"
+                  >
+                    Block
+                  </button>
+                )}
               </>
             )}
             {a.status !== "resolved" && (
               <button
                 onClick={onResolve}
                 disabled={resolvePending}
-                className="px-1.5 py-0.5 text-[10px] rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+                className="rounded border border-input px-1.5 py-0.5 text-xs hover:bg-accent"
                 title="Resolve"
               >
-                <X className="size-2.5" />
+                <X className="size-3" aria-label="Resolve" />
               </button>
             )}
           </div>
@@ -326,7 +350,7 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, ackPending, resolvePend
 
               {isAnomaly && extra?.explanation && (
                 <div className="space-y-1">
-                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                  <div className="text-xs text-muted-foreground">
                     Contributors during the flagged hour (stored)
                   </div>
                   <ExplanationGrid expl={extra.explanation} />
@@ -335,7 +359,7 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, ackPending, resolvePend
 
               {topSources.length > 0 && (
                 <div className="space-y-1">
-                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                  <div className="text-xs text-muted-foreground">
                     Top sources
                   </div>
                   <div className="flex flex-wrap gap-1.5">
@@ -343,7 +367,7 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, ackPending, resolvePend
                       <Link
                         key={ip}
                         to={`/ip/${ip}`}
-                        className="px-1.5 py-0.5 rounded border border-border bg-background font-mono text-[10px] text-primary hover:bg-accent"
+                        className="px-1.5 py-0.5 rounded border border-border bg-background text-xs text-primary hover:bg-accent"
                       >
                         {ip}
                       </Link>
@@ -356,7 +380,7 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, ackPending, resolvePend
                 <div className="space-y-2">
                   <button
                     onClick={() => setExplainOpen((s) => !s)}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 text-[13px] font-medium rounded border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
                   >
                     <Sparkles className="size-3" />
                     {explainOpen ? "Hide live explain" : "Explain (live)"}
@@ -365,18 +389,18 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, ackPending, resolvePend
                   {explainOpen && (
                     <div className="rounded border border-border bg-background/60 p-2">
                       {explainQuery.isLoading ? (
-                        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
                           <Loader2 className="size-3 animate-spin" />
                           Analysing {target} over the last hour…
                         </div>
                       ) : explainQuery.isError ? (
-                        <p className="text-[11px] text-destructive">
+                        <p className="text-[13px] text-destructive">
                           {(explainQuery.error as Error)?.message || "Failed to load explanation"}
                         </p>
                       ) : liveExpl && hasContributors(liveExpl) ? (
                         <ExplanationGrid expl={liveExpl} />
                       ) : (
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-[13px] text-muted-foreground">
                           No contributor data for this window.
                         </p>
                       )}
@@ -404,8 +428,8 @@ function AnomalyStats({ extra }: { extra: AlertDetailsExtra }) {
     <div className="flex flex-wrap gap-x-6 gap-y-1">
       {stats.map((s) => (
         <div key={s.label} className="flex flex-col">
-          <span className="text-[9px] uppercase tracking-widest text-muted-foreground">{s.label}</span>
-          <span className="text-[11px] font-mono tabular-nums">{s.value}</span>
+          <span className="text-xs text-muted-foreground">{s.label}</span>
+          <span className="text-[13px] tabular-nums">{s.value}</span>
         </div>
       ))}
     </div>
@@ -422,20 +446,20 @@ function ContribTable({ title, rows }: { title: string; rows: ContribRow[] }) {
   if (rows.length === 0) {
     return (
       <div className="min-w-0">
-        <div className="text-[9px] uppercase tracking-widest text-muted-foreground mb-1">{title}</div>
-        <p className="text-[10px] text-muted-foreground">—</p>
+        <div className="text-xs text-muted-foreground mb-1">{title}</div>
+        <p className="text-xs text-muted-foreground">—</p>
       </div>
     )
   }
   return (
     <div className="min-w-0">
-      <div className="text-[9px] uppercase tracking-widest text-muted-foreground mb-1">{title}</div>
-      <table className="w-full text-[11px]">
+      <div className="text-xs text-muted-foreground mb-1">{title}</div>
+      <table className="w-full text-[13px]">
         <tbody>
           {rows.map((r, i) => (
             <tr key={i} className="border-b border-border/30 last:border-0">
               <td className="py-0.5 pr-2 truncate max-w-[10rem]">{r.label}</td>
-              <td className="py-0.5 pr-2 text-right font-mono tabular-nums text-muted-foreground whitespace-nowrap">
+              <td className="py-0.5 pr-2 text-right tabular-nums text-muted-foreground whitespace-nowrap">
                 {formatBytes(r.bytes)}
               </td>
               <td className="py-0.5 w-24">
@@ -469,7 +493,7 @@ function ExplanationGrid({ expl }: { expl: AnomalyExplanation }) {
         title="Top source IPs"
         rows={expl.top_sources.map((s) => ({
           label: (
-            <Link to={`/ip/${s.ip}`} className="text-primary hover:underline font-mono">
+            <Link to={`/ip/${s.ip}`} className="text-primary hover:underline font-ip">
               {s.ip}
             </Link>
           ),
@@ -481,7 +505,7 @@ function ExplanationGrid({ expl }: { expl: AnomalyExplanation }) {
         title="Top dst ports"
         rows={expl.top_ports.map((p) => ({
           label: (
-            <span className="font-mono">
+            <span className="">
               {p.service || p.port}
               <span className="text-muted-foreground">/{p.protocol_name || p.protocol}</span>
             </span>
@@ -507,26 +531,8 @@ function parseAlertDetails(raw?: string): AlertDetailsPayload | null {
   }
 }
 
-function formatMetric(type: string, value: number): string {
-  if (type === "bps") {
-    const units = ["bps", "Kbps", "Mbps", "Gbps", "Tbps"]
-    let v = value
-    let i = 0
-    while (v >= 1000 && i < units.length - 1) {
-      v /= 1000
-      i++
-    }
-    return `${v.toFixed(2)} ${units[i]}`
-  }
-  if (type === "pps") {
-    const units = ["pps", "Kpps", "Mpps", "Gpps"]
-    let v = value
-    let i = 0
-    while (v >= 1000 && i < units.length - 1) {
-      v /= 1000
-      i++
-    }
-    return `${v.toFixed(2)} ${units[i]}`
-  }
-  return value.toLocaleString()
+
+// Alert values carry their own unit (metric_type).
+function formatMetric(type: Alert["metric_type"], value: number): string {
+  return formatAlertMetric(value, type)
 }

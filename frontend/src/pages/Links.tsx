@@ -11,6 +11,8 @@ import { ExportButton, type ExportColumn } from "@/components/ExportButton"
 import { LinkTrafficChart } from "@/components/charts/LinkTrafficChart"
 import { ExpandableChart } from "@/components/ExpandableChart"
 import { useUnit } from "@/hooks/useUnit"
+import { stepSecondsOf } from "@/lib/rate"
+import { seriesColor, useChartColors } from "@/hooks/useChartColors"
 import { Plus, Trash2, BarChart3 } from "lucide-react"
 import { EmptyState } from "@/components/ui/error"
 import type { LinkTraffic } from "@/lib/types"
@@ -22,6 +24,7 @@ export function Links() {
   const { data: ipv4Traffic } = useLinksTraffic(4, filters)
   const { data: ipv6Traffic } = useLinksTraffic(6, filters)
   const linkColors = useLinkColors()
+  const step = stepSecondsOf(ipv4Traffic?.meta ?? ipv6Traffic?.meta, periodSeconds)
 
   const linkRows = linksQuery.data?.data ?? []
 
@@ -93,16 +96,16 @@ export function Links() {
   return (
     <div className="space-y-6">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Links</h1>
+        <h1 className="text-2xl font-semibold">Links</h1>
       </div>
 
       {/* Traffic charts */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="overflow-visible">
-          <CardContent className="px-4 pt-5 pb-4">
+          <CardContent className="pt-3">
             {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
               <ExpandableChart title="IPv4 Traffic by Link">
-                <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 Traffic by Link" linkColors={linkColors} timeBounds={timeBounds} />
+                <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 by link" linkColors={linkColors} timeBounds={timeBounds} stepSeconds={step} />
               </ExpandableChart>
             ) : (
               <EmptyState message="No IPv4 link traffic" icon={<BarChart3 className="size-8" />} />
@@ -110,10 +113,10 @@ export function Links() {
           </CardContent>
         </Card>
         <Card className="overflow-visible">
-          <CardContent className="px-4 pt-5 pb-4">
+          <CardContent className="pt-3">
             {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
               <ExpandableChart title="IPv6 Traffic by Link">
-                <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 Traffic by Link" linkColors={linkColors} timeBounds={timeBounds} />
+                <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 by link" linkColors={linkColors} timeBounds={timeBounds} stepSeconds={step} />
               </ExpandableChart>
             ) : (
               <EmptyState message="No IPv6 link traffic" icon={<BarChart3 className="size-8" />} />
@@ -124,14 +127,14 @@ export function Links() {
 
       {/* Links table */}
       <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-base">Known links with traffic</CardTitle>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle>Known links with traffic</CardTitle>
             <ExportButton rows={linkRows} columns={exportColumns} filename="links" />
           </div>
         </CardHeader>
         <CardContent>
-          <QueryBoundary query={linksQuery} isEmpty={(d) => d.data.length === 0} loadingCols={6}>
+          <QueryBoundary query={linksQuery} isEmpty={(d) => !d.data?.length} loadingCols={6}>
             {(data) => (
               <DataTable
                 rows={data.data}
@@ -150,22 +153,26 @@ export function Links() {
   )
 }
 
+// A new link starts on the first series colour (cobalt); operators can pick any.
+const DEFAULT_NEW_LINK_COLOR = "#2f55d4"
+
 function LinkManager() {
   const queryClient = useQueryClient()
+  const chartColors = useChartColors()
   const { data } = useQuery({
     queryKey: ["admin-links"],
     queryFn: () => api.adminLinks(),
   })
 
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ tag: "", router_ip: "", snmp_index: "", description: "", capacity_mbps: "", color: "#e74c3c" })
+  const [form, setForm] = useState({ tag: "", router_ip: "", snmp_index: "", description: "", capacity_mbps: "", color: DEFAULT_NEW_LINK_COLOR })
 
   const createMutation = useMutation({
     mutationFn: (link: Record<string, unknown>) => api.createLink(link),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-links"] })
       queryClient.invalidateQueries({ queryKey: ["links"] })
-      setForm({ tag: "", router_ip: "", snmp_index: "", description: "", capacity_mbps: "", color: "#e74c3c" })
+      setForm({ tag: "", router_ip: "", snmp_index: "", description: "", capacity_mbps: "", color: DEFAULT_NEW_LINK_COLOR })
       setShowForm(false)
     },
   })
@@ -200,9 +207,9 @@ function LinkManager() {
 
   return (
     <Card>
-      <CardHeader className="pb-3">
+      <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base">Link Configuration</CardTitle>
+          <CardTitle>Link Configuration</CardTitle>
           <button
             onClick={() => setShowForm(!showForm)}
             className="text-xs text-primary hover:underline inline-flex items-center gap-1"
@@ -272,27 +279,27 @@ function LinkManager() {
         )}
 
         {data?.data && data.data.length > 0 ? (
-          <table className="w-full text-xs">
+          <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-b border-border">
                 <th className="pb-2 w-6"></th>
                 <th className="pb-2 text-left font-medium text-muted-foreground">Tag</th>
                 <th className="pb-2 text-left font-medium text-muted-foreground">Router IP</th>
                 <th className="pb-2 text-right font-medium text-muted-foreground">SNMP Index</th>
-                <th className="pb-2 text-left font-medium text-muted-foreground">Description</th>
+                <th className="pb-2 pl-6 text-left font-medium text-muted-foreground">Description</th>
                 <th className="pb-2 text-right font-medium text-muted-foreground">Capacity</th>
                 <th className="pb-2 text-right font-medium text-muted-foreground"></th>
               </tr>
             </thead>
             <tbody>
-              {data.data.map((l) => (
-                <tr key={l.tag} className="border-b border-border/50 last:border-0 hover:bg-muted/50">
+              {data.data.map((l, i) => (
+                <tr key={l.tag} className="border-b border-border-soft last:border-0 hover:bg-accent/60">
                   <td className="py-1.5">
                     <input
                       type="color"
-                      defaultValue={l.color || "#e74c3c"}
+                      defaultValue={l.color || seriesColor(chartColors, i)}
                       onBlur={e => {
-                        if (e.target.value !== (l.color || "#e74c3c")) {
+                        if (e.target.value !== (l.color || seriesColor(chartColors, i))) {
                           updateColorMutation.mutate({
                             tag: l.tag, router_ip: l.router_ip,
                             snmp_index: l.snmp_index, description: l.description,
@@ -301,14 +308,15 @@ function LinkManager() {
                         }
                       }}
                       className="size-5 rounded cursor-pointer border-0 p-0"
-                      title="Change link color"
+                      title={l.color ? "Link colour" : "Automatic colour from the theme. Pick one to fix it."}
+                      aria-label={`Colour for ${l.tag}`}
                     />
                   </td>
                   <td className="py-1.5 font-medium">{l.tag}</td>
-                  <td className="py-1.5 font-mono text-muted-foreground">{l.router_ip}</td>
-                  <td className="py-1.5 text-right font-mono">{l.snmp_index}</td>
-                  <td className="py-1.5 text-muted-foreground truncate max-w-48">{l.description || "-"}</td>
-                  <td className="py-1.5 text-right font-mono">{l.capacity_mbps ? `${l.capacity_mbps} Mbps` : "-"}</td>
+                  <td className="py-1.5 font-ip text-muted-foreground">{l.router_ip}</td>
+                  <td className="py-1.5 text-right">{l.snmp_index}</td>
+                  <td className="py-1.5 pl-6 text-muted-foreground truncate max-w-48">{l.description || "-"}</td>
+                  <td className="py-1.5 text-right">{l.capacity_mbps ? `${l.capacity_mbps} Mbps` : "-"}</td>
                   <td className="py-1.5 text-right">
                     <button
                       onClick={() => {
@@ -325,7 +333,7 @@ function LinkManager() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         ) : (
           <p className="text-xs text-muted-foreground">No links configured. Add a link to map router interfaces to named links.</p>
         )}

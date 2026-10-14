@@ -10,9 +10,11 @@ import (
 )
 
 // TestListenerWaitReleasesSenders pins the shutdown contract the collector
-// relies on: once Close has been called, Wait must return, and only then is it
-// safe to close the flows channel. Closing it while a decoder is still draining
-// a packet panics with "send on closed channel".
+// relies on: once Close has been called and the consumer keeps draining, Wait
+// returns, every flow already decoded has been delivered, and only then is it
+// safe to close the flows channel. Closing it while a decoder is still sending
+// panics with "send on closed channel"; abandoning the send on ctx instead
+// silently drops decoded flows.
 func TestListenerWaitReleasesSenders(t *testing.T) {
 	l := NewListener("127.0.0.1:0", 4)
 
@@ -33,13 +35,25 @@ func TestListenerWaitReleasesSenders(t *testing.T) {
 	}
 	defer func() { _ = sender.Close() }()
 
-	pkt := buildV5Packet(10, 1000)
-	for i := 0; i < 50; i++ {
+	const packets, perPacket = 50, 10
+	pkt := buildV5Packet(perPacket, 1000)
+	for i := 0; i < packets; i++ {
 		if _, err := sender.Write(pkt); err != nil {
 			t.Fatalf("write: %v", err)
 		}
 	}
-	time.Sleep(50 * time.Millisecond)
+	// Let the reader pull everything off the socket before it is closed. The
+	// decoders are parked on the unbuffered send meanwhile.
+	time.Sleep(100 * time.Millisecond)
+
+	received := make(chan int)
+	go func() {
+		n := 0
+		for range flows {
+			n++
+		}
+		received <- n
+	}()
 
 	cancel()
 	if err := l.Close(); err != nil {
@@ -58,4 +72,7 @@ func TestListenerWaitReleasesSenders(t *testing.T) {
 	}
 
 	close(flows)
+	if n := <-received; n != packets*perPacket {
+		t.Errorf("delivered %d flows after shutdown, want %d (decoded flows dropped)", n, packets*perPacket)
+	}
 }

@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback } from "react"
+import { formatRate, formatRateAxis, type RateKind } from "@/lib/rate"
 
 const PACKET_NUM_FORMAT = new Intl.NumberFormat()
 
@@ -7,9 +8,23 @@ export type TrafficUnit = "bps" | "bytes" | "pps"
 interface UnitContextType {
   unit: TrafficUnit
   toggleUnit: () => void
-  formatTraffic: (bytes: number, intervalSeconds?: number) => string
+  /**
+   * Formats a byte volume in the selected unit: a rate over `intervalSeconds`
+   * (b/s), a packet rate (p/s), or a plain volume (bytes).
+   *
+   * Packets-per-second needs PACKET counts. Pass them as `packets` wherever the
+   * data has them; without them the value is shown in b/s rather than dividing
+   * bytes by seconds and calling it pps.
+   */
+  formatTraffic: (bytes: number, intervalSeconds?: number, packets?: number) => string
   formatPackets: (packets: number, intervalSeconds?: number) => string
-  formatAxis: (bytes: number, intervalSeconds?: number) => string
+  /**
+   * Short axis label. `kind` says what `value` counts: charts plot packets when
+   * the unit is pps and the series carries packet counts, bytes otherwise.
+   */
+  formatAxis: (value: number, intervalSeconds?: number, kind?: RateKind) => string
+  /** Tooltip / label value for a chart point (see formatAxis for `kind`). */
+  formatValue: (value: number, intervalSeconds?: number, kind?: RateKind) => string
 }
 
 const UnitContext = createContext<UnitContextType | null>(null)
@@ -18,86 +33,55 @@ export const UnitProvider = UnitContext.Provider
 
 const CYCLE: TrafficUnit[] = ["bps", "pps", "bytes"]
 
+function readUnit(): TrafficUnit {
+  try {
+    const v = localStorage.getItem("as-stats-unit")
+    return v === "pps" || v === "bytes" ? v : "bps"
+  } catch {
+    return "bps"
+  }
+}
+
 export function useUnitState(): UnitContextType {
-  const [unit, setUnit] = useState<TrafficUnit>(() => {
-    try {
-      return (localStorage.getItem("as-stats-unit") as TrafficUnit) || "bps"
-    } catch {
-      return "bps"
-    }
-  })
+  const [unit, setUnit] = useState<TrafficUnit>(readUnit)
 
   const toggleUnit = useCallback(() => {
-    setUnit(prev => {
-      const idx = CYCLE.indexOf(prev)
-      const next = CYCLE[(idx + 1) % CYCLE.length]
-      try { localStorage.setItem("as-stats-unit", next) } catch { /* noop */ }
-      return next
-    })
-  }, [])
-
-  const formatTraffic = useCallback((bytes: number, intervalSeconds = 300) => {
-    if (unit === "bps") {
-      const bps = (bytes * 8) / intervalSeconds
-      if (bps < 1) return bps === 0 ? "0 bps" : "<1 bps"
-      const units = ["bps", "Kbps", "Mbps", "Gbps", "Tbps"]
-      const i = Math.min(Math.max(0, Math.floor(Math.log(bps) / Math.log(1000))), units.length - 1)
-      const val = bps / Math.pow(1000, i)
-      return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
+    const next = CYCLE[(CYCLE.indexOf(unit) + 1) % CYCLE.length]
+    try {
+      localStorage.setItem("as-stats-unit", next)
+    } catch {
+      /* noop */
     }
-    if (unit === "pps") {
-      const pps = bytes / intervalSeconds
-      if (pps < 1) return pps === 0 ? "0 pps" : "<1 pps"
-      const units = ["pps", "Kpps", "Mpps", "Gpps"]
-      const i = Math.min(Math.max(0, Math.floor(Math.log(pps) / Math.log(1000))), units.length - 1)
-      const val = pps / Math.pow(1000, i)
-      return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
-    }
-    if (bytes < 1) return bytes === 0 ? "0 B" : "<1 B"
-    const units = ["B", "KB", "MB", "GB", "TB", "PB"]
-    const i = Math.min(Math.max(0, Math.floor(Math.log(bytes) / Math.log(1000))), units.length - 1)
-    const val = bytes / Math.pow(1000, i)
-    return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
+    setUnit(next)
   }, [unit])
 
-  const formatPackets = useCallback((packets: number, intervalSeconds = 300) => {
-    if (unit === "pps" || unit === "bps") {
-      const pps = packets / intervalSeconds
-      if (pps === 0) return "0 pps"
-      const units = ["pps", "Kpps", "Mpps", "Gpps"]
-      const i = Math.min(Math.floor(Math.log(pps) / Math.log(1000)), units.length - 1)
-      const val = pps / Math.pow(1000, i)
-      return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
-    }
-    return PACKET_NUM_FORMAT.format(packets)
-  }, [unit])
+  const formatValue = useCallback(
+    (value: number, intervalSeconds = 300, kind: RateKind = "bytes") => formatRate(value, intervalSeconds, unit, kind),
+    [unit],
+  )
 
-  // Short format for chart axis labels (no space, compact units)
-  const formatAxis = useCallback((bytes: number, intervalSeconds = 300) => {
-    if (unit === "bps") {
-      const bps = (bytes * 8) / intervalSeconds
-      if (bps < 1) return "0"
-      const u = ["", "K", "M", "G", "T"]
-      const i = Math.min(Math.max(0, Math.floor(Math.log(bps) / Math.log(1000))), u.length - 1)
-      const val = bps / Math.pow(1000, i)
-      return `${val < 10 ? val.toFixed(1) : Math.round(val)}${u[i]}`
-    }
-    if (unit === "pps") {
-      const pps = bytes / intervalSeconds
-      if (pps < 1) return "0"
-      const u = ["", "K", "M", "G"]
-      const i = Math.min(Math.max(0, Math.floor(Math.log(pps) / Math.log(1000))), u.length - 1)
-      const val = pps / Math.pow(1000, i)
-      return `${val < 10 ? val.toFixed(1) : Math.round(val)}${u[i]}`
-    }
-    if (bytes < 1) return "0"
-    const u = ["B", "K", "M", "G", "T"]
-    const i = Math.min(Math.max(0, Math.floor(Math.log(bytes) / Math.log(1000))), u.length - 1)
-    const val = bytes / Math.pow(1000, i)
-    return `${val < 10 ? val.toFixed(1) : Math.round(val)}${u[i]}`
-  }, [unit])
+  const formatTraffic = useCallback(
+    (bytes: number, intervalSeconds = 300, packets?: number) =>
+      unit === "pps" && packets !== undefined
+        ? formatRate(packets, intervalSeconds, unit, "packets")
+        : formatRate(bytes, intervalSeconds, unit, "bytes"),
+    [unit],
+  )
 
-  return { unit, toggleUnit, formatTraffic, formatPackets, formatAxis }
+  const formatPackets = useCallback(
+    (packets: number, intervalSeconds = 300) => {
+      if (unit === "bytes") return PACKET_NUM_FORMAT.format(packets)
+      return formatRate(packets, intervalSeconds, "pps", "packets")
+    },
+    [unit],
+  )
+
+  const formatAxis = useCallback(
+    (value: number, intervalSeconds = 300, kind: RateKind = "bytes") => formatRateAxis(value, intervalSeconds, unit, kind),
+    [unit],
+  )
+
+  return { unit, toggleUnit, formatTraffic, formatPackets, formatAxis, formatValue }
 }
 
 export function useUnit(): UnitContextType {

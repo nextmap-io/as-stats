@@ -33,6 +33,7 @@ type Listener struct {
 	addr    string
 	conn    *net.UDPConn
 	workers int
+	packets chan packet
 	// decoders tracks the decoder goroutines, which are the only senders on the
 	// flows channel — see Wait.
 	decoders sync.WaitGroup
@@ -132,6 +133,29 @@ func DecodeDatagram(data []byte, routerIP net.IP) ([]*model.FlowRecord, error) {
 	return flows, nil
 }
 
+// sFlow interface encodings (sFlow v5 §5.1 "interface"): the top two bits of
+// the compact form select the meaning of the low 30. Only format 0 is an
+// ifIndex; 1 means the packet was discarded (value = reason) and 2 that it
+// left on several interfaces (value = count). The raw words used to be
+// matched against link ifIndexes as-is.
+const (
+	ifFormatIndex = 0
+	ifUnknown     = 0x3FFFFFFF
+)
+
+func compactIfIndex(v uint32) uint32 {
+	return expandedIfIndex(v>>30, v&0x3FFFFFFF)
+}
+
+// expandedIfIndex returns the ifIndex for a (format, value) pair, or 0 when
+// the value is not a single known interface.
+func expandedIfIndex(format, value uint32) uint32 {
+	if format != ifFormatIndex || value == ifUnknown {
+		return 0
+	}
+	return value
+}
+
 func decodeFlowSample(data []byte, routerIP net.IP, ts time.Time, expanded bool) []*model.FlowRecord {
 	var samplingRate uint32
 	var inputIf, outputIf uint32
@@ -139,8 +163,11 @@ func decodeFlowSample(data []byte, routerIP net.IP, ts time.Time, expanded bool)
 	var offset int
 
 	if expanded {
-		// Expanded flow sample has 4-byte interface indexes
-		if len(data) < 40 {
+		// Expanded flow sample: interfaces are (format, value) pairs of two
+		// 4-byte words each. Reading them as single words used to take the
+		// input format as the input ifIndex and the output format (usually
+		// 0) as the record count, so expanded samples decoded no flows.
+		if len(data) < 44 {
 			return nil
 		}
 		// seqNo = binary.BigEndian.Uint32(data[0:4])
@@ -149,10 +176,10 @@ func decodeFlowSample(data []byte, routerIP net.IP, ts time.Time, expanded bool)
 		samplingRate = binary.BigEndian.Uint32(data[12:16])
 		// samplePool = binary.BigEndian.Uint32(data[16:20])
 		// drops = binary.BigEndian.Uint32(data[20:24])
-		inputIf = binary.BigEndian.Uint32(data[24:28])
-		outputIf = binary.BigEndian.Uint32(data[28:32])
-		numRecords = binary.BigEndian.Uint32(data[32:36])
-		offset = 36
+		inputIf = expandedIfIndex(binary.BigEndian.Uint32(data[24:28]), binary.BigEndian.Uint32(data[28:32]))
+		outputIf = expandedIfIndex(binary.BigEndian.Uint32(data[32:36]), binary.BigEndian.Uint32(data[36:40]))
+		numRecords = binary.BigEndian.Uint32(data[40:44])
+		offset = 44
 	} else {
 		if len(data) < 32 {
 			return nil
@@ -162,8 +189,8 @@ func decodeFlowSample(data []byte, routerIP net.IP, ts time.Time, expanded bool)
 		samplingRate = binary.BigEndian.Uint32(data[8:12])
 		// samplePool = binary.BigEndian.Uint32(data[12:16])
 		// drops = binary.BigEndian.Uint32(data[16:20])
-		inputIf = binary.BigEndian.Uint32(data[20:24])
-		outputIf = binary.BigEndian.Uint32(data[24:28])
+		inputIf = compactIfIndex(binary.BigEndian.Uint32(data[20:24]))
+		outputIf = compactIfIndex(binary.BigEndian.Uint32(data[24:28]))
 		numRecords = binary.BigEndian.Uint32(data[28:32])
 		offset = 32
 	}
@@ -213,6 +240,10 @@ func decodeRawPacketRecord(data []byte, routerIP net.IP, ts time.Time, samplingR
 	}
 
 	_ = binary.BigEndian.Uint32(data[0:4]) // protocol
+	// frame_length is the original length on the wire, L2 header (and
+	// usually FCS) included — roughly 18 bytes per packet more than the L3
+	// byte counts NetFlow/IPFIX exporters report, so the two are not exactly
+	// comparable.
 	frameLen := binary.BigEndian.Uint32(data[4:8])
 	// data[8:12] = stripped bytes (unused)
 	headerLen := int(binary.BigEndian.Uint32(data[12:16]))

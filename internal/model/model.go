@@ -186,8 +186,6 @@ type Overview struct {
 	TotalBytesOut uint64        `json:"total_bytes_out"`
 	TotalFlows    uint64        `json:"total_flows"`
 	ActiveASCount uint64        `json:"active_as_count"`
-	TopAS         []ASTraffic   `json:"top_as"`
-	TopIP         []IPTraffic   `json:"top_ip"`
 	Links         []LinkTraffic `json:"links"`
 }
 
@@ -367,19 +365,85 @@ type BGPBlock struct {
 	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
 }
 
-// LiveThreat is one row in the real-time DDoS detection table.
-// It is a snapshot from traffic_by_dst_1min over a short window — not a
-// triggered alert. The "status" and "worst_pct" fields express how close
-// the row is to firing the closest matching alert rule.
-type LiveThreat struct {
-	TargetIP        string  `json:"target_ip"`
-	BPS             uint64  `json:"bps"`
-	PPS             uint64  `json:"pps"`
-	SynPPS          uint64  `json:"syn_pps"`
-	UniqueSourceIPs uint64  `json:"unique_src_ips"`
-	WorstPercent    float64 `json:"worst_pct"`            // % of the closest matching threshold (0..∞)
-	WorstRule       string  `json:"worst_rule,omitempty"` // name of the rule the row is closest to
-	Status          string  `json:"status"`               // "ok" | "warn" (>50%) | "critical" (>=100%)
+// Live Threats (GET /threats/live): a snapshot of the hot 1-minute tables,
+// ranked by how far each local host is from its own usual traffic rather
+// than by raw volume. CLAUDE.md "Live Threats" has the definitions.
+
+// Live Threats levels. "normal" rows are counted but only listed with all=1.
+const (
+	ThreatLevelNormal   = "normal"
+	ThreatLevelWatch    = "watch"
+	ThreatLevelIncident = "incident"
+)
+
+// LiveThreats is the payload of GET /threats/live.
+type LiveThreats struct {
+	Direction     string      `json:"direction"` // "in" (local destinations) | "out" (local sources)
+	WindowSeconds uint32      `json:"window_seconds"`
+	Checked       int         `json:"checked"` // candidates evaluated
+	Normal        int         `json:"normal"`  // of which level == "normal"
+	Rows          []ThreatRow `json:"rows"`
+}
+
+// ThreatRow is one local host in the Live Threats table.
+type ThreatRow struct {
+	IP          string            `json:"ip"` // IPv4 without ::ffff:
+	Level       string            `json:"level"`
+	Score       float64           `json:"score"`
+	Now         ThreatNow         `json:"now"`
+	Baseline    ThreatBaseline    `json:"baseline"`
+	Ratio       float64           `json:"ratio"`
+	Since       string            `json:"since"` // RFC 3339 minute; "" when not above its usual now
+	Series      []ThreatPoint     `json:"series"`
+	Signatures  []ThreatSignature `json:"signatures"`
+	ClosestRule string            `json:"closest_rule"`
+	RulePct     float64           `json:"rule_pct"`
+}
+
+// ThreatNow holds a host's window-averaged rates. Peers are unique source
+// IPs (in) or destination IPs (out) over the window; peer ports likewise.
+type ThreatNow struct {
+	BPS            uint64  `json:"bps"`
+	PPS            uint64  `json:"pps"`
+	FlowsPerSec    float64 `json:"flows_per_sec"`
+	TCPPPS         uint64  `json:"tcp_pps"`
+	UDPPPS         uint64  `json:"udp_pps"`
+	ICMPPPS        uint64  `json:"icmp_pps"`
+	SynPPS         uint64  `json:"syn_pps"`
+	AvgPacketBytes uint64  `json:"avg_packet_bytes"`
+	Peers          uint64  `json:"peers"`
+	PeerPorts      uint64  `json:"peer_ports"`
+}
+
+// ThreatBaseline is a host's usual per-minute traffic: the same hour of day
+// over the previous 7 days. Samples counts the minutes found (0 = new host).
+type ThreatBaseline struct {
+	Samples uint64 `json:"samples"`
+	BPSP50  uint64 `json:"bps_p50"`
+	BPSP95  uint64 `json:"bps_p95"`
+	PPSP50  uint64 `json:"pps_p50"`
+	PPSP95  uint64 `json:"pps_p95"`
+}
+
+// ThreatPoint is one complete minute of a host's traffic.
+type ThreatPoint struct {
+	T   time.Time `json:"t"`
+	BPS uint64    `json:"bps"`
+	PPS uint64    `json:"pps"`
+}
+
+// ThreatSignature names the attack shape a row matches.
+type ThreatSignature struct {
+	Kind     string       `json:"kind"`
+	TopPorts []ThreatPort `json:"top_ports,omitempty"`
+}
+
+// ThreatPort is one port's share of a host's traffic in the lookup window
+// (bytes for amplification, flows for smtp_burst).
+type ThreatPort struct {
+	Port     uint16  `json:"port"`
+	Protocol uint8   `json:"protocol"`
+	Pct      float64 `json:"pct"`
 }
 
 // AnomalyContributorAS is one source AS contributing to a link's traffic during
@@ -508,9 +572,19 @@ type LinkCapacity struct {
 	Tag             string   `json:"tag"`
 	Description     string   `json:"description"`
 	CapacityMbps    uint32   `json:"capacity_mbps"`
-	CurrentBps      uint64   `json:"current_bps"` // latest bucket throughput (in+out)
-	P95Bps          uint64   `json:"p95_bps"`     // p95 of per-bucket (in+out) over the window
-	UtilizationPct  *float64 `json:"utilization_pct"`
+	// A link is full duplex: every *_bps without a direction is the BUSIER
+	// direction, max(in, out) — never in+out.
+	CurrentInBps       uint64   `json:"current_in_bps"`  // last complete bucket
+	CurrentOutBps      uint64   `json:"current_out_bps"` // last complete bucket
+	CurrentBps         uint64   `json:"current_bps"`     // max(current_in_bps, current_out_bps)
+	PeakInBps          uint64   `json:"peak_in_bps"`     // busiest bucket over the window
+	PeakOutBps         uint64   `json:"peak_out_bps"`
+	PeakUtilizationPct *float64 `json:"peak_utilization_pct"` // max(peak_in, peak_out) / capacity; nil without capacity
+	P95InBps           uint64   `json:"p95_in_bps"`           // p95 of per-bucket throughput
+	P95OutBps          uint64   `json:"p95_out_bps"`
+	P95Bps             uint64   `json:"p95_bps"`         // max(p95_in_bps, p95_out_bps)
+	UtilizationPct     *float64 `json:"utilization_pct"` // p95_bps / capacity; nil without capacity
+	// Trend and forecasts are fitted on the daily p95 of max(in, out).
 	TrendBpsPerDay  float64  `json:"trend_bps_per_day,omitempty"`
 	ForecastDays80  *float64 `json:"forecast_days_80,omitempty"`
 	ForecastDays95  *float64 `json:"forecast_days_95,omitempty"`
@@ -611,4 +685,29 @@ type ReportSchedule struct {
 	LastRunAt  time.Time `json:"last_run_at"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// Router liveness states reported by GET /status/live.
+const (
+	RouterStateOK      = "ok"      // last flow less than 120 s ago
+	RouterStateStale   = "stale"   // last flow 120 s – 600 s ago
+	RouterStateMissing = "missing" // referenced by a configured link, no flow in the last 10 min
+)
+
+// RouterLiveStatus is one exporter's liveness over the last 10 minutes.
+type RouterLiveStatus struct {
+	RouterIP string `json:"router_ip"` // IPv4 without the ::ffff: prefix
+	LastSeen string `json:"last_seen"` // RFC 3339, "" when nothing in the window
+	Flows10m uint64 `json:"flows_10m"`
+	State    string `json:"state"`
+}
+
+// LiveStatus is the payload of GET /status/live: a cheap health probe for the
+// header dot and the home status strip (reads 10 minutes of flows_raw only).
+type LiveStatus struct {
+	// Healthy is true iff at least one router is known and every router is "ok".
+	Healthy bool               `json:"healthy"`
+	Routers []RouterLiveStatus `json:"routers"`
+	// DiskUsedPct is the highest used-% across ClickHouse disks; nil if unknown.
+	DiskUsedPct *float64 `json:"disk_used_pct"`
 }

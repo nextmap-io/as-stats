@@ -45,7 +45,7 @@ export function TopPrefixes() {
         key: "prefix",
         header: "Prefix",
         sortable: true,
-        className: "font-mono text-[11px]",
+        className: "font-ip text-[13px]",
         render: (pfx) => pfx.prefix,
       },
       {
@@ -55,7 +55,7 @@ export function TopPrefixes() {
         render: (pfx) =>
           pfx.as_number > 0 ? (
             <Link to={`/as/${pfx.as_number}${filterSearch}`} className="hover:underline">
-              <span className="font-mono">AS{pfx.as_number}</span>
+              <span className="">AS{pfx.as_number}</span>
               {pfx.as_name && <span className="ml-1 text-muted-foreground">{pfx.as_name}</span>}
             </Link>
           ) : (
@@ -69,7 +69,7 @@ export function TopPrefixes() {
         numeric: true,
         sortable: true,
         headerClassName: metricHeader("bytes"),
-        render: (pfx) => formatTraffic(pfx.bytes, periodSeconds),
+        render: (pfx) => formatTraffic(pfx.bytes, periodSeconds, pfx.packets),
       },
       {
         key: "packets",
@@ -130,7 +130,7 @@ export function TopPrefixes() {
   return (
     <div className="space-y-6">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-lg font-semibold tracking-tight">Top Prefixes</h1>
+        <h1 className="text-2xl font-semibold">Top Prefixes</h1>
         <div className="flex gap-1 text-xs">
           {(["all", "internal", "external"] as Scope[]).map(s => (
             <button
@@ -145,13 +145,13 @@ export function TopPrefixes() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-sm">
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle>
               {scope === "internal" ? "Internal" : scope === "external" ? "External" : "All"} prefixes by traffic volume
               {scope === "internal" && <span className="font-normal text-muted-foreground ml-2">(grouped by announced prefix)</span>}
             </CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <ViewToggle />
               <MetricToggle value={metric} onChange={(v) => setFilter("metric", v)} />
               <ExportButton rows={rows} columns={exportColumns} filename="top-prefixes" />
@@ -159,7 +159,7 @@ export function TopPrefixes() {
           </div>
         </CardHeader>
         <CardContent>
-          <QueryBoundary query={query} isEmpty={(d) => d.data.length === 0} loadingCols={7}>
+          <QueryBoundary query={query} isEmpty={(d) => !d.data?.length} loadingCols={7}>
             {(data) =>
               view !== "table" ? (
                 <TopNViz

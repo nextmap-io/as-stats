@@ -1,80 +1,123 @@
 @import "tailwindcss";
 
-/* ─── AS-Stats: NOC-inspired dark-first theme ─── */
+/* ─── AS-Stats "Ledger" theme ───────────────────────────────────────────────
+   An operations report, not a neon NOC wall: ink on a quiet grey page, one
+   cobalt for outbound traffic and focus, amber reserved for "watch" and red for
+   incidents. Structure comes from rules and whitespace, not from boxes.
 
-@theme {
-  /* Dark by default — this is a network monitoring tool */
-  --color-background: hsl(220 20% 7%);
-  --color-foreground: hsl(210 20% 88%);
-  --color-card: hsl(220 18% 10%);
-  --color-card-foreground: hsl(210 20% 88%);
-  --color-popover: hsl(220 18% 12%);
-  --color-popover-foreground: hsl(210 20% 88%);
-  --color-primary: hsl(190 90% 50%);
-  --color-primary-foreground: hsl(220 20% 7%);
-  --color-secondary: hsl(220 15% 16%);
-  --color-secondary-foreground: hsl(210 20% 80%);
-  --color-muted: hsl(220 15% 14%);
-  --color-muted-foreground: hsl(215 12% 50%);
-  --color-accent: hsl(220 15% 18%);
-  --color-accent-foreground: hsl(210 20% 88%);
-  --color-destructive: hsl(0 72% 50%);
-  --color-destructive-foreground: hsl(0 0% 100%);
-  --color-border: hsl(220 15% 16%);
-  --color-input: hsl(220 15% 16%);
-  --color-ring: hsl(190 90% 50%);
-  --radius: 0.375rem;
+   Dark values live in @theme (the html element starts with class="dark"), the
+   light values override them under `.light`. Keep both blocks in step.
+   ─────────────────────────────────────────────────────────────────────────── */
 
-  /* Traffic: teal for inbound, amber for outbound — colorblind safe */
-  --color-traffic-in: hsl(174 72% 46%);
-  --color-traffic-out: hsl(36 100% 55%);
-  --color-traffic-in-muted: hsl(174 72% 46% / 0.15);
-  --color-traffic-out-muted: hsl(36 100% 55% / 0.15);
+@theme static {
+  --font-sans: "Archivo", "Helvetica Neue", Arial, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
-  /* Chart palette — all distinguishable under deuteranopia/protanopia */
-  --color-chart-1: hsl(174 72% 46%);
-  --color-chart-2: hsl(36 100% 55%);
-  --color-chart-3: hsl(210 80% 56%);
-  --color-chart-4: hsl(330 70% 60%);
-  --color-chart-5: hsl(270 60% 62%);
+  --color-background: #191c20;
+  --color-foreground: #eceef1;
+  --color-foreground-secondary: #aab1ba;
+  --color-card: #20242a;
+  --color-card-foreground: #eceef1;
+  --color-popover: #20242a;
+  --color-popover-foreground: #eceef1;
+  --color-primary: #eceef1;
+  --color-primary-foreground: #191c20;
+  --color-secondary: #2a2e35;
+  --color-secondary-foreground: #eceef1;
+  --color-muted: #2a2e35;
+  --color-muted-foreground: #8c949e;
+  --color-accent: #2a2e35;
+  --color-accent-foreground: #eceef1;
+  --color-destructive: #ff6f64;
+  --color-destructive-foreground: #191c20;
+  --color-border: #333840;
+  --color-border-soft: #2a2e35;
+  --color-input: #3b4049;
+  --color-ring: #8ea8ff;
+  --color-link: #8ea8ff;
+  --radius: 4px;
 
-  /* Status */
-  --color-success: hsl(152 60% 44%);
-  --color-warning: hsl(36 100% 55%);
+  /* Traffic: inbound = ink, outbound = cobalt. They differ in lightness AND
+     hue, so they survive any colour-vision deficiency and greyscale print. */
+  --color-traffic-in: #d3d8de;
+  --color-traffic-out: #7d9bff;
+  --color-traffic-in-muted: rgb(211 216 222 / 0.16);
+  --color-traffic-out-muted: rgb(125 155 255 / 0.16);
+
+  /* Ordinal series palette (links, stacked charts). Muted, evenly spaced hues
+     that sit next to ink and cobalt; no pure red, which reads as "error". */
+  --color-series-1: #7d9bff;
+  --color-series-2: #4cc3b9;
+  --color-series-3: #e2ae4a;
+  --color-series-4: #c08dda;
+  --color-series-5: #7fc1ee;
+  --color-series-6: #a3aeba;
+  --color-series-7: #a9c25e;
+  --color-series-8: #e68aae;
+  --color-chart-1: var(--color-series-1);
+  --color-chart-2: var(--color-series-2);
+  --color-chart-3: var(--color-series-3);
+  --color-chart-4: var(--color-series-4);
+  --color-chart-5: var(--color-series-5);
+
+  /* State. Normal stays quiet; only "watch" (amber) and "incident" (red) get
+     colour. `warning` is the text tone, `warning-mark` the fill for bars/dots. */
+  --color-success: #63c08a;
+  --color-warning: #f2b852;
+  --color-warning-mark: #f2b852;
+  --color-warning-muted: #3a2f19;
 }
 
 @layer base {
   .light {
-    --color-background: hsl(210 20% 97%);
-    --color-foreground: hsl(220 20% 12%);
-    --color-card: hsl(0 0% 100%);
-    --color-card-foreground: hsl(220 20% 12%);
-    --color-popover: hsl(0 0% 100%);
-    --color-popover-foreground: hsl(220 20% 12%);
-    --color-primary: hsl(190 80% 38%);
-    --color-primary-foreground: hsl(0 0% 100%);
-    --color-secondary: hsl(210 15% 93%);
-    --color-secondary-foreground: hsl(220 20% 20%);
-    --color-muted: hsl(210 15% 94%);
-    --color-muted-foreground: hsl(215 12% 46%);
-    --color-accent: hsl(210 15% 92%);
-    --color-accent-foreground: hsl(220 20% 12%);
-    --color-destructive: hsl(0 72% 50%);
-    --color-destructive-foreground: hsl(0 0% 100%);
-    --color-border: hsl(214 20% 88%);
-    --color-input: hsl(214 20% 88%);
-    --color-ring: hsl(190 80% 38%);
+    --color-background: #f5f6f7;
+    --color-foreground: #15181c;
+    --color-foreground-secondary: #4b525c;
+    --color-card: #ffffff;
+    --color-card-foreground: #15181c;
+    --color-popover: #ffffff;
+    --color-popover-foreground: #15181c;
+    --color-primary: #15181c;
+    --color-primary-foreground: #ffffff;
+    --color-secondary: #e8ebee;
+    --color-secondary-foreground: #15181c;
+    --color-muted: #e8ebee;
+    --color-muted-foreground: #687079;
+    --color-accent: #e8ebee;
+    --color-accent-foreground: #15181c;
+    --color-destructive: #c62828;
+    --color-destructive-foreground: #ffffff;
+    --color-border: #d9dde2;
+    --color-border-soft: #e8ebee;
+    --color-input: #cdd2d8;
+    --color-ring: #2f55d4;
+    --color-link: #2f55d4;
 
-    --color-traffic-in: hsl(174 72% 36%);
-    --color-traffic-out: hsl(30 90% 45%);
-    --color-traffic-in-muted: hsl(174 72% 36% / 0.1);
-    --color-traffic-out-muted: hsl(30 90% 45% / 0.1);
+    --color-traffic-in: #2a2f36;
+    --color-traffic-out: #2f55d4;
+    --color-traffic-in-muted: rgb(42 47 54 / 0.1);
+    --color-traffic-out-muted: rgb(47 85 212 / 0.1);
 
-    --color-chart-1: hsl(174 72% 36%);
-    --color-chart-2: hsl(30 90% 45%);
-    --color-chart-3: hsl(210 70% 48%);
-    --color-chart-4: hsl(330 60% 50%);
-    --color-chart-5: hsl(270 50% 52%);
+    --color-series-1: #2f55d4;
+    --color-series-2: #12857f;
+    --color-series-3: #a8730f;
+    --color-series-4: #8a4fa3;
+    --color-series-5: #3d8fc8;
+    --color-series-6: #5e6b78;
+    --color-series-7: #66812a;
+    --color-series-8: #b94d76;
+
+    --color-success: #2e7d4f;
+    --color-warning: #9a5b00;
+    --color-warning-mark: #e39b1b;
+    --color-warning-muted: #fff4df;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+  .light {
+    color-scheme: light;
   }
 }
 
@@ -83,51 +126,56 @@
     @apply border-border;
   }
 
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: "JetBrains Mono", "SF Mono", "Fira Code", ui-monospace, monospace;
-    font-feature-settings: "tnum" 1, "ss01" 1;
-    font-size: 13px;
+    font-family: var(--font-sans);
+    font-size: 14px;
     line-height: 1.5;
+    /* Tabular lining figures everywhere: numbers line up in columns without a
+       monospace face. */
+    font-variant-numeric: tabular-nums lining-nums;
   }
 
-  /* Smooth transitions on theme change */
-  body, .bg-background, .bg-card, .bg-muted, .bg-accent {
-    transition: background-color 0.2s ease, color 0.2s ease;
+  h1 {
+    font-stretch: 108%;
   }
 
-  /* Tabular numbers everywhere — critical for data tables */
-  table, .font-mono, .tabular-nums {
-    font-variant-numeric: tabular-nums;
-  }
-
-  /* Custom scrollbar for the NOC feel */
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: hsl(220 15% 24%);
-    border-radius: 3px;
-  }
-  .light ::-webkit-scrollbar-thumb {
-    background: hsl(214 20% 80%);
+    background: var(--color-border);
+    border-radius: 4px;
   }
 
-  /* Focus ring — consistent everywhere */
+  ::placeholder {
+    color: var(--color-muted-foreground);
+    opacity: 0.8;
+  }
+
   :focus-visible {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;
-    border-radius: var(--radius);
+  }
+
+  code,
+  kbd,
+  pre {
+    font-family: var(--font-mono);
+    font-size: 0.92em;
   }
 }
 
 /* ─── Utility classes ─── */
 @layer utilities {
-  /* Visually-hidden but available to screen readers (chart data fallbacks). */
   .sr-only {
     position: absolute;
     width: 1px;
@@ -138,6 +186,20 @@
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border-width: 0;
+  }
+
+  /* IP addresses and prefixes: a narrower cut of the same family keeps long
+     IPv6 addresses compact while digits stay tabular. */
+  .font-ip {
+    font-stretch: 88%;
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  /* Large display figures (current throughput). */
+  .font-display {
+    font-stretch: 115%;
+    font-weight: 300;
+    letter-spacing: -0.03em;
   }
 
   .text-traffic-in {
@@ -153,46 +215,22 @@
     background-color: var(--color-traffic-out);
   }
 
-  /* Glow effect for status indicators */
-  .glow-in {
-    box-shadow: 0 0 8px var(--color-traffic-in-muted);
+  .scrollbar-none {
+    scrollbar-width: none;
   }
-  .glow-out {
-    box-shadow: 0 0 8px var(--color-traffic-out-muted);
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
   }
 }
 
-/* ─── Animation keyframes ─── */
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@keyframes pulse-subtle {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.7; }
-}
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
+/* Loading placeholder: a flat block. No shimmer — motion is reserved for things
+   the operator should look at. */
 @layer utilities {
-  .animate-fade-in {
-    animation: fade-in 0.3s ease-out both;
-  }
-  .animate-pulse-subtle {
-    animation: pulse-subtle 2s ease-in-out infinite;
-  }
   .animate-shimmer {
-    background: linear-gradient(90deg, transparent 25%, var(--color-muted) 50%, transparent 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.5s ease-in-out infinite;
+    background: var(--color-muted);
   }
 }
 
-/* ─── Reduced motion (U10 a11y) ─── */
-/* Honor the OS "reduce motion" preference: neutralize shimmer/pulse/fade and
-   theme transitions so users prone to motion sickness get a static UI. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -201,8 +239,5 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
-  }
-  .animate-shimmer {
-    background: var(--color-muted);
   }
 }

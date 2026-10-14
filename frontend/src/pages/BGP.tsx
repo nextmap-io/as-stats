@@ -108,9 +108,9 @@ export function BGP() {
   const history: BGPBlock[] = historyData?.data || []
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className="space-y-4">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2">
+        <h1 className="text-2xl font-semibold flex items-center gap-2">
           <Shield className="size-4" />
           BGP Blocks
         </h1>
@@ -127,7 +127,7 @@ export function BGP() {
               {session && (
                 <span
                   className={cn(
-                    "px-1.5 py-0.5 text-[9px] font-medium rounded border uppercase tracking-wide",
+                    "px-1.5 py-0.5 text-xs font-medium rounded border  ",
                     session.state === "established"
                       ? "bg-success/20 text-success border-success/40"
                       : "bg-destructive/20 text-destructive border-destructive/40"
@@ -141,33 +141,33 @@ export function BGP() {
           <CardContent>
             {statusLoading ? (
               <div className="flex gap-6">
-                <div className="h-4 w-24 rounded bg-muted animate-shimmer" />
-                <div className="h-4 w-24 rounded bg-muted animate-shimmer" />
-                <div className="h-4 w-24 rounded bg-muted animate-shimmer" />
+                <div className="h-4 w-24 rounded bg-muted" />
+                <div className="h-4 w-24 rounded bg-muted" />
+                <div className="h-4 w-24 rounded bg-muted" />
               </div>
             ) : session ? (
               <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
                 {session.peer_address && (
                   <div>
                     <span className="text-muted-foreground">Peer: </span>
-                    <span className="font-mono text-[11px]">{session.peer_address}</span>
+                    <span className="font-ip text-[13px]">{session.peer_address}</span>
                   </div>
                 )}
                 {session.local_as != null && session.peer_as != null && (
                   <div>
                     <span className="text-muted-foreground">AS: </span>
-                    <span className="font-mono text-[11px]">
+                    <span className="font-ip text-[13px]">
                       {session.local_as} / {session.peer_as}
                     </span>
                   </div>
                 )}
                 <div>
                   <span className="text-muted-foreground">Uptime: </span>
-                  <span className="font-mono text-[11px] tabular-nums">{formatUptime(session.uptime)}</span>
+                  <span className="text-[13px] tabular-nums">{formatUptime(session.uptime)}</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Routes announced: </span>
-                  <span className="font-mono text-[11px] tabular-nums">{session.routes_announced}</span>
+                  <span className="text-[13px] tabular-nums">{session.routes_announced}</span>
                 </div>
               </div>
             ) : (
@@ -180,7 +180,7 @@ export function BGP() {
       {/* Section 2: Manual Block Form (admin only) */}
       {isAdmin && (
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Manual block</CardTitle>
               <button
@@ -192,7 +192,7 @@ export function BGP() {
                     setFormDescription("")
                   }
                 }}
-                className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-[13px] font-medium rounded border border-input bg-background hover:bg-accent transition-colors"
               >
                 <Plus className="size-3" />
                 {showForm ? "Cancel" : "Block IP"}
@@ -210,7 +210,7 @@ export function BGP() {
               >
                 <div className="grid gap-2 sm:grid-cols-2">
                   <label htmlFor="bgp-block-ip" className="space-y-1 block">
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    <span className="text-xs font-medium text-muted-foreground">
                       IP address
                     </span>
                     <input
@@ -220,11 +220,11 @@ export function BGP() {
                       value={formIP}
                       onChange={(e) => setFormIP(e.target.value)}
                       placeholder="192.0.2.1 or 2001:db8::1"
-                      className="w-full h-7 px-2 rounded border border-input bg-background text-xs font-mono outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      className="w-full h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     />
                   </label>
                   <label htmlFor="bgp-block-duration" className="space-y-1 block">
-                    <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    <span className="text-xs font-medium text-muted-foreground">
                       Duration
                     </span>
                     <select
@@ -242,7 +242,7 @@ export function BGP() {
                   </label>
                 </div>
                 <label htmlFor="bgp-block-description" className="space-y-1 block">
-                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                  <span className="text-xs font-medium text-muted-foreground">
                     Description
                   </span>
                   <textarea
@@ -254,7 +254,7 @@ export function BGP() {
                     className="w-full px-2 py-1.5 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
                   />
                 </label>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="submit"
                     disabled={blockMutation.isPending}
@@ -263,7 +263,7 @@ export function BGP() {
                     {blockMutation.isPending ? "Blocking..." : "Block IP"}
                   </button>
                   {blockMutation.isError && (
-                    <span className="text-[10px] text-destructive">
+                    <span className="text-xs text-destructive">
                       {(blockMutation.error as Error).message}
                     </span>
                   )}
@@ -279,7 +279,7 @@ export function BGP() {
         <ErrorDisplay error={blocksError as Error} onRetry={() => refetchBlocks()} title="Failed to load active blocks" />
       ) : (
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <CardTitle>Active blocks ({blocks.length})</CardTitle>
           </CardHeader>
           <CardContent>
@@ -288,8 +288,8 @@ export function BGP() {
             ) : blocks.length === 0 ? (
               <EmptyState message="No active blocks" />
             ) : (
-              <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
-                <table className="w-full text-xs">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border">
                       <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">IP</th>
@@ -303,9 +303,9 @@ export function BGP() {
                   </thead>
                   <tbody>
                     {blocks.map((b) => (
-                      <tr key={b.id} className="border-b border-border/40 last:border-0 hover:bg-accent/50 transition-colors">
+                      <tr key={b.id} className="border-b border-border-soft last:border-0 hover:bg-accent/50 transition-colors">
                         <td className="py-1.5">
-                          <Link to={`/ip/${b.ip}`} className="text-primary hover:underline font-mono text-[11px]">
+                          <Link to={`/ip/${b.ip}`} className="text-primary hover:underline font-ip text-[13px]">
                             <IPWithPTR ip={b.ip} />
                           </Link>
                         </td>
@@ -313,13 +313,13 @@ export function BGP() {
                           <ReasonBadge reason={b.reason} />
                         </td>
                         <td className="py-1.5 text-muted-foreground hidden sm:table-cell">{b.blocked_by}</td>
-                        <td className="py-1.5 text-muted-foreground text-[10px] hidden md:table-cell">
+                        <td className="py-1.5 text-muted-foreground text-xs hidden md:table-cell">
                           {relativeTime(b.blocked_at)}
                         </td>
-                        <td className="py-1.5 text-muted-foreground text-[10px] hidden md:table-cell">
+                        <td className="py-1.5 text-muted-foreground text-xs hidden md:table-cell">
                           {b.expires_at ? relativeTime(b.expires_at) : <span className="opacity-50">indefinite</span>}
                         </td>
-                        <td className="py-1.5 text-muted-foreground text-[10px] max-w-[200px] truncate hidden lg:table-cell" title={b.description}>
+                        <td className="py-1.5 text-muted-foreground text-xs max-w-[200px] truncate hidden lg:table-cell" title={b.description}>
                           {b.description || <span className="opacity-50">--</span>}
                         </td>
                         <td className="py-1.5 text-right">
@@ -330,18 +330,18 @@ export function BGP() {
                                 value={unblockReason}
                                 onChange={(e) => setUnblockReason(e.target.value)}
                                 placeholder="Reason"
-                                className="h-6 w-28 px-1.5 rounded border border-input bg-background text-[10px] outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                className="h-6 w-28 px-1.5 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                               />
                               <button
                                 onClick={() => unblockMutation.mutate({ ip: b.ip, description: unblockReason || undefined })}
                                 disabled={unblockMutation.isPending}
-                                className="px-1.5 py-0.5 text-[10px] rounded border border-destructive/40 text-destructive bg-destructive/10 hover:bg-destructive/20 transition-colors"
+                                className="px-1.5 py-0.5 text-xs rounded border border-destructive/40 text-destructive bg-destructive/10 hover:bg-destructive/20 transition-colors"
                               >
                                 {unblockMutation.isPending ? "..." : "Confirm"}
                               </button>
                               <button
                                 onClick={() => { setUnblockTarget(null); setUnblockReason("") }}
-                                className="px-1 py-0.5 text-[10px] rounded border border-input bg-muted/50 hover:bg-accent transition-colors"
+                                className="px-1 py-0.5 text-xs rounded border border-input bg-background hover:bg-accent transition-colors"
                               >
                                 <X className="size-2.5" />
                               </button>
@@ -349,7 +349,7 @@ export function BGP() {
                           ) : (
                             <button
                               onClick={() => setUnblockTarget(b.ip)}
-                              className="px-1.5 py-0.5 text-[10px] rounded border border-destructive/40 text-destructive bg-destructive/10 hover:bg-destructive/20 transition-colors"
+                              className="px-1.5 py-0.5 text-xs rounded border border-destructive/40 text-destructive bg-destructive/10 hover:bg-destructive/20 transition-colors"
                             >
                               Unblock
                             </button>
@@ -370,7 +370,7 @@ export function BGP() {
         <ErrorDisplay error={historyError as Error} onRetry={() => refetchHistory()} title="Failed to load block history" />
       ) : (
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <CardTitle>History (last 200)</CardTitle>
           </CardHeader>
           <CardContent>
@@ -379,8 +379,8 @@ export function BGP() {
             ) : history.length === 0 ? (
               <EmptyState message="No block history" />
             ) : (
-              <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
-                <table className="w-full text-xs">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border">
                       <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">IP</th>
@@ -399,14 +399,14 @@ export function BGP() {
                       <tr
                         key={b.id}
                         className={cn(
-                          "border-b border-border/40 last:border-0 transition-colors",
+                          "border-b border-border-soft last:border-0 transition-colors",
                           b.status === "withdrawn"
                             ? "text-muted-foreground/60 hover:bg-accent/30"
                             : "hover:bg-accent/50"
                         )}
                       >
                         <td className="py-1.5">
-                          <Link to={`/ip/${b.ip}`} className="text-primary hover:underline font-mono text-[11px]">
+                          <Link to={`/ip/${b.ip}`} className="text-primary hover:underline font-ip text-[13px]">
                             <IPWithPTR ip={b.ip} />
                           </Link>
                         </td>
@@ -417,17 +417,17 @@ export function BGP() {
                           <StatusBadge status={b.status} />
                         </td>
                         <td className="py-1.5 hidden sm:table-cell">{b.blocked_by}</td>
-                        <td className="py-1.5 text-[10px] hidden md:table-cell">
+                        <td className="py-1.5 text-xs hidden md:table-cell">
                           {relativeTime(b.blocked_at)}
                         </td>
-                        <td className="py-1.5 text-[10px] max-w-[180px] truncate hidden md:table-cell" title={b.description}>
+                        <td className="py-1.5 text-xs max-w-[180px] truncate hidden md:table-cell" title={b.description}>
                           {b.description || <span className="opacity-50">--</span>}
                         </td>
                         <td className="py-1.5 hidden lg:table-cell">{b.unblocked_by || <span className="opacity-50">--</span>}</td>
-                        <td className="py-1.5 text-[10px] hidden lg:table-cell">
+                        <td className="py-1.5 text-xs hidden lg:table-cell">
                           {b.unblocked_at ? relativeTime(b.unblocked_at) : <span className="opacity-50">--</span>}
                         </td>
-                        <td className="py-1.5 text-[10px] max-w-[160px] truncate hidden lg:table-cell" title={b.unblock_reason || undefined}>
+                        <td className="py-1.5 text-xs max-w-[160px] truncate hidden lg:table-cell" title={b.unblock_reason || undefined}>
                           {b.unblock_reason || <span className="opacity-50">--</span>}
                         </td>
                       </tr>
@@ -454,7 +454,7 @@ function ReasonBadge({ reason }: { reason: BGPBlock["reason"] }) {
       : "bg-primary/20 text-primary border-primary/40"
   const label = reason === "auto_block" ? "auto" : "manual"
   return (
-    <span className={cn("px-1.5 py-0.5 text-[9px] font-medium rounded border uppercase tracking-wide", styles)}>
+    <span className={cn("px-1.5 py-0.5 text-xs font-medium rounded border  ", styles)}>
       {label}
     </span>
   )
@@ -466,7 +466,7 @@ function StatusBadge({ status }: { status: BGPBlock["status"] }) {
       ? "bg-destructive/20 text-destructive border-destructive/40"
       : "bg-muted text-muted-foreground border-border"
   return (
-    <span className={cn("px-1.5 py-0.5 text-[9px] font-medium rounded border uppercase tracking-wide", styles)}>
+    <span className={cn("px-1.5 py-0.5 text-xs font-medium rounded border  ", styles)}>
       {status}
     </span>
   )

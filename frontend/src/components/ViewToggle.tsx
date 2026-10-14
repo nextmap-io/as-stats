@@ -43,7 +43,7 @@ export function ViewToggle({ param = "view" }: { param?: string }) {
           aria-pressed={value === v}
           title={label}
           className={cn(
-            "inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded transition-colors",
+            "inline-flex items-center gap-1 px-2 py-0.5 text-[13px] font-medium rounded transition-colors",
             value === v
               ? "bg-primary text-primary-foreground"
               : "text-muted-foreground hover:text-foreground hover:bg-accent",

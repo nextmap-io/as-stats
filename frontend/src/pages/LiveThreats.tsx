@@ -1,347 +1,404 @@
-import { useQuery } from "@tanstack/react-query"
-import { useState, useMemo } from "react"
-import { Link } from "react-router-dom"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Link, useSearchParams } from "react-router-dom"
 import { api } from "@/lib/api"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ErrorDisplay, EmptyState } from "@/components/ui/error"
-import { TableSkeleton } from "@/components/ui/skeleton"
+import { blockErrorMessage } from "@/lib/block"
+import { useFeatureFlags, useFeatures } from "@/hooks/useFeatures"
+import { useCurrentUser } from "@/hooks/useAuth"
+import { ErrorDisplay } from "@/components/ui/error"
+import { Skeleton } from "@/components/ui/skeleton"
 import { IPWithPTR } from "@/components/PTR"
-import { Activity, ShieldAlert, AlertTriangle, CheckCircle2, ArrowUp, ArrowDown } from "lucide-react"
+import { ThreatSpark } from "@/components/threats/ThreatSpark"
+import { formatClock } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import type { LiveThreat, ThreatStatus } from "@/lib/types"
+import {
+  attentionSentence,
+  deviatingAxis,
+  evidence,
+  explainThreat,
+  formatBps,
+  formatPps,
+  normalizeThreats,
+  quietSentence,
+  ratioLabel,
+  signatureLabel,
+  usualLabel,
+  windowPhrase,
+} from "@/lib/threats"
+import type { ThreatDirection, ThreatLevel, ThreatRow } from "@/lib/types"
 
 const WINDOWS: { value: number; label: string }[] = [
-  { value: 60, label: "1m" },
-  { value: 300, label: "5m" },
-  { value: 900, label: "15m" },
-  { value: 3600, label: "1h" },
+  { value: 60, label: "1 min" },
+  { value: 300, label: "5 min" },
+  { value: 900, label: "15 min" },
+  { value: 3600, label: "1 h" },
 ]
+const DEFAULT_WINDOW = 300
+const REFRESH_MS = 30_000
+const BLOCK_MINUTES = 60
 
-// Sortable columns. The "status" column sorts on worst_pct so the most
-// dangerous rows bubble to the top regardless of their absolute traffic.
-type SortKey = "status" | "target_ip" | "bps" | "pps" | "syn_pps" | "unique_src_ips" | "worst_rule"
-type SortDir = "asc" | "desc"
-
+/**
+ * Live Threats ranks hosts by how far they sit from their own usual level, not
+ * by raw volume: a busy host at its usual level stays quiet. Inbound looks at
+ * local destinations (attacks), outbound at local sources (compromised hosts).
+ */
 export function LiveThreats() {
-  const [windowSec, setWindowSec] = useState<number>(300)
-  const [hideOk, setHideOk] = useState<boolean>(false)
-  const [sortKey, setSortKey] = useState<SortKey>("bps")
-  const [sortDir, setSortDir] = useState<SortDir>("desc")
+  const [params, setParams] = useSearchParams()
+  const dir: ThreatDirection = params.get("dir") === "out" ? "out" : "in"
+  const windowParam = Number(params.get("window"))
+  const windowSec = WINDOWS.some((w) => w.value === windowParam) ? windowParam : DEFAULT_WINDOW
+  const showAll = params.get("all") === "1"
 
-  const { data, isLoading, error, refetch, isFetching } = useQuery({
-    queryKey: ["live-threats", windowSec],
-    queryFn: () => api.liveThreats(windowSec, 100),
-    refetchInterval: 10_000,
+  const setParam = (key: string, value: string | null) => {
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (value === null) next.delete(key)
+        else next.set(key, value)
+        return next
+      },
+      { replace: true },
+    )
+  }
+
+  const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
+    queryKey: ["live-threats", dir, windowSec, showAll],
+    queryFn: () => api.liveThreats({ direction: dir, window: windowSec, limit: showAll ? 50 : 25, all: showAll }),
+    refetchInterval: REFRESH_MS,
   })
 
-  const all: LiveThreat[] = useMemo(() => data?.data || [], [data])
-  const filtered = useMemo(
-    () => (hideOk ? all.filter((t) => t.status !== "ok") : all),
-    [all, hideOk],
-  )
+  const features = useFeatureFlags()
+  const { data: featuresRes } = useFeatures()
+  const authEnabled = featuresRes?.data?.auth
+  const { data: userData } = useCurrentUser(authEnabled)
+  const isAdmin = authEnabled === false || userData?.data?.role === "admin"
+  // Blackholing only makes sense for an attacked local destination.
+  const canBlock = features.bgp && dir === "in" && isAdmin
 
-  const threats = useMemo(() => {
-    const arr = [...filtered]
-    arr.sort((a, b) => {
-      const va = sortValue(a, sortKey)
-      const vb = sortValue(b, sortKey)
-      let cmp: number
-      if (typeof va === "number" && typeof vb === "number") cmp = va - vb
-      else cmp = String(va).localeCompare(String(vb))
-      return sortDir === "asc" ? cmp : -cmp
-    })
-    return arr
-  }, [filtered, sortKey, sortDir])
+  const queryClient = useQueryClient()
+  const blockMutation = useMutation({
+    mutationFn: ({ ip, reason }: { ip: string; reason: string }) => api.bgpBlock(ip, BLOCK_MINUTES, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["bgp-blocks"] })
+    },
+  })
 
-  if (error) return <ErrorDisplay error={error as Error} onRetry={() => refetch()} />
-
-  const counts = {
-    critical: all.filter((t) => t.status === "critical").length,
-    warn: all.filter((t) => t.status === "warn").length,
-    ok: all.filter((t) => t.status === "ok").length,
-  }
-
-  // Click on a column header: same key flips direction, new key resets to
-  // the natural default (desc for numeric, asc for alpha).
-  const onSort = (key: SortKey) => {
-    if (key === sortKey) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"))
-      return
-    }
-    setSortKey(key)
-    setSortDir(key === "target_ip" || key === "worst_rule" ? "asc" : "desc")
-  }
+  const view = data ? normalizeThreats(data.data, { direction: dir, windowSeconds: windowSec, all: showAll }) : null
+  const rows = view?.data.rows ?? []
+  const flagged = rows.filter((r) => r.level !== "normal")
+  const legacy = view?.legacy ?? false
 
   return (
-    <div className="space-y-4 animate-fade-in">
-      <div className="flex items-baseline justify-between flex-wrap gap-2">
-        <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2">
-          <Activity className="size-4" />
-          Live Threats
-          {isFetching && (
-            <span className="size-1.5 rounded-full bg-primary animate-pulse" aria-label="refreshing" />
-          )}
-        </h1>
-        <div className="flex items-center gap-3">
-          <Link
-            to="/alerts"
-            className="text-[10px] text-muted-foreground hover:text-foreground uppercase tracking-widest"
-          >
-            View triggered alerts →
-          </Link>
-        </div>
+    <div>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+        <h1 className="text-2xl font-semibold">Live threats</h1>
+        <Link to="/alerts" className="text-[13px] text-foreground-secondary underline underline-offset-2 hover:text-foreground">
+          Triggered alerts
+        </Link>
       </div>
-
-      <p className="text-xs text-muted-foreground">
-        Real-time snapshot of the top inbound destinations from the alert engine's hot tables.
-        Rows are evaluated against active rule thresholds — anything ≥50% of any threshold is flagged.
-        Auto-refresh every 10s.
+      <p className="mt-1 max-w-[75ch] text-[13px] text-muted-foreground">
+        Each host is compared with its own usual level at this hour over the last 7 days. The dashed line on each chart
+        is that usual peak (p95); a host that is busy but at its usual level stays quiet.
       </p>
 
-      {/* Status summary cards */}
-      <div className="grid gap-3 grid-cols-3">
-        <StatusCard status="critical" count={counts.critical} />
-        <StatusCard status="warn" count={counts.warn} />
-        <StatusCard status="ok" count={counts.ok} />
-      </div>
-
-      {/* Window selector + filter */}
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex gap-1 border border-border rounded p-0.5 bg-muted/30">
-          {WINDOWS.map((w) => (
-            <button
-              key={w.value}
-              onClick={() => setWindowSec(w.value)}
-              className={cn(
-                "px-2 py-1 text-[10px] font-medium rounded transition-colors",
-                windowSec === w.value
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {w.label}
-            </button>
-          ))}
-        </div>
-        <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer">
+      <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3 text-[13px]">
+        <Segmented
+          label="Direction"
+          value={dir}
+          options={[
+            { value: "in", label: "Inbound" },
+            { value: "out", label: "Outbound" },
+          ]}
+          onChange={(v) => setParam("dir", v === "in" ? null : v)}
+        />
+        <Segmented
+          label="Window"
+          value={String(windowSec)}
+          options={WINDOWS.map((w) => ({ value: String(w.value), label: w.label }))}
+          onChange={(v) => setParam("window", Number(v) === DEFAULT_WINDOW ? null : v)}
+        />
+        <label className="inline-flex cursor-pointer items-center gap-2 text-foreground-secondary">
           <input
             type="checkbox"
-            checked={hideOk}
-            onChange={(e) => setHideOk(e.target.checked)}
-            className="size-3 accent-primary"
+            checked={showAll}
+            onChange={(e) => setParam("all", e.target.checked ? "1" : null)}
+            className="size-3.5 accent-[var(--color-ring)]"
           />
-          Hide quiet rows
+          Show all busy hosts
         </label>
+        <span className="text-muted-foreground sm:ml-auto">
+          {dataUpdatedAt ? `Updated ${formatClock(dataUpdatedAt)}, ` : ""}refreshed every 30{" "}s
+        </span>
       </div>
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle>
-            Top destinations · last {WINDOWS.find((w) => w.value === windowSec)?.label}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <TableSkeleton rows={10} cols={7} />
-          ) : threats.length === 0 ? (
-            <EmptyState
-              message={
-                hideOk
-                  ? "No threats above the OK threshold"
-                  : "No traffic recorded for the selected window"
-              }
-            />
-          ) : (
-            <div className="overflow-x-auto -mx-4 px-4 sm:-mx-5 sm:px-5">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-border">
-                    <SortableTH label="Status" align="left" sortKey="status" current={sortKey} dir={sortDir} onSort={onSort} />
-                    <SortableTH label="Destination" align="left" sortKey="target_ip" current={sortKey} dir={sortDir} onSort={onSort} />
-                    <SortableTH label="bps" align="right" sortKey="bps" current={sortKey} dir={sortDir} onSort={onSort} />
-                    <SortableTH label="pps" align="right" sortKey="pps" current={sortKey} dir={sortDir} onSort={onSort} />
-                    <SortableTH label="SYN/s" align="right" sortKey="syn_pps" current={sortKey} dir={sortDir} onSort={onSort} className="hidden sm:table-cell" />
-                    <SortableTH label="Unique src" align="right" sortKey="unique_src_ips" current={sortKey} dir={sortDir} onSort={onSort} className="hidden sm:table-cell" />
-                    <SortableTH label="Worst rule" align="right" sortKey="worst_rule" current={sortKey} dir={sortDir} onSort={onSort} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {threats.map((t) => (
-                    <tr
-                      key={t.target_ip}
-                      className={cn(
-                        "border-b border-border/40 last:border-0 hover:bg-accent/50 transition-colors",
-                        t.status === "critical" && "bg-destructive/5"
-                      )}
-                    >
-                      <td className="py-1.5">
-                        <StatusBadge status={t.status} pct={t.worst_pct} />
-                      </td>
-                      <td className="py-1.5">
-                        <Link to={`/ip/${t.target_ip}`} className="text-primary hover:underline font-mono text-[11px]">
-                          <IPWithPTR ip={t.target_ip} />
-                        </Link>
-                      </td>
-                      <td className="py-1.5 text-right font-mono">{formatBps(t.bps)}</td>
-                      <td className="py-1.5 text-right font-mono">{formatPps(t.pps)}</td>
-                      <td className="py-1.5 text-right font-mono hidden sm:table-cell">
-                        {t.syn_pps > 0 ? formatPps(t.syn_pps) : <span className="text-muted-foreground">—</span>}
-                      </td>
-                      <td className="py-1.5 text-right font-mono hidden sm:table-cell">
-                        {t.unique_src_ips > 0 ? t.unique_src_ips.toLocaleString() : <span className="text-muted-foreground">—</span>}
-                      </td>
-                      <td className="py-1.5 text-right text-[10px] text-muted-foreground">
-                        {t.worst_rule || <span className="opacity-50">—</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <section aria-labelledby="threats-list" className="mt-4 border-t-2 border-foreground pt-4">
+        <h2 id="threats-list" className="sr-only">
+          {dir === "in" ? "Inbound" : "Outbound"} hosts
+        </h2>
+
+        {error ? (
+          <ErrorDisplay error={error as Error} onRetry={() => refetch()} />
+        ) : isLoading || !view ? (
+          <div className="space-y-3" aria-label="Loading">
+            <Skeleton className="h-5 w-2/3" />
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </div>
+        ) : (
+          <>
+            {flagged.length === 0 ? (
+              <p className="text-[15px]">{quietSentence(view.data.checked, windowSec)}</p>
+            ) : (
+              <p className="text-[15px]">{attentionSentence(flagged.length, view.data.checked, view.data.normal)}</p>
+            )}
+
+            {legacy && (
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                This server does not report usual levels yet: hosts are flagged by how close they are to an alert rule
+                {dir === "out" ? ", and only inbound traffic is shown" : ""}.
+              </p>
+            )}
+
+            {blockMutation.error && (
+              <div role="alert" className="mt-3 border-l-2 border-destructive py-1 pl-3 text-sm">
+                <span className="font-semibold">Not blocked.</span> {blockErrorMessage(blockMutation.error, "This host")}
+              </div>
+            )}
+            {blockMutation.isSuccess && (
+              <p role="status" className="mt-3 text-sm text-foreground-secondary">
+                Blackhole announced for {blockMutation.variables?.ip} for {BLOCK_MINUTES} minutes. See{" "}
+                <Link to="/bgp" className="underline underline-offset-2">
+                  BGP
+                </Link>
+                .
+              </p>
+            )}
+
+            {rows.length > 0 && (
+              <ul className="mt-4 border-t border-border">
+                {rows.map((r) => (
+                  <ThreatItem
+                    key={r.ip}
+                    row={r}
+                    dir={legacy ? "in" : dir}
+                    legacy={legacy}
+                    windowSec={windowSec}
+                    flowSearch={features.flow_search}
+                    canBlock={canBlock && r.level !== "normal"}
+                    blockPending={blockMutation.isPending}
+                    onBlock={(reason) => {
+                      if (confirm(`Blackhole ${r.ip} through BGP for ${BLOCK_MINUTES} minutes?`)) {
+                        blockMutation.mutate({ ip: r.ip, reason })
+                      }
+                    }}
+                  />
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </section>
     </div>
   )
 }
 
-function StatusCard({ status, count }: { status: ThreatStatus; count: number }) {
-  const config = {
-    critical: {
-      title: "CRITICAL",
-      label: "≥ threshold",
-      color: "text-destructive",
-      bg: "bg-destructive/10 border-destructive/30",
-      icon: ShieldAlert,
-    },
-    warn: {
-      title: "WARN",
-      label: "≥ 50% threshold",
-      color: "text-warning",
-      bg: "bg-warning/10 border-warning/30",
-      icon: AlertTriangle,
-    },
-    ok: {
-      title: "OK",
-      label: "below 50%",
-      color: "text-success",
-      bg: "bg-success/10 border-success/30",
-      icon: CheckCircle2,
-    },
-  }[status]
-  const Icon = config.icon
-
-  // Use the standard CardHeader + CardContent pattern (same as TopProtocols)
-  // so the title baseline lines up across cards on the same row. The previous
-  // implementation packed everything into a single CardContent with custom
-  // padding which produced inconsistent vertical positioning.
-  return (
-    <Card className={cn(config.bg, count > 0 && status === "critical" && "animate-pulse")}>
-      <CardHeader className="pb-1">
-        <div className="flex items-center justify-between">
-          <CardTitle className={config.color}>{config.title}</CardTitle>
-          <Icon className={cn("size-4", config.color)} />
-        </div>
-      </CardHeader>
-      <CardContent>
-        <p className={cn("text-2xl font-bold tabular-nums leading-none", config.color)}>{count}</p>
-        <p className="text-[9px] text-muted-foreground mt-1.5">{config.label}</p>
-      </CardContent>
-    </Card>
-  )
-}
-
-// sortValue extracts the value used to sort each row by the requested column.
-// For "status" we use worst_pct (so the sort follows danger level, not the
-// string "critical"/"warn"/"ok") — that gives the most useful default order
-// when the operator clicks the Status header.
-function sortValue(t: LiveThreat, key: SortKey): number | string {
-  switch (key) {
-    case "status":          return t.worst_pct
-    case "target_ip":       return t.target_ip
-    case "bps":             return t.bps
-    case "pps":             return t.pps
-    case "syn_pps":         return t.syn_pps
-    case "unique_src_ips":  return t.unique_src_ips
-    case "worst_rule":      return t.worst_rule || ""
-  }
-}
-
-function SortableTH({
-  label, sortKey, current, dir, onSort, align, className,
+function Segmented({
+  label,
+  value,
+  options,
+  onChange,
 }: {
   label: string
-  sortKey: SortKey
-  current: SortKey
-  dir: SortDir
-  onSort: (k: SortKey) => void
-  align: "left" | "right"
-  className?: string
+  value: string
+  options: { value: string; label: string }[]
+  onChange: (v: string) => void
 }) {
-  const active = current === sortKey
-  const Arrow = dir === "asc" ? ArrowUp : ArrowDown
   return (
-    <th
-      scope="col"
-      className={cn(
-        "pb-1.5 font-medium text-muted-foreground select-none",
-        align === "left" ? "text-left" : "text-right",
-        className,
-      )}
-    >
-      <button
-        type="button"
-        onClick={() => onSort(sortKey)}
-        className={cn(
-          "inline-flex items-center gap-0.5 hover:text-foreground transition-colors",
-          align === "right" && "flex-row-reverse",
-          active && "text-foreground",
-        )}
-      >
-        <span>{label}</span>
-        <Arrow className={cn("size-2.5", active ? "opacity-100" : "opacity-25")} />
-      </button>
-    </th>
+    <div className="inline-flex rounded bg-muted p-0.5" role="group" aria-label={label}>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          aria-pressed={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={cn(
+            "rounded-[3px] px-2.5 py-1 transition-colors duration-100",
+            value === o.value ? "bg-card font-semibold text-foreground" : "text-foreground-secondary hover:text-foreground",
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
   )
 }
 
-function StatusBadge({ status, pct }: { status: ThreatStatus; pct: number }) {
-  const styles = {
-    critical: "bg-destructive/20 text-destructive border-destructive/40",
-    warn: "bg-warning/20 text-warning border-warning/40",
-    ok: "bg-success/20 text-success border-success/40",
-  }[status]
-  const label = status === "ok" ? "OK" : `${Math.round(pct)}%`
+function LevelBadge({ level }: { level: ThreatLevel }) {
+  if (level === "normal") return null
   return (
     <span
       className={cn(
-        "px-1.5 py-0.5 text-[9px] font-medium rounded border uppercase tracking-wide tabular-nums",
-        styles
+        "rounded-sm px-1.5 text-xs font-semibold leading-5",
+        level === "watch" ? "bg-warning-muted text-warning" : "bg-destructive text-destructive-foreground",
       )}
     >
-      {label}
+      {level === "watch" ? "Watch" : "Incident"}
     </span>
   )
 }
 
-function formatBps(value: number): string {
-  const units = ["bps", "Kbps", "Mbps", "Gbps", "Tbps"]
-  let v = value
-  let i = 0
-  while (v >= 1000 && i < units.length - 1) {
-    v /= 1000
-    i++
-  }
-  return `${v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2)} ${units[i]}`
-}
+function ThreatItem({
+  row: r,
+  dir,
+  legacy,
+  windowSec,
+  flowSearch,
+  canBlock,
+  blockPending,
+  onBlock,
+}: {
+  row: ThreatRow
+  dir: ThreatDirection
+  legacy: boolean
+  windowSec: number
+  flowSearch: boolean
+  canBlock: boolean
+  blockPending: boolean
+  onBlock: (reason: string) => void
+}) {
+  const quiet = r.level === "normal"
+  const axis = deviatingAxis(r)
+  const hasHistory = r.baseline.samples > 0
+  const sentence = explainThreat(r, dir, legacy)
+  const facts = evidence(r, dir)
+  const since = r.since ? Date.parse(r.since) : NaN
+  const ratio = hasHistory ? ratioLabel(r.ratio) : ""
 
-function formatPps(value: number): string {
-  const units = ["pps", "Kpps", "Mpps", "Gpps"]
-  let v = value
-  let i = 0
-  while (v >= 1000 && i < units.length - 1) {
-    v /= 1000
-    i++
+  const flowHref = (() => {
+    const to = new Date()
+    const from = new Date(to.getTime() - windowSec * 1000)
+    const q = new URLSearchParams({ [dir === "in" ? "dst_ip" : "src_ip"]: r.ip, from: from.toISOString(), to: to.toISOString() })
+    return `/flows?${q.toString()}`
+  })()
+
+  const figure = (kind: "bps" | "pps") => {
+    const fmt = kind === "bps" ? formatBps : formatPps
+    const now = kind === "bps" ? r.now.bps : r.now.pps
+    const p50 = kind === "bps" ? r.baseline.bps_p50 : r.baseline.pps_p50
+    const p95 = kind === "bps" ? r.baseline.bps_p95 : r.baseline.pps_p95
+    return (
+      <div className="leading-snug">
+        <span className={cn("font-semibold", quiet ? "text-foreground-secondary" : "text-foreground")}>{fmt(now)}</span>
+        {kind === axis && ratio && (
+          <span
+            className={cn(
+              "ml-2 font-semibold",
+              r.level === "incident" && "text-destructive",
+              r.level === "watch" && "text-warning",
+            )}
+          >
+            {ratio}
+          </span>
+        )}
+        {!legacy && (
+          <span className="block text-[13px] text-muted-foreground">
+            {hasHistory ? usualLabel(p50, p95, fmt) : "no history"}
+          </span>
+        )}
+      </div>
+    )
   }
-  return `${v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2)} ${units[i]}`
+
+  return (
+    <li className="grid grid-cols-2 gap-x-6 gap-y-2.5 border-b border-border py-4 lg:grid-cols-[minmax(0,1fr)_190px_220px] lg:gap-x-8">
+      {/* Who and what. */}
+      <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+        <LevelBadge level={r.level} />
+        <Link
+          to={`/ip/${encodeURIComponent(r.ip)}`}
+          className={cn("min-w-0 max-w-full font-ip text-[15px] hover:underline", quiet ? "font-medium" : "font-semibold")}
+        >
+          <IPWithPTR ip={r.ip} />
+        </Link>
+        {r.signatures.map((s) => (
+          <span key={s.kind} className="rounded-sm border border-border px-1.5 text-xs leading-5 text-foreground">
+            {signatureLabel(s)}
+          </span>
+        ))}
+      </div>
+
+      {/* Actions: last on phones, top right on wide screens. */}
+      <div className="order-last col-span-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] lg:order-none lg:col-span-1 lg:justify-end">
+        <Link to={`/ip/${encodeURIComponent(r.ip)}`} className="text-foreground-secondary underline underline-offset-2 hover:text-foreground">
+          IP page
+        </Link>
+        {flowSearch && (
+          <Link to={flowHref} className="text-foreground-secondary underline underline-offset-2 hover:text-foreground">
+            Flow search
+          </Link>
+        )}
+        {canBlock && (
+          <button
+            type="button"
+            onClick={() => onBlock(`Live threats: ${sentence}`)}
+            disabled={blockPending}
+            className="rounded border border-destructive px-1.5 py-0.5 text-xs text-destructive hover:bg-destructive hover:text-destructive-foreground disabled:opacity-50"
+            title="Blackhole this address through BGP (admins only)"
+          >
+            Block
+          </button>
+        )}
+      </div>
+
+      {/* Why it is flagged. */}
+      <div className="col-span-2 min-w-0 lg:col-span-1">
+        <p className={cn(quiet ? "text-foreground-secondary" : "text-foreground")}>{sentence}</p>
+        {facts.length > 0 && <p className="mt-0.5 text-[13px] text-muted-foreground">{facts.join(" · ")}</p>}
+        {r.closest_rule && r.rule_pct > 0 && (
+          <p className="mt-0.5 text-[13px] text-muted-foreground">
+            Closest rule: {r.closest_rule}, at{" "}
+            <span
+              className={cn(
+                !quiet && r.rule_pct >= 100 && "font-semibold text-destructive",
+                !quiet && r.rule_pct >= 50 && r.rule_pct < 100 && "font-semibold text-warning",
+              )}
+            >
+              {Math.round(r.rule_pct)}%
+            </span>{" "}
+            of its threshold
+          </p>
+        )}
+      </div>
+
+      {/* Now against usual. */}
+      <div className="min-w-0 space-y-1.5">
+        {figure("bps")}
+        {((axis === "pps" && !quiet) || legacy) && figure("pps")}
+      </div>
+
+      {/* Last hour. */}
+      <div className="min-w-0">
+        {r.series.length > 1 ? (
+          <>
+            <ThreatSpark
+              series={r.series}
+              axis={axis}
+              p95={axis === "pps" ? r.baseline.pps_p95 : r.baseline.bps_p95}
+              since={r.since}
+              level={r.level}
+              dir={dir}
+              label={`Last 60 minutes of ${axis === "pps" ? "packets" : "traffic"}${hasHistory ? ", dashed line at its usual peak" : ""}`}
+            />
+            <p className="mt-1 flex justify-between text-xs text-muted-foreground">
+              <span>last 60 min</span>
+              {!Number.isNaN(since) && <span className={cn(!quiet && "text-foreground-secondary")}>since {formatClock(since)}</span>}
+            </p>
+          </>
+        ) : (
+          <p className="text-[13px] text-muted-foreground">
+            {legacy ? `Snapshot over the last ${windowPhrase(windowSec)}` : "No minute series"}
+          </p>
+        )}
+      </div>
+    </li>
+  )
 }
