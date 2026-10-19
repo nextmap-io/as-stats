@@ -263,8 +263,18 @@ export function useStorageStatus(enabled = true) {
 export function useSetRetention() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ table, ttl_days, enabled }: { table: string; ttl_days: number; enabled: boolean }) =>
-      api.setRetention(table, { ttl_days, enabled }),
+    mutationFn: ({
+      table,
+      ttl_days,
+      enabled,
+      cold_after_days,
+    }: {
+      table: string
+      ttl_days: number
+      enabled: boolean
+      // Omitted = keep the table's current cold tier (server side).
+      cold_after_days?: number
+    }) => api.setRetention(table, { ttl_days, enabled, cold_after_days }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["storage"] }),
   })
 }

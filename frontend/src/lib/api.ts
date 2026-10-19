@@ -260,7 +260,7 @@ export const api = {
 
   // ─── Storage & retention (admin) ─────────────────────────
   storageStatus: () => fetchAPI<StorageStats>("/admin/storage"),
-  setRetention: (table: string, body: { ttl_days: number; enabled: boolean }) =>
+  setRetention: (table: string, body: { ttl_days: number; enabled: boolean; cold_after_days?: number }) =>
     fetchAPI<RetentionPolicy>(`/admin/retention/${encodeURIComponent(table)}`, undefined, {
       method: "PUT",
       body,
