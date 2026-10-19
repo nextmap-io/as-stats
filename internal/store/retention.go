@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -51,10 +52,23 @@ var retentionTables = map[string]retentionTable{
 	"bgp_blocks":          {TTLColumn: "blocked_at", TTLExpr: "blocked_at", DefaultDays: 365},
 }
 
+// coldVolumeName is the storage-policy volume the cold tier moves data to. The
+// reconciler only manages a cold tier on tables whose live storage policy has
+// a volume with exactly this name (see README › "Cold storage on a second disk").
+const coldVolumeName = "cold"
+
 // buildModifyTTLStatement constructs the ALTER ... MODIFY TTL statement for a
 // table in the whitelist. Both the table name and the TTL expression come from
-// the hardcoded retentionTables map (never user input); `days` is an integer so
-// it cannot carry injection. Returns ok=false for unknown tables.
+// the hardcoded retentionTables map (never user input); `days` / `coldDays` are
+// integers so they cannot carry injection. Returns ok=false for unknown tables
+// and for a cold tier that is not strictly shorter than the retention.
+//
+// coldDays > 0 prepends a move clause, giving
+//
+//	<expr> + INTERVAL c DAY TO VOLUME 'cold', <expr> + INTERVAL d DAY
+//
+// MODIFY TTL replaces the whole table TTL, so coldDays = 0 also *removes* a
+// previously applied move clause.
 //
 // `materialize_ttl_after_modify = 0` is NOT optional. ClickHouse defaults it to
 // 1, which makes every MODIFY TTL enqueue a MATERIALIZE TTL mutation that
@@ -63,16 +77,37 @@ var retentionTables = map[string]retentionTable{
 // trying to free — it is what turned a full disk into a 20h ingestion outage in
 // production. With the setting off the change is metadata-only: existing parts
 // keep their old TTL info and are evicted lazily by normal TTL merges, new and
-// merged parts pick up the new retention immediately.
-func buildModifyTTLStatement(table string, days uint32) (string, bool) {
+// merged parts pick up the new retention immediately. The same holds for the
+// move clause: parts that existed before it carry no move TTL and never move
+// on their own — sweepColdPartitions moves them.
+func buildModifyTTLStatement(table string, days, coldDays uint32) (string, bool) {
 	rt, ok := retentionTables[table]
 	if !ok {
 		return "", false
 	}
+	if coldDays > 0 && coldDays >= days {
+		return "", false
+	}
+	ttl := fmt.Sprintf("%s + INTERVAL %d DAY", rt.TTLExpr, days)
+	if coldDays > 0 {
+		ttl = fmt.Sprintf("%s + INTERVAL %d DAY TO VOLUME '%s', %s", rt.TTLExpr, coldDays, coldVolumeName, ttl)
+	}
 	return fmt.Sprintf(
-		"ALTER TABLE %s MODIFY TTL %s + INTERVAL %d DAY SETTINGS materialize_ttl_after_modify = 0",
-		table, rt.TTLExpr, days,
+		"ALTER TABLE %s MODIFY TTL %s SETTINGS materialize_ttl_after_modify = 0",
+		table, ttl,
 	), true
+}
+
+// validateRetention checks a (ttl_days, cold_after_days) pair: ttl_days >= 1,
+// and cold_after_days is either 0 (no cold tier) or 1 <= c < ttl_days.
+func validateRetention(days, coldDays uint32) error {
+	if days < 1 {
+		return fmt.Errorf("ttl_days must be >= 1")
+	}
+	if coldDays > 0 && coldDays >= days {
+		return fmt.Errorf("cold_after_days (%d) must be 0 (no cold tier) or lower than ttl_days (%d)", coldDays, days)
+	}
+	return nil
 }
 
 // EnsureRetentionPolicies makes sure retention_policies carries one row per
@@ -187,7 +222,7 @@ func (s *ClickHouseStore) retentionPoliciesByTable(ctx context.Context) (map[str
 // table, ordered by table name. Only tables in the whitelist are returned.
 func (s *ClickHouseStore) ListRetentionPolicies(ctx context.Context) ([]model.RetentionPolicy, error) {
 	rows, err := s.conn.Query(ctx, `
-		SELECT table_name, ttl_column, ttl_days, enabled, updated_at
+		SELECT table_name, ttl_column, ttl_days, cold_after_days, enabled, updated_at
 		FROM retention_policies FINAL
 		ORDER BY table_name
 	`)
@@ -200,7 +235,7 @@ func (s *ClickHouseStore) ListRetentionPolicies(ctx context.Context) ([]model.Re
 	for rows.Next() {
 		var p model.RetentionPolicy
 		var enabled uint8
-		if err := rows.Scan(&p.TableName, &p.TTLColumn, &p.TTLDays, &enabled, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.TableName, &p.TTLColumn, &p.TTLDays, &p.ColdAfterDays, &enabled, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		p.Enabled = enabled == 1
@@ -213,35 +248,65 @@ func (s *ClickHouseStore) ListRetentionPolicies(ctx context.Context) ([]model.Re
 // in the retentionTables whitelist; unknown tables are rejected so the API can
 // never write a policy for an arbitrary name. The TTL is not applied here — the
 // reconciler picks it up on its next cycle.
-func (s *ClickHouseStore) SetRetentionPolicy(ctx context.Context, table string, days uint32, enabled bool) error {
+//
+// coldAfterDays is optional: nil keeps the table's current cold tier (so a
+// client that only sends ttl_days / enabled cannot wipe it), a value replaces
+// it (0 removes the cold tier). The resulting pair is checked by
+// validateRetention. Returns the policy as stored.
+func (s *ClickHouseStore) SetRetentionPolicy(ctx context.Context, table string, days uint32, enabled bool, coldAfterDays *uint32) (model.RetentionPolicy, error) {
 	rt, ok := retentionTables[table]
 	if !ok {
-		return fmt.Errorf("unknown table %q", table)
+		return model.RetentionPolicy{}, fmt.Errorf("unknown table %q", table)
 	}
 	if days < 1 {
-		return fmt.Errorf("ttl_days must be >= 1")
+		return model.RetentionPolicy{}, fmt.Errorf("ttl_days must be >= 1")
+	}
+	var cold uint32
+	if coldAfterDays != nil {
+		cold = *coldAfterDays
+	} else {
+		existing, err := s.retentionPoliciesByTable(ctx)
+		if err != nil {
+			return model.RetentionPolicy{}, err
+		}
+		cold = existing[table].ColdAfterDays
+	}
+	if err := validateRetention(days, cold); err != nil {
+		return model.RetentionPolicy{}, err
 	}
 	en := uint8(0)
 	if enabled {
 		en = 1
 	}
-	return s.conn.Exec(ctx, `
-		INSERT INTO retention_policies (table_name, ttl_column, ttl_days, enabled, updated_at)
-		VALUES (@table_name, @ttl_column, @ttl_days, @enabled, @updated_at)
+	now := time.Now().UTC()
+	if err := s.conn.Exec(ctx, `
+		INSERT INTO retention_policies (table_name, ttl_column, ttl_days, cold_after_days, enabled, updated_at)
+		VALUES (@table_name, @ttl_column, @ttl_days, @cold_after_days, @enabled, @updated_at)
 	`,
 		clickhouse.Named("table_name", table),
 		clickhouse.Named("ttl_column", rt.TTLColumn),
 		clickhouse.Named("ttl_days", days),
+		clickhouse.Named("cold_after_days", cold),
 		clickhouse.Named("enabled", en),
-		clickhouse.Named("updated_at", time.Now().UTC()),
-	)
+		clickhouse.Named("updated_at", now),
+	); err != nil {
+		return model.RetentionPolicy{}, err
+	}
+	return model.RetentionPolicy{
+		TableName:     table,
+		TTLColumn:     rt.TTLColumn,
+		TTLDays:       days,
+		ColdAfterDays: cold,
+		Enabled:       enabled,
+		UpdatedAt:     now,
+	}, nil
 }
 
 // liveTTLDays returns, for each whitelisted table that exists, the retention in
-// days currently encoded in its definition. ClickHouse normalises a table TTL to
-// `<expr> + toIntervalDay(N)` in create_table_query, so N is read back out of
-// that. Tables with no TTL, an unparsable one, or a non-day interval are simply
-// absent from the map; callers fall back to the migration default.
+// days currently encoded in its definition — the DELETE interval, never the
+// `TO VOLUME 'cold'` move interval of a cold tier (see parseTableTTL). Tables
+// with no TTL, an unparsable one, or a non-day interval are simply absent from
+// the map; callers fall back to the migration default.
 func (s *ClickHouseStore) liveTTLDays(ctx context.Context) (map[string]uint32, error) {
 	rows, err := s.conn.Query(ctx, `
 		SELECT name, create_table_query FROM system.tables
@@ -261,27 +326,124 @@ func (s *ClickHouseStore) liveTTLDays(ctx context.Context) (map[string]uint32, e
 		if _, ok := retentionTables[name]; !ok {
 			continue
 		}
-		// Only a table-level TTL counts; a column TTL would appear elsewhere in
-		// the statement, so anchor on the "TTL " clause.
-		idx := strings.Index(createQuery, "TTL ")
-		if idx < 0 {
+		ttl, ok := parseTableTTL(createQuery)
+		if !ok || ttl.Deletes != 1 || ttl.DeleteDays == 0 {
 			continue
 		}
-		m := ttlDayPattern.FindStringSubmatch(createQuery[idx:])
-		if len(m) != 2 {
-			continue
-		}
-		days, err := strconv.ParseUint(m[1], 10, 32)
-		if err != nil || days == 0 {
-			continue
-		}
-		out[name] = uint32(days)
+		out[name] = ttl.DeleteDays
 	}
 	return out, rows.Err()
 }
 
-// ttlDayPattern extracts N from the normalised `toIntervalDay(N)` TTL clause.
-var ttlDayPattern = regexp.MustCompile(`toIntervalDay\((\d+)\)`)
+// tableTTL is the table-level TTL of a create_table_query, reduced to what the
+// reconciler manages: the DELETE interval and the optional move-to-cold one.
+type tableTTL struct {
+	DeleteDays uint32 // N of `<expr> + toIntervalDay(N)` with no action (or DELETE)
+	ColdDays   uint32 // N of `<expr> + toIntervalDay(N) TO VOLUME 'cold'`
+	Deletes    int    // number of DELETE elements
+	Colds      int    // number of TO VOLUME 'cold' elements
+	Others     int    // anything else: TO DISK, another volume, RECOMPRESS, WHERE, GROUP BY, non-day interval
+}
+
+// matches reports whether the live TTL is exactly the one buildModifyTTLStatement
+// produces for (days, coldDays): a single DELETE at `days`, a single move to
+// the cold volume at coldDays (none when coldDays = 0), and nothing else. Both
+// intervals and the TO VOLUME clause are compared, so the reconciler neither
+// re-issues the ALTER every cycle nor misses a change to either value.
+func (t tableTTL) matches(days, coldDays uint32) bool {
+	if t.Others != 0 || t.Deletes != 1 || t.DeleteDays != days {
+		return false
+	}
+	if coldDays == 0 {
+		return t.Colds == 0
+	}
+	return t.Colds == 1 && t.ColdDays == coldDays
+}
+
+// ttlElementPattern splits one normalised TTL element into its day interval
+// and trailing action. ClickHouse 24.3 stores
+//
+//	MODIFY TTL ts + INTERVAL 14 DAY TO VOLUME 'cold', ts + INTERVAL 180 DAY
+//
+// in system.tables.create_table_query as
+//
+//	... TTL ts + toIntervalDay(14) TO VOLUME 'cold', ts + toIntervalDay(180) SETTINGS ...
+//
+// (captured from a real 24.3 server; pinned by TestParseTableTTL).
+var ttlElementPattern = regexp.MustCompile(`^.+ \+ toIntervalDay\((\d+)\)(.*)$`)
+
+// parseTableTTL extracts the table-level TTL from a create_table_query.
+// ok=false when the query has no table TTL. Only the text after ` ENGINE = `
+// is searched, so a column-level TTL is never mistaken for the table's, and
+// the clause ends at ` SETTINGS ` (ClickHouse always prints SETTINGS last).
+func parseTableTTL(createQuery string) (tableTTL, bool) {
+	var out tableTTL
+	eng := strings.Index(createQuery, " ENGINE = ")
+	if eng < 0 {
+		return out, false
+	}
+	rest := createQuery[eng:]
+	start := strings.Index(rest, " TTL ")
+	if start < 0 {
+		return out, false
+	}
+	clause := rest[start+len(" TTL "):]
+	if end := strings.Index(clause, " SETTINGS "); end >= 0 {
+		clause = clause[:end]
+	}
+	for _, el := range splitTopLevel(clause) {
+		m := ttlElementPattern.FindStringSubmatch(strings.TrimSpace(el))
+		if m == nil {
+			out.Others++
+			continue
+		}
+		n, err := strconv.ParseUint(m[1], 10, 32)
+		if err != nil {
+			out.Others++
+			continue
+		}
+		switch strings.TrimSpace(m[2]) {
+		case "", "DELETE":
+			out.Deletes++
+			out.DeleteDays = uint32(n)
+		case "TO VOLUME '" + coldVolumeName + "'":
+			out.Colds++
+			out.ColdDays = uint32(n)
+		default:
+			out.Others++
+		}
+	}
+	return out, true
+}
+
+// splitTopLevel splits s on the commas that are outside parentheses and quotes.
+func splitTopLevel(s string) []string {
+	var parts []string
+	depth, start := 0, 0
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			switch c {
+			case '\\':
+				i++
+			case quote:
+				quote = 0
+			}
+		case c == '\'' || c == '"' || c == '`':
+			quote = c
+		case c == '(':
+			depth++
+		case c == ')':
+			depth--
+		case c == ',' && depth == 0:
+			parts = append(parts, s[start:i])
+			start = i + 1
+		}
+	}
+	return append(parts, s[start:])
+}
 
 // presentTables returns the set of tables that actually exist in the current
 // database, so the reconciler / stats can skip feature-gated tables that were
@@ -312,6 +474,13 @@ func (s *ClickHouseStore) presentTables(ctx context.Context) (map[string]bool, e
 // without that setting this loop rewrites whole tables (see its docstring).
 // Tables absent from system.tables (e.g. feature-gated ones that were never
 // created) are skipped. Applied changes are logged.
+//
+// Cold tier: a policy with cold_after_days > 0 only takes effect on a table
+// whose live storage policy has a volume named `cold` (otherwise it is logged
+// once per process and the table is reconciled exactly as without a cold
+// tier). There, the TTL gains a `TO VOLUME 'cold'` clause and
+// sweepColdPartitions moves the partitions that predate it. Every per-table
+// failure is logged and the loop moves on to the next table.
 func (s *ClickHouseStore) ReconcileRetention(ctx context.Context) error {
 	policies, err := s.ListRetentionPolicies(ctx)
 	if err != nil {
@@ -320,6 +489,13 @@ func (s *ClickHouseStore) ReconcileRetention(ctx context.Context) error {
 	present, err := s.presentTables(ctx)
 	if err != nil {
 		return err
+	}
+	coldDisks, err := s.coldDisksByTable(ctx)
+	if err != nil {
+		// Non-fatal: without the policy map no cold tier is applied, which is
+		// exactly the pre-cold-tier behaviour.
+		log.Printf("retention: could not read storage policies, cold tier skipped this cycle: %v", err)
+		coldDisks = map[string][]string{}
 	}
 
 	for _, p := range policies {
@@ -333,18 +509,234 @@ func (s *ClickHouseStore) ReconcileRetention(ctx context.Context) error {
 			continue // feature-gated table not created — nothing to do
 		}
 
-		applied, err := s.applyTTLIfDiverged(ctx, p.TableName, p.TTLDays)
+		cold := s.effectiveColdDays(p, coldDisks[p.TableName])
+
+		applied, err := s.applyTTLIfDiverged(ctx, p.TableName, p.TTLDays, cold)
 		if err != nil {
 			log.Printf("retention: reconcile %s failed: %v", p.TableName, err)
 			continue
 		}
 		if applied {
-			log.Printf("retention: applied TTL %d day(s) to %s", p.TTLDays, p.TableName)
+			if cold > 0 {
+				log.Printf("retention: applied TTL %d day(s), move to volume '%s' after %d day(s), to %s", p.TTLDays, coldVolumeName, cold, p.TableName)
+			} else {
+				log.Printf("retention: applied TTL %d day(s) to %s", p.TTLDays, p.TableName)
+			}
 		}
 
 		if err := s.sweepExpiredPartitions(ctx, p.TableName, p.TTLDays); err != nil {
 			log.Printf("retention: partition sweep %s failed: %v", p.TableName, err)
 		}
+		if cold > 0 {
+			if err := s.sweepColdPartitions(ctx, p.TableName, cold, p.TTLDays, coldDisks[p.TableName]); err != nil {
+				log.Printf("retention: cold move %s failed: %v", p.TableName, err)
+			}
+		}
+	}
+	return nil
+}
+
+// effectiveColdDays returns the cold tier the reconciler actually applies to a
+// table: the policy's cold_after_days when the table's storage policy has a
+// `cold` volume (coldDisks non-empty) and the value is consistent, 0 otherwise.
+// A configured-but-ineffective cold tier is logged once per table per process.
+func (s *ClickHouseStore) effectiveColdDays(p model.RetentionPolicy, coldDisks []string) uint32 {
+	if p.ColdAfterDays == 0 {
+		return 0
+	}
+	if len(coldDisks) == 0 {
+		s.warnColdOnce(p.TableName, fmt.Sprintf(
+			"retention: %s has cold_after_days=%d but its storage policy has no volume named '%s' — cold tier ignored (see README, \"Cold storage on a second disk\")",
+			p.TableName, p.ColdAfterDays, coldVolumeName))
+		return 0
+	}
+	if p.ColdAfterDays >= p.TTLDays {
+		s.warnColdOnce(p.TableName, fmt.Sprintf(
+			"retention: %s has cold_after_days=%d >= ttl_days=%d — cold tier ignored",
+			p.TableName, p.ColdAfterDays, p.TTLDays))
+		return 0
+	}
+	return p.ColdAfterDays
+}
+
+// warnColdOnce logs msg the first time it is called for table in this process.
+// The reconciler runs every RETENTION_RECONCILE_INTERVAL; repeating the same
+// configuration warning every cycle would only bury the log.
+func (s *ClickHouseStore) warnColdOnce(table, msg string) {
+	s.coldWarnMu.Lock()
+	defer s.coldWarnMu.Unlock()
+	if s.coldWarned[table] {
+		return
+	}
+	if s.coldWarned == nil {
+		s.coldWarned = make(map[string]bool)
+	}
+	s.coldWarned[table] = true
+	log.Print(msg)
+}
+
+// storagePolicyInfo is the live storage policy of one table.
+type storagePolicyInfo struct {
+	Policy    string
+	ColdDisks []string // disks of the policy's `cold` volume; empty = no cold volume
+}
+
+// tableStoragePolicies returns, for every table of the current database, its
+// storage policy and the disks of that policy's `cold` volume (if any), from
+// system.tables.storage_policy + system.storage_policies.
+func (s *ClickHouseStore) tableStoragePolicies(ctx context.Context) (map[string]storagePolicyInfo, error) {
+	coldByPolicy := make(map[string][]string)
+	prow, err := s.conn.Query(ctx, `
+		SELECT policy_name, disks FROM system.storage_policies
+		WHERE volume_name = @volume
+	`, clickhouse.Named("volume", coldVolumeName))
+	if err != nil {
+		return nil, fmt.Errorf("query system.storage_policies: %w", err)
+	}
+	for prow.Next() {
+		var policy string
+		var disks []string
+		if err := prow.Scan(&policy, &disks); err != nil {
+			_ = prow.Close()
+			return nil, err
+		}
+		coldByPolicy[policy] = disks
+	}
+	if err := prow.Err(); err != nil {
+		_ = prow.Close()
+		return nil, err
+	}
+	_ = prow.Close()
+
+	trow, err := s.conn.Query(ctx, `
+		SELECT name, storage_policy FROM system.tables
+		WHERE database = currentDatabase()
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query system.tables: %w", err)
+	}
+	defer func() { _ = trow.Close() }()
+	out := make(map[string]storagePolicyInfo)
+	for trow.Next() {
+		var name, policy string
+		if err := trow.Scan(&name, &policy); err != nil {
+			return nil, err
+		}
+		out[name] = storagePolicyInfo{Policy: policy, ColdDisks: coldByPolicy[policy]}
+	}
+	return out, trow.Err()
+}
+
+// coldDisksByTable returns the cold-volume disks of every table whose storage
+// policy has a `cold` volume; tables without one are absent.
+func (s *ClickHouseStore) coldDisksByTable(ctx context.Context) (map[string][]string, error) {
+	pol, err := s.tableStoragePolicies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string][]string)
+	for t, p := range pol {
+		if len(p.ColdDisks) > 0 {
+			out[t] = p.ColdDisks
+		}
+	}
+	return out, nil
+}
+
+// buildMovePartitionToColdStatement returns the MOVE PARTITION ID ... TO VOLUME
+// 'cold' statement for a whitelisted table, or ok=false if the table is
+// unknown or the ID malformed. Same partition-id whitelist as
+// buildDropPartitionStatement: MOVE PARTITION ID cannot take a bound parameter.
+func buildMovePartitionToColdStatement(table, partitionID string) (string, bool) {
+	if _, ok := retentionTables[table]; !ok {
+		return "", false
+	}
+	if !partitionIDPattern.MatchString(partitionID) {
+		return "", false
+	}
+	return fmt.Sprintf("ALTER TABLE %s MOVE PARTITION ID '%s' TO VOLUME '%s'", table, partitionID, coldVolumeName), true
+}
+
+// maxColdMovesPerCycle bounds how many partitions sweepColdPartitions moves per
+// table per reconcile cycle. A MOVE copies the whole partition onto the cold
+// disk — an HDD — so enabling a cold tier on a table with months of history
+// would otherwise write all of it in one burst (flows_log: ~1 GiB per daily
+// partition). Three per table per cycle (default every 15 min) catches up on
+// ~290 daily partitions a day while keeping each burst to a few GiB.
+const maxColdMovesPerCycle = 3
+
+// sweepColdPartitions moves to the `cold` volume the whole partitions that are
+// entirely older than coldDays but still have active parts on a non-cold disk.
+//
+// The TTL move clause alone is not enough, for the same reason a lowered TTL is
+// not (bug #13): buildModifyTTLStatement pins materialize_ttl_after_modify = 0,
+// so parts written or merged before the clause existed carry no move TTL info
+// and ClickHouse never moves them — and closed daily/monthly partitions are
+// never merged again. Partitions about to be dropped by sweepExpiredPartitions
+// (past ttl_days + grace) are skipped: copying them to the HDD first would be
+// wasted I/O. Oldest first, at most maxColdMovesPerCycle per call; the first
+// failure (e.g. not enough space on the cold disk) stops this table's sweep
+// and is returned for the caller to log.
+func (s *ClickHouseStore) sweepColdPartitions(ctx context.Context, table string, coldDays, ttlDays uint32, coldDisks []string) error {
+	if _, ok := retentionTables[table]; !ok {
+		return fmt.Errorf("unknown table %q", table)
+	}
+	if coldDays == 0 || len(coldDisks) == 0 {
+		return nil
+	}
+
+	rows, err := s.conn.Query(ctx, `
+		SELECT partition_id, sumIf(bytes_on_disk, NOT has(@cold_disks, disk_name)) AS hot_bytes
+		FROM system.parts
+		WHERE database = currentDatabase() AND table = @table AND active
+		  AND min_time > toDateTime(0)
+		GROUP BY partition_id
+		HAVING max(max_time) < now() - toIntervalDay(@cold_days)
+		   AND max(max_time) >= now() - toIntervalDay(@drop_days)
+		   AND countIf(NOT has(@cold_disks, disk_name)) > 0
+		ORDER BY max(max_time) ASC
+		LIMIT @max_moves
+	`,
+		clickhouse.Named("table", table),
+		clickhouse.Named("cold_disks", coldDisks),
+		clickhouse.Named("cold_days", uint64(coldDays)),
+		clickhouse.Named("drop_days", uint64(ttlDays)+sweepGraceDays),
+		clickhouse.Named("max_moves", uint64(maxColdMovesPerCycle)),
+	)
+	if err != nil {
+		return fmt.Errorf("list partitions to move: %w", err)
+	}
+	type candidate struct {
+		id    string
+		bytes uint64
+	}
+	var moves []candidate
+	for rows.Next() {
+		var c candidate
+		if err := rows.Scan(&c.id, &c.bytes); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		moves = append(moves, c)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	_ = rows.Close()
+
+	for _, m := range moves {
+		stmt, ok := buildMovePartitionToColdStatement(table, m.id)
+		if !ok {
+			log.Printf("retention: refusing to move %s partition %q: unexpected partition id", table, m.id)
+			continue
+		}
+		start := time.Now()
+		if err := s.conn.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("move partition %s (%d bytes) to volume '%s': %w", m.id, m.bytes, coldVolumeName, err)
+		}
+		log.Printf("retention: moved %s partition %s (%d bytes) to volume '%s' in %s — older than %d day(s)",
+			table, m.id, m.bytes, coldVolumeName, time.Since(start).Round(time.Millisecond), coldDays)
 	}
 	return nil
 }
@@ -444,14 +836,15 @@ func (s *ClickHouseStore) sweepExpiredPartitions(ctx context.Context, table stri
 }
 
 // applyTTLIfDiverged issues the MODIFY TTL only if the live table definition
-// does not already encode the desired retention. ClickHouse normalizes TTL in
-// create_table_query to `... + toIntervalDay(N)`, so we look for that token; if
-// present, the table is already at the desired retention and we skip the ALTER
-// to avoid log noise every cycle. Returns true when an ALTER was issued.
-func (s *ClickHouseStore) applyTTLIfDiverged(ctx context.Context, table string, days uint32) (bool, error) {
-	stmt, ok := buildModifyTTLStatement(table, days)
+// does not already encode the desired retention and cold tier. The normalised
+// TTL in create_table_query is parsed (parseTableTTL) and compared on both
+// intervals and the TO VOLUME clause (tableTTL.matches), so a matching table is
+// skipped — no log noise every cycle — while a change to either value, or a
+// cold tier being switched off, is applied. Returns true when an ALTER was issued.
+func (s *ClickHouseStore) applyTTLIfDiverged(ctx context.Context, table string, days, coldDays uint32) (bool, error) {
+	stmt, ok := buildModifyTTLStatement(table, days, coldDays)
 	if !ok {
-		return false, fmt.Errorf("unknown table %q", table)
+		return false, fmt.Errorf("cannot build TTL for %q (ttl_days=%d, cold_after_days=%d)", table, days, coldDays)
 	}
 
 	var createQuery string
@@ -463,9 +856,8 @@ func (s *ClickHouseStore) applyTTLIfDiverged(ctx context.Context, table string, 
 		return false, fmt.Errorf("read create query: %w", err)
 	}
 
-	desired := fmt.Sprintf("toIntervalDay(%d)", days)
-	if strings.Contains(createQuery, desired) {
-		return false, nil // already at desired retention
+	if live, ok := parseTableTTL(createQuery); ok && live.matches(days, coldDays) {
+		return false, nil // already at desired retention / cold tier
 	}
 
 	if err := s.conn.Exec(ctx, stmt); err != nil {
@@ -537,9 +929,44 @@ func (s *ClickHouseStore) StorageStats(ctx context.Context) (model.StorageStats,
 		if p, ok := policyByTable[t.Table]; ok {
 			t.TTLDays = p.TTLDays
 			t.TTLEnabled = p.Enabled
+			t.ColdAfterDays = p.ColdAfterDays
 		}
 		t.PendingMutations = pending[t.Table]
 		out.Tables = append(out.Tables, t)
+	}
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+	_ = rows.Close()
+
+	// Hot / cold split: live storage policy per table and bytes per disk.
+	storagePolicies, err := s.tableStoragePolicies(ctx)
+	if err != nil {
+		return out, err
+	}
+	perDisk, err := s.tableDiskBytes(ctx)
+	if err != nil {
+		return out, err
+	}
+	for i := range out.Tables {
+		t := &out.Tables[i]
+		pol := storagePolicies[t.Table]
+		t.StoragePolicy = pol.Policy
+		t.HasColdVolume = len(pol.ColdDisks) > 0
+		t.Disks = perDisk[t.Table]
+		for j := range t.Disks {
+			d := &t.Disks[j]
+			d.Cold = slices.Contains(pol.ColdDisks, d.Disk)
+			t.BytesOnDisk += d.Bytes
+			if d.Cold {
+				t.ColdBytes += d.Bytes
+			} else {
+				t.HotBytes += d.Bytes
+			}
+		}
+		if t.Disks == nil {
+			t.Disks = []model.TableDiskBytes{}
+		}
 	}
 
 	disks, err := s.diskStats(ctx)
@@ -548,6 +975,32 @@ func (s *ClickHouseStore) StorageStats(ctx context.Context) (model.StorageStats,
 	}
 	out.Disks = disks
 	return out, nil
+}
+
+// tableDiskBytes returns, per table, the active-part bytes and part count on
+// each disk (system.parts.disk_name), largest first.
+func (s *ClickHouseStore) tableDiskBytes(ctx context.Context) (map[string][]model.TableDiskBytes, error) {
+	rows, err := s.conn.Query(ctx, `
+		SELECT table, disk_name, sum(bytes_on_disk) AS bytes, count() AS parts
+		FROM system.parts
+		WHERE database = currentDatabase() AND active
+		GROUP BY table, disk_name
+		ORDER BY table, bytes DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query system.parts per disk: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := make(map[string][]model.TableDiskBytes)
+	for rows.Next() {
+		var table string
+		var d model.TableDiskBytes
+		if err := rows.Scan(&table, &d.Disk, &d.Bytes, &d.Parts); err != nil {
+			return nil, err
+		}
+		out[table] = append(out[table], d)
+	}
+	return out, rows.Err()
 }
 
 func (s *ClickHouseStore) pendingMutationsByTable(ctx context.Context) (map[string]uint64, error) {
@@ -576,7 +1029,7 @@ func (s *ClickHouseStore) pendingMutationsByTable(ctx context.Context) (map[stri
 
 func (s *ClickHouseStore) diskStats(ctx context.Context) ([]model.DiskStats, error) {
 	rows, err := s.conn.Query(ctx, `
-		SELECT name, free_space, total_space
+		SELECT name, path, free_space, total_space
 		FROM system.disks
 		ORDER BY name
 	`)
@@ -588,7 +1041,7 @@ func (s *ClickHouseStore) diskStats(ctx context.Context) ([]model.DiskStats, err
 	var disks []model.DiskStats
 	for rows.Next() {
 		var d model.DiskStats
-		if err := rows.Scan(&d.Name, &d.FreeBytes, &d.TotalBytes); err != nil {
+		if err := rows.Scan(&d.Name, &d.Path, &d.FreeBytes, &d.TotalBytes); err != nil {
 			return nil, err
 		}
 		if d.TotalBytes >= d.FreeBytes {
@@ -599,7 +1052,27 @@ func (s *ClickHouseStore) diskStats(ctx context.Context) ([]model.DiskStats, err
 		}
 		disks = append(disks, d)
 	}
-	return disks, nil
+	return disks, rows.Err()
+}
+
+// fullestDisk returns the disk with the highest used percentage among those
+// reporting a size. Every disk in system.disks counts — with a hot/cold
+// storage policy that is both the fast `default` disk and the HDD — so the
+// disk_usage alert and /status/live report whichever is closest to full.
+// ok=false when no disk reports a size.
+func fullestDisk(disks []model.DiskStats) (model.DiskStats, bool) {
+	var worst model.DiskStats
+	found := false
+	for _, d := range disks {
+		if d.TotalBytes == 0 {
+			continue
+		}
+		if !found || d.UsedPercent > worst.UsedPercent {
+			worst = d
+			found = true
+		}
+	}
+	return worst, found
 }
 
 // softDeleteTables lists the ReplacingMergeTree config tables that carry a
