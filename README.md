@@ -502,6 +502,108 @@ bind-mount masks the image's own `docker_related_config.xml` and ClickHouse then
 listens on loopback only, unreachable from the other containers while its
 healthcheck still passes.
 
+### Cold storage on a second disk
+
+The big tables — `flows_log`, and to a lesser extent `traffic_by_port` — can
+keep their recent data on the fast disk and move older data to a second,
+larger and slower one (an HDD), which buys a much longer `flows_log`
+retention for the same SSD. ClickHouse does the storage side through a
+*storage policy*; AS-Stats decides per table when data moves.
+
+**1. Declare the disk and the policy.** Copy
+[`clickhouse/config.d/storage-hot-cold.xml.example`](clickhouse/config.d/storage-hot-cold.xml.example)
+to `clickhouse/config.d/storage-hot-cold.xml` (it is not loaded by default):
+
+```xml
+<clickhouse>
+    <storage_configuration>
+        <disks>
+            <cold>
+                <path>/var/lib/clickhouse-cold/</path>
+            </cold>
+        </disks>
+        <policies>
+            <hot_cold>
+                <volumes>
+                    <default>                 <!-- the hot volume: existing disk -->
+                        <disk>default</disk>
+                    </default>
+                    <cold>
+                        <disk>cold</disk>
+                        <prefer_not_to_merge>true</prefer_not_to_merge>
+                    </cold>
+                </volumes>
+                <move_factor>0</move_factor>
+            </hot_cold>
+        </policies>
+    </storage_configuration>
+</clickhouse>
+```
+
+The hot volume **must be named `default`**: ClickHouse only lets a table switch
+to a policy that still contains every volume of its current one, and an
+existing table's policy is `default` with a volume `default` — a volume named
+`hot` is refused with *New storage policy shall contain volumes of the old
+storage policy*. The second volume must be named **`cold`**: that is the name
+AS-Stats looks for. `prefer_not_to_merge` stops ClickHouse from re-merging
+(re-writing) parts on the slow disk. `move_factor` is 0 so data moves only by
+age; ClickHouse's default (0.1) moves parts by size once the hot volume is
+under 10 % free, which can put the newest data on the slow disk — watch the
+hot disk with the `disk_usage` rule instead.
+
+**2. Mount the disk and the file** in a Compose override (bind-mount the
+*file*, never the `config.d` directory — see above). The directory must belong
+to the `clickhouse` user of the image (uid/gid 101):
+
+```yaml
+# docker-compose.override.yml
+services:
+  clickhouse:
+    volumes:
+      - /mnt/hdd/clickhouse-cold:/var/lib/clickhouse-cold
+      - ./clickhouse/config.d/storage-hot-cold.xml:/etc/clickhouse-server/config.d/storage-hot-cold.xml:ro
+```
+
+```bash
+sudo mkdir -p /mnt/hdd/clickhouse-cold && sudo chown 101:101 /mnt/hdd/clickhouse-cold
+docker compose up -d clickhouse
+docker compose exec clickhouse clickhouse-client -q \
+  "SELECT policy_name, volume_name, disks FROM system.storage_policies"
+```
+
+**3. Switch the tables to the policy, once** (metadata-only, nothing is
+rewritten or moved by this statement):
+
+```sql
+ALTER TABLE asstats.flows_log       MODIFY SETTING storage_policy = 'hot_cold';
+ALTER TABLE asstats.traffic_by_port MODIFY SETTING storage_policy = 'hot_cold';
+```
+
+**4. Set "Move to cold after (days)"** next to the retention in Admin ›
+Storage (or `PUT /admin/retention/{table}` with `{"ttl_days": 240,
+"enabled": true, "cold_after_days": 30}`). It must be lower than the
+retention; 0 turns the cold tier off. The field is disabled, with a note, for
+tables whose storage policy has no `cold` volume. On its next cycle the
+reconciler:
+
+- rewrites the table TTL as
+  `ts + INTERVAL 30 DAY TO VOLUME 'cold', ts + INTERVAL 240 DAY` (still
+  metadata-only), so new data moves on its own when it gets old;
+- moves the partitions written *before* that change — they carry no move rule
+  and would otherwise stay on the fast disk forever — with
+  `ALTER TABLE … MOVE PARTITION … TO VOLUME 'cold'`, oldest first and **at most
+  3 partitions per table per cycle** so that switching the tier on for months
+  of history does not write it all to the HDD in one burst. Each move is
+  logged with its size; a failure (e.g. the cold disk is full) is logged and
+  retried next cycle.
+
+Partitions past the retention are still dropped wherever they live. Admin ›
+Storage shows every disk (path, used, free) and each table's hot / cold split;
+the `disk_usage` alert rule and the header's disk indicator watch every disk
+and report the fullest, so a filling HDD is caught too. Sizing example for
+`flows_log` at ~1 GiB/day: 30 days hot (~32 GiB) and a 240-day retention keeps
+~210 days (~220 GiB) on a 300 GB HDD.
+
 ## Monitoring
 
 Both binaries expose Prometheus metrics on `/metrics` (guarded by

@@ -76,12 +76,11 @@ func (s *ClickHouseStore) LiveStatus(ctx context.Context) (model.LiveStatus, err
 
 	// Disk usage is best-effort: a failure leaves it nil ("unknown") rather
 	// than failing the whole health probe.
+	// Every disk counts (hot and cold); the fullest one is reported.
 	if disks, err := s.diskStats(ctx); err == nil && len(disks) > 0 {
 		worst := 0.0
-		for _, d := range disks {
-			if d.TotalBytes > 0 && d.UsedPercent > worst {
-				worst = d.UsedPercent
-			}
+		if d, ok := fullestDisk(disks); ok {
+			worst = d.UsedPercent
 		}
 		out.DiskUsedPct = &worst
 	}

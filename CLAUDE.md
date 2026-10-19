@@ -159,7 +159,7 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 | `internal/store/threats.go` | Live Threats queries: `ThreatCandidates`, `ThreatBaselines`, `ThreatPeerBaselines`, `ThreatPorts`, `ThreatSeries`. Classification lives in `api/handler/threat_classify.go` (pure, table-tested). See "Live Threats". |
 | `internal/store/alerts.go` | Alert rules / alerts / webhooks / audit log CRUD. `AlertDetails` JSON marshaling for `details` column. |
 | `internal/store/alert_queries.go` | `Eval*` query helpers used by the alert engine (incl. `EvalDiskUsage`, `EvalLinkCapacity`, `EvalAnomaly`). **`buildCIDRFilter` lives here** — read its docstring before touching any IP filtering code. |
-| `internal/store/retention.go` | v2: table→TTL whitelist, `EnsureRetentionPolicies`, `ReconcileRetention`, `StorageStats`, `PurgeSoftDeleted`. Runtime retention management (replaces `SetFlowLogRetention`). |
+| `internal/store/retention.go` | v2: table→TTL whitelist, `EnsureRetentionPolicies`, `ReconcileRetention` (+ hot/cold tier: `parseTableTTL`, `sweepColdPartitions`), `StorageStats`, `PurgeSoftDeleted`. Runtime retention management (replaces `SetFlowLogRetention`). |
 | `internal/store/capacity.go` | v2: `LinksCapacity` (busier-direction util%, complete buckets, forecast on daily p95), `LinkLoadCurve`, `EvalLinkCapacity`. See "Capacity semantics". |
 | `internal/store/geo.go` | v2: `TopCountry` (AS-level geo via `as_names.country`). |
 | `internal/store/changes.go` | v2: `Movers`, `Talkers`, `LinkPercentiles` (p50/p95/p99). |
@@ -175,7 +175,7 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 | `internal/services/wellknown.go` | IANA protocol + well-known port name resolution (used by Flow Search and Top Ports). |
 | `internal/model/` | Shared types: `FlowRecord`, `ASTraffic`, `IPTraffic`, `LiveThreats` / `ThreatRow`, `AlertRule`, etc. |
 | `internal/config/` | Env-var config loading. `LoadCollector` and `LoadAPI`. |
-| `migrations/` | ClickHouse DDL, numbered 000001–000015 (000007–000013 include feature-gated tables; 000012 `retention_policies`, 000013 `report_schedules`, 000014 `api_tokens`, 000015 hot-table `SimpleAggregateFunction` fix). Embedded in and applied by `cmd/migrate` (the `migrate` service runs before collector/api), which records each file's SHA-256 — **never edit a released migration**, add a new one. |
+| `migrations/` | ClickHouse DDL, numbered 000001–000016 (000007–000013 include feature-gated tables; 000012 `retention_policies`, 000013 `report_schedules`, 000014 `api_tokens`, 000015 hot-table `SimpleAggregateFunction` fix, 000016 `retention_policies.cold_after_days`). Embedded in and applied by `cmd/migrate` (the `migrate` service runs before collector/api), which records each file's SHA-256 — **never edit a released migration**, add a new one. |
 | `frontend/src/pages/` | One React page per route in `App.tsx`. |
 | `frontend/src/hooks/` | TanStack Query hooks (`useApi.ts`), URL-synced filters (`useFilters.ts`), unit toggle (`useUnit.ts`), chart theme (`useChartColors.ts`), DNS (`useDns.ts`), feature flags (`useFeatures.ts`). |
 | `frontend/src/components/charts/` | `TrafficChart` (single in/out), `LinkTrafficChart` (stacked by link), `ASTrafficChart` (stacked by AS) — all Recharts `AreaChart` with `stepAfter`. |
@@ -247,9 +247,42 @@ partitions scheduled to expire months later. A daily **purge goroutine** physica
 `deleted=1` rows from the `ReplacingMergeTree` config tables (`alert_rules`,
 `webhook_configs`, `hostgroups`, `report_schedules`) older than
 `CONFIG_PURGE_DAYS` (default 30). Storage observability is served by
-`GET /admin/storage` (`system.parts`/`tables`/`mutations`/`disks`) and edited via
+`GET /admin/storage` (`system.parts`/`tables`/`mutations`/`disks`/`storage_policies`:
+every disk with path, per-table bytes per disk and hot/cold split) and edited via
 `PUT /admin/retention/{table}` (admin + CSRF). All table/column names in dynamic
 retention SQL come from the hardcoded whitelist in `store/retention.go`.
+
+**Hot / cold tier** (migration 000016, `retention_policies.cold_after_days`,
+0 = off, else `1 ≤ c < ttl_days`; omitted in the PUT body = keep current).
+Effective only when the table's live storage policy (`system.tables.storage_policy`)
+has a volume named exactly `cold` (`system.storage_policies`); otherwise it is
+logged once per process (`warnColdOnce`) and the table is reconciled as if
+`c = 0`. The operator configures the policy (README › "Cold storage on a second
+disk", `clickhouse/config.d/storage-hot-cold.xml.example`) — its hot volume
+**must be named `default`**, or `MODIFY SETTING storage_policy` is refused
+("shall contain volumes of the old storage policy"). With a cold volume:
+
+- TTL becomes `<expr> + INTERVAL c DAY TO VOLUME 'cold', <expr> + INTERVAL d DAY`
+  (`buildModifyTTLStatement(table, d, c)`, still pinning
+  `materialize_ttl_after_modify = 0`). 24.3 normalises it in
+  `create_table_query` to `ts + toIntervalDay(14) TO VOLUME 'cold', ts + toIntervalDay(180)`;
+  `parseTableTTL` reads the clause between ` TTL ` (after ` ENGINE = `) and
+  ` SETTINGS `, `tableTTL.matches(d, c)` compares both intervals and the move
+  clause (no ALTER every cycle, no missed change, `c = 0` removes the clause),
+  and `liveTTLDays` returns the **DELETE** interval, never the move one.
+- `sweepColdPartitions`: with materialize off, parts written before the move
+  clause have no move TTL and never move (same root cause as bug #13). It moves
+  whole partitions with `max(max_time) < now() - c` that still have active
+  parts on a non-cold disk (`MOVE PARTITION ID … TO VOLUME 'cold'`, same
+  partition-id whitelist as DROP), oldest first, **≤ `maxColdMovesPerCycle` (3)
+  per table per cycle** (HDD write-burst bound), skipping partitions
+  `sweepExpiredPartitions` is about to drop. A failure (cold disk full) stops
+  that table's sweep for the cycle, is logged, and other tables continue.
+  Re-moving a partition already fully on cold errors in ClickHouse ("All parts
+  of partition … are already on volume"), hence the hot-parts filter.
+- `disk_usage` and `/status/live` use `fullestDisk` over **all** disks.
+- `TestIntegrationColdTier` (needs a policy with a `cold` volume, skipped
+  otherwise) checks moves, convergence, no-op cycles and ttl changes.
 
 ## API endpoints
 

@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/nextmap-io/as-stats/internal/model"
 )
 
 // StorageStatus handles GET /api/v1/admin/storage — per-table size/rows/parts,
@@ -35,6 +34,9 @@ func (h *Handler) SetRetention(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		TTLDays uint32 `json:"ttl_days"`
 		Enabled bool   `json:"enabled"`
+		// Optional: omitted keeps the table's current cold tier; 0 removes it;
+		// otherwise 1 <= cold_after_days < ttl_days.
+		ColdAfterDays *uint32 `json:"cold_after_days"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4*1024)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -45,17 +47,17 @@ func (h *Handler) SetRetention(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "ttl_days must be >= 1")
 		return
 	}
-
-	if err := h.Store.SetRetentionPolicy(r.Context(), table, body.TTLDays, body.Enabled); err != nil {
-		// Unknown table is a client error (not in the whitelist).
-		writeError(w, http.StatusBadRequest, err.Error())
+	if c := body.ColdAfterDays; c != nil && *c > 0 && *c >= body.TTLDays {
+		writeError(w, http.StatusBadRequest, "cold_after_days must be 0 (no cold tier) or lower than ttl_days")
 		return
 	}
 
-	updated := model.RetentionPolicy{
-		TableName: table,
-		TTLDays:   body.TTLDays,
-		Enabled:   body.Enabled,
+	updated, err := h.Store.SetRetentionPolicy(r.Context(), table, body.TTLDays, body.Enabled, body.ColdAfterDays)
+	if err != nil {
+		// Unknown table (not in the whitelist) and an inconsistent cold tier
+		// are client errors.
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	writeJSON(w, http.StatusOK, Response{Data: updated})
 }
