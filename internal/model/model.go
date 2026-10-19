@@ -494,11 +494,15 @@ type AnomalyExplanation struct {
 // RetentionPolicy is the desired retention for one TTL-bearing table, stored in
 // the retention_policies table and applied by the reconciler goroutine.
 type RetentionPolicy struct {
-	TableName string    `json:"table_name"`
-	TTLColumn string    `json:"ttl_column"`
-	TTLDays   uint32    `json:"ttl_days"`
-	Enabled   bool      `json:"enabled"`
-	UpdatedAt time.Time `json:"updated_at"`
+	TableName string `json:"table_name"`
+	TTLColumn string `json:"ttl_column"`
+	TTLDays   uint32 `json:"ttl_days"`
+	// ColdAfterDays moves data older than this to the `cold` volume of the
+	// table's storage policy (0 = no cold tier). Only effective on tables whose
+	// storage policy has a volume named `cold`; always < TTLDays when set.
+	ColdAfterDays uint32    `json:"cold_after_days"`
+	Enabled       bool      `json:"enabled"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // APIToken is a read-only programmatic access token (Module G). The plaintext
@@ -538,11 +542,32 @@ type TableStorageStats struct {
 	TTLDays           uint32     `json:"ttl_days"`          // configured retention (0 = unmanaged)
 	TTLEnabled        bool       `json:"ttl_enabled"`       // whether the reconciler manages this table
 	PendingMutations  uint64     `json:"pending_mutations"` // not-yet-done mutations (incl. TTL materialization)
+
+	// Hot / cold tier. StoragePolicy is the table's live storage policy;
+	// HasColdVolume is true when that policy has a volume named `cold` (the
+	// only case where ColdAfterDays has any effect). BytesOnDisk is split by
+	// disk in Disks and summarised as HotBytes (any non-cold volume) / ColdBytes.
+	StoragePolicy string           `json:"storage_policy"`
+	HasColdVolume bool             `json:"has_cold_volume"`
+	ColdAfterDays uint32           `json:"cold_after_days"` // configured (0 = no cold tier)
+	BytesOnDisk   uint64           `json:"bytes_on_disk"`
+	HotBytes      uint64           `json:"hot_bytes"`
+	ColdBytes     uint64           `json:"cold_bytes"`
+	Disks         []TableDiskBytes `json:"disks"`
+}
+
+// TableDiskBytes is one table's active-part footprint on one disk.
+type TableDiskBytes struct {
+	Disk  string `json:"disk"`
+	Bytes uint64 `json:"bytes"`
+	Parts uint64 `json:"parts"`
+	Cold  bool   `json:"cold"` // disk belongs to the policy's `cold` volume
 }
 
 // DiskStats holds usage figures for one ClickHouse disk (system.disks).
 type DiskStats struct {
 	Name        string  `json:"name"`
+	Path        string  `json:"path"`
 	FreeBytes   uint64  `json:"free_bytes"`
 	TotalBytes  uint64  `json:"total_bytes"`
 	UsedBytes   uint64  `json:"used_bytes"`
