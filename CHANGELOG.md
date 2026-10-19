@@ -7,13 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-10-19
+
 ### Added
+- **Hot / cold storage tier.** Tables whose ClickHouse storage policy has a
+  volume named `cold` (e.g. a second, slower disk) can keep recent data on the
+  fast disk and older data on the cold one: set "Move to cold after (days)" in
+  Admin › Storage (`cold_after_days`, migration 000016). The retention
+  reconciler writes `TTL … TO VOLUME 'cold', … DELETE` and moves partitions
+  that predate the rule (at most 3 per table per cycle). See "Cold storage on
+  a second disk" in the README; on ClickHouse 24.3 the hot volume of the
+  policy must be named `default`.
+- Admin › Storage shows every disk and the hot / cold split per table.
 - `scripts/demo/`: a throwaway stack with two weeks of invented traffic for a
   fictional network (AS64500, documentation prefixes), used for screenshots.
 
 ### Changed
 - README rewritten: what AS-Stats is for, a feature overview checked against
   the code, screenshots (light and dark), a shorter quick start.
+- Dependencies: clickhouse-go 2.49; TanStack Query 5.104.2, lucide-react 1.55,
+  vite 8.3.4, vitest 5.0.4, typescript-eslint 8.71.1.
 
 ## [3.2.0] - 2026-10-14
 
