@@ -22,6 +22,11 @@ type ClickHouseStore struct {
 	hbMu      sync.Mutex
 	hbWritten map[string]time.Time
 	hbWindow  time.Duration
+
+	// Tables whose cold_after_days is set but whose storage policy has no
+	// `cold` volume, already logged — see warnNoColdVolumeOnce in retention.go.
+	coldWarnMu sync.Mutex
+	coldWarned map[string]bool
 }
 
 // NewClickHouseStore creates a new ClickHouse connection.

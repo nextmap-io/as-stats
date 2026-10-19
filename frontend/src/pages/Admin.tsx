@@ -165,6 +165,7 @@ function StorageTab() {
   const tables: TableStorageStats[] = data?.data?.tables || []
   const disks: DiskStats[] = data?.data?.disks || []
   const pendingTotal = tables.reduce((acc, t) => acc + t.pending_mutations, 0)
+  const anyCold = tables.some((t) => t.has_cold_volume)
 
   return (
     <div className="space-y-4">
@@ -206,7 +207,7 @@ function StorageTab() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <TableSkeleton rows={8} cols={7} />
+            <TableSkeleton rows={8} cols={9} />
           ) : tables.length === 0 ? (
             <EmptyState message="No tables found" />
           ) : (
@@ -216,10 +217,16 @@ function StorageTab() {
                   <tr className="border-b border-border">
                     <th className="pb-1.5 text-left font-medium text-muted-foreground">Table</th>
                     <th className="pb-1.5 text-right font-medium text-muted-foreground">Compressed</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground hidden lg:table-cell" title="Bytes on disk: hot (fast disk) / cold volume">
+                      Hot / cold
+                    </th>
                     <th className="pb-1.5 text-right font-medium text-muted-foreground">Rows</th>
                     <th className="pb-1.5 text-right font-medium text-muted-foreground">Parts</th>
                     <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Oldest data</th>
                     <th className="pb-1.5 text-right font-medium text-muted-foreground">TTL (days)</th>
+                    <th className="pb-1.5 text-right font-medium text-muted-foreground" title="Move data older than this many days to the cold volume (0 = off)">
+                      Move to cold after (days)
+                    </th>
                     <th className="pb-1.5 text-center font-medium text-muted-foreground">Managed</th>
                   </tr>
                 </thead>
@@ -230,6 +237,13 @@ function StorageTab() {
                 </tbody>
               </table>
             </div>
+          )}
+          {!isLoading && tables.length > 0 && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              {anyCold
+                ? "Move to cold applies to tables whose storage policy has a volume named “cold”; older partitions are moved a few at a time by the reconciler. 0 keeps everything on the hot disk."
+                : "No table uses a storage policy with a “cold” volume, so moving data to a second disk is unavailable. See “Cold storage on a second disk” in the README."}
+            </p>
           )}
         </CardContent>
       </Card>
@@ -248,7 +262,10 @@ function DiskGauge({ disk }: { disk: DiskStats }) {
   return (
     <div>
       <div className="flex items-baseline justify-between mb-1">
-        <span className="text-[13px] text-muted-foreground">{disk.name}</span>
+        <span className="text-[13px] text-muted-foreground">
+          {disk.name}
+          {disk.path && <span className="ml-2 text-xs">{disk.path}</span>}
+        </span>
         <span className={cn("tabular-nums text-[13px]", textColor)}>
           {formatPercent(pct)}
         </span>
@@ -266,32 +283,101 @@ function DiskGauge({ disk }: { disk: DiskStats }) {
   )
 }
 
-function StorageRow({ table }: { table: TableStorageStats }) {
-  const setRetention = useSetRetention()
-  const serverDays = String(table.ttl_days)
-  const [draftDays, setDraftDays] = useState<string>(serverDays)
+// DaysField is an inline-editable day count with save / discard buttons.
+//
+// It adopts the server value whenever it actually changes (own save, 30s
+// refetch, another admin's edit) unless the field is focused. Without this the
+// draft would keep the value read at mount and could push a stale value back
+// over someone else's change. A focused field is left alone so we never yank a
+// half-typed number out from under the operator.
+function DaysField({
+  value,
+  min,
+  max,
+  disabled,
+  title,
+  saveTitle,
+  onSave,
+}: {
+  value: number
+  min: number
+  max?: number
+  disabled: boolean
+  title?: string
+  saveTitle: string
+  onSave: (days: number) => void
+}) {
+  const serverValue = String(value)
+  const [draft, setDraft] = useState<string>(serverValue)
   const editingRef = useRef(false)
 
-  // Adopt the server value whenever it actually changes (own save, 30s refetch,
-  // another admin's edit) unless the field is focused. Without this the draft
-  // would keep the value read at mount and could push a stale TTL back over
-  // someone else's change. A focused field is left alone so we never yank a
-  // half-typed number out from under the operator.
   useEffect(() => {
-    if (!editingRef.current) setDraftDays(serverDays)
-  }, [serverDays])
+    if (!editingRef.current) setDraft(serverValue)
+  }, [serverValue])
 
-  const dirty = draftDays !== serverDays
+  const dirty = draft !== serverValue
 
-  const saveDays = () => {
-    const days = Number(draftDays)
-    if (!Number.isFinite(days) || days < 1) {
-      setDraftDays(serverDays)
+  const save = () => {
+    const days = Number(draft)
+    if (!Number.isInteger(days) || days < min || (max !== undefined && days > max)) {
+      setDraft(serverValue)
       return
     }
-    if (days === table.ttl_days) return
-    setRetention.mutate({ table: table.table, ttl_days: days, enabled: table.ttl_enabled })
+    if (days === value) return
+    onSave(days)
   }
+
+  return (
+    <div className="flex items-center justify-end gap-1" title={title}>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        value={draft}
+        disabled={disabled}
+        onChange={(e) => setDraft(e.target.value)}
+        onFocus={() => { editingRef.current = true }}
+        onBlur={() => { editingRef.current = false }}
+        onKeyDown={(e) => { if (e.key === "Enter") save() }}
+        className="w-16 h-6 px-1.5 rounded border border-input bg-background text-xs tabular-nums text-right outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+      />
+      {dirty && !disabled && (
+        <div className="flex gap-0.5">
+          <button
+            onClick={save}
+            className="p-1 rounded hover:bg-success/10 hover:text-success transition-colors"
+            title={saveTitle}
+          >
+            <Check className="size-3" />
+          </button>
+          <button
+            onClick={() => setDraft(serverValue)}
+            className="p-1 rounded hover:bg-accent transition-colors"
+            title="Discard"
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StorageRow({ table }: { table: TableStorageStats }) {
+  const setRetention = useSetRetention()
+
+  // cold_after_days is omitted on ttl / enabled changes: the server keeps the
+  // table's current cold tier (and rejects a ttl that would no longer exceed it).
+  const saveDays = (days: number) =>
+    setRetention.mutate({ table: table.table, ttl_days: days, enabled: table.ttl_enabled })
+
+  const saveCold = (days: number) =>
+    setRetention.mutate({
+      table: table.table,
+      ttl_days: table.ttl_days,
+      enabled: table.ttl_enabled,
+      cold_after_days: days,
+    })
 
   const toggleEnabled = () => {
     setRetention.mutate({
@@ -300,6 +386,14 @@ function StorageRow({ table }: { table: TableStorageStats }) {
       enabled: !table.ttl_enabled,
     })
   }
+
+  const diskBreakdown = table.disks
+    .map((d) => `${d.disk}${d.cold ? " (cold)" : ""}: ${formatBytes(d.bytes)} in ${formatNumber(d.parts)} part(s)`)
+    .join("\n")
+
+  const coldTitle = table.has_cold_volume
+    ? `Partitions older than this move to the cold volume of storage policy “${table.storage_policy}” (0 = off; must be lower than the TTL)`
+    : `Storage policy “${table.storage_policy || "default"}” has no volume named “cold” — switch the table to a hot/cold policy first (README › Cold storage on a second disk)`
 
   return (
     <tr className="border-b border-border-soft last:border-0 hover:bg-accent/50">
@@ -315,47 +409,40 @@ function StorageRow({ table }: { table: TableStorageStats }) {
             </span>
           )}
         </div>
+        {setRetention.isError && (
+          <div className="text-xs text-destructive">{(setRetention.error as Error).message}</div>
+        )}
       </td>
       <td className="py-1.5 text-right tabular-nums">{formatBytes(table.compressed_bytes)}</td>
+      <td className="py-1.5 text-right tabular-nums text-muted-foreground hidden lg:table-cell whitespace-nowrap" title={diskBreakdown}>
+        {formatBytes(table.hot_bytes)}
+        <span className="mx-1">/</span>
+        {table.has_cold_volume || table.cold_bytes > 0 ? formatBytes(table.cold_bytes) : "—"}
+      </td>
       <td className="py-1.5 text-right tabular-nums text-muted-foreground">{formatNumber(table.rows)}</td>
       <td className="py-1.5 text-right tabular-nums text-muted-foreground">{formatNumber(table.parts)}</td>
       <td className="py-1.5 text-xs text-muted-foreground hidden md:table-cell whitespace-nowrap">
         {table.oldest_data ? new Date(table.oldest_data).toLocaleString() : "—"}
       </td>
       <td className="py-1.5 text-right">
-        <div className="flex items-center justify-end gap-1">
-          <input
-            type="number"
-            min={1}
-            value={draftDays}
-            disabled={setRetention.isPending}
-            onChange={(e) => setDraftDays(e.target.value)}
-            onFocus={() => { editingRef.current = true }}
-            onBlur={() => { editingRef.current = false }}
-            onKeyDown={(e) => { if (e.key === "Enter") saveDays() }}
-            className="w-16 h-6 px-1.5 rounded border border-input bg-background text-xs tabular-nums text-right outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
-          />
-          {dirty && (
-            <div className="flex gap-0.5">
-              <button
-                onClick={saveDays}
-                disabled={setRetention.isPending}
-                className="p-1 rounded hover:bg-success/10 hover:text-success transition-colors disabled:opacity-50"
-                title="Save retention"
-              >
-                <Check className="size-3" />
-              </button>
-              <button
-                onClick={() => setDraftDays(serverDays)}
-                disabled={setRetention.isPending}
-                className="p-1 rounded hover:bg-accent transition-colors disabled:opacity-50"
-                title="Discard"
-              >
-                <X className="size-3" />
-              </button>
-            </div>
-          )}
-        </div>
+        <DaysField
+          value={table.ttl_days}
+          min={Math.max(1, table.cold_after_days + 1)}
+          disabled={setRetention.isPending}
+          saveTitle="Save retention"
+          onSave={saveDays}
+        />
+      </td>
+      <td className="py-1.5 text-right">
+        <DaysField
+          value={table.cold_after_days}
+          min={0}
+          max={Math.max(0, table.ttl_days - 1)}
+          disabled={setRetention.isPending || !table.has_cold_volume}
+          title={coldTitle}
+          saveTitle="Save move-to-cold age"
+          onSave={saveCold}
+        />
       </td>
       <td className="py-1.5 text-center">
         <button

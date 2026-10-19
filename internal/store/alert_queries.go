@@ -821,20 +821,13 @@ func (s *ClickHouseStore) EvalDiskUsage(ctx context.Context, thresholdPct uint64
 	if err != nil {
 		return nil, fmt.Errorf("eval disk_usage: %w", err)
 	}
-	var worst float64
-	exceeded := false
-	for _, d := range disks {
-		if d.UsedPercent > worst {
-			worst = d.UsedPercent
-		}
-		if d.UsedPercent > float64(thresholdPct) {
-			exceeded = true
-		}
-	}
-	if !exceeded {
+	// Every disk counts — with a hot/cold storage policy that includes the
+	// cold HDD — and the fullest one decides.
+	worst, ok := fullestDisk(disks)
+	if !ok || worst.UsedPercent <= float64(thresholdPct) {
 		return nil, nil
 	}
-	return []AlertViolation{{MetricValue: worst}}, nil
+	return []AlertViolation{{MetricValue: worst.UsedPercent}}, nil
 }
 
 // time type alias to avoid unused import warning on files that only use these

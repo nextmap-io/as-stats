@@ -480,8 +480,19 @@ export interface RetentionPolicy {
   table_name: string
   ttl_column?: string
   ttl_days: number
+  // Move data older than this to the storage policy's `cold` volume (0 = off).
+  cold_after_days: number
   enabled: boolean
   updated_at?: string
+}
+
+// TableDiskBytes mirrors internal/model.TableDiskBytes — one table's
+// active-part bytes on one disk.
+export interface TableDiskBytes {
+  disk: string
+  bytes: number
+  parts: number
+  cold: boolean
 }
 
 // TableStorageStats mirrors internal/model.TableStorageStats — per-table
@@ -497,11 +508,22 @@ export interface TableStorageStats {
   ttl_days: number
   ttl_enabled: boolean
   pending_mutations: number
+  // Hot / cold tier: the live storage policy, whether it has a `cold` volume
+  // (the only case where cold_after_days does anything), and bytes on disk
+  // split hot (any other volume) / cold, plus the per-disk breakdown.
+  storage_policy: string
+  has_cold_volume: boolean
+  cold_after_days: number
+  bytes_on_disk: number
+  hot_bytes: number
+  cold_bytes: number
+  disks: TableDiskBytes[]
 }
 
 // DiskStats mirrors internal/model.DiskStats — usage for one ClickHouse disk.
 export interface DiskStats {
   name: string
+  path: string
   free_bytes: number
   total_bytes: number
   used_bytes: number
