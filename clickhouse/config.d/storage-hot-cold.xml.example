@@ -39,9 +39,11 @@
   past their retention are dropped by the reconciler's partition sweep, which
   does not need a merge.
 
-  move_factor (default 0.1) is ClickHouse's own safety valve: when the hot
-  volume has less than 10 % free space, it starts moving the oldest parts to
-  cold on its own, independently of AS-Stats.
+  move_factor is 0: parts move only by age (the reconciler / TTL), never
+  because the hot disk is filling up. ClickHouse's default (0.1) moves parts
+  chosen by size, not age, once the hot volume is under 10 % free, which can
+  put the newest data on the slow disk. A full hot disk is what the
+  disk_usage alert rule is for.
 -->
 <clickhouse>
     <storage_configuration>
@@ -62,7 +64,7 @@
                         <prefer_not_to_merge>true</prefer_not_to_merge>
                     </cold>
                 </volumes>
-                <move_factor>0.1</move_factor>
+                <move_factor>0</move_factor>
             </hot_cold>
         </policies>
     </storage_configuration>

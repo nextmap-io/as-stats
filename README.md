@@ -533,7 +533,7 @@ to `clickhouse/config.d/storage-hot-cold.xml` (it is not loaded by default):
                         <prefer_not_to_merge>true</prefer_not_to_merge>
                     </cold>
                 </volumes>
-                <move_factor>0.1</move_factor>
+                <move_factor>0</move_factor>
             </hot_cold>
         </policies>
     </storage_configuration>
@@ -546,9 +546,10 @@ existing table's policy is `default` with a volume `default` — a volume named
 `hot` is refused with *New storage policy shall contain volumes of the old
 storage policy*. The second volume must be named **`cold`**: that is the name
 AS-Stats looks for. `prefer_not_to_merge` stops ClickHouse from re-merging
-(re-writing) parts on the slow disk. `move_factor` is ClickHouse's own safety
-valve: below 10 % free on the hot volume it starts moving the oldest parts to
-cold by itself.
+(re-writing) parts on the slow disk. `move_factor` is 0 so data moves only by
+age; ClickHouse's default (0.1) moves parts by size once the hot volume is
+under 10 % free, which can put the newest data on the slow disk — watch the
+hot disk with the `disk_usage` rule instead.
 
 **2. Mount the disk and the file** in a Compose override (bind-mount the
 *file*, never the `config.d` directory — see above). The directory must belong
