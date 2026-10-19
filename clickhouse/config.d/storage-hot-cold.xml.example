@@ -1,0 +1,69 @@
+<?xml version="1.0"?>
+<!--
+  Hot / cold storage tier — EXAMPLE, not loaded by default.
+
+  Declares a second disk (`cold`, e.g. a large, slow HDD mounted into the
+  container at /var/lib/clickhouse-cold/) and a storage policy `hot_cold` whose
+  volumes are, in order:
+
+    default — the hot volume: the existing `default` disk (/var/lib/clickhouse/, fast)
+    cold    — the `cold` disk
+
+  The hot volume MUST be named `default`: ClickHouse only lets an existing table
+  switch to a policy that contains every volume of its current policy, which is
+  `default` with a single volume `default`. A volume named `hot` is refused with
+  "New storage policy `hot_cold` shall contain volumes of the old storage policy
+  `default`" (verified on 24.3).
+
+  New parts are always written to the first volume (hot). AS-Stats moves older
+  data to the cold volume itself, per table, from the "Move to cold after
+  (days)" value set in Admin › Storage (retention_policies.cold_after_days):
+  the reconciler adds a `TTL … TO VOLUME 'cold'` clause and moves the
+  partitions that predate it with `ALTER TABLE … MOVE PARTITION … TO VOLUME
+  'cold'`. It only does so for tables whose storage policy has a volume named
+  exactly `cold` — keep that name.
+
+  To use it:
+    1. copy this file to storage-hot-cold.xml and bind-mount the FILE (not the
+       directory) at /etc/clickhouse-server/config.d/storage-hot-cold.xml;
+    2. bind-mount the second disk at /var/lib/clickhouse-cold (owned by the
+       clickhouse user, uid 101 in the official image);
+    3. restart ClickHouse, then once per table:
+         ALTER TABLE asstats.flows_log       MODIFY SETTING storage_policy = 'hot_cold';
+         ALTER TABLE asstats.traffic_by_port MODIFY SETTING storage_policy = 'hot_cold';
+  See README › "Cold storage on a second disk".
+
+  prefer_not_to_merge on the cold volume keeps ClickHouse from re-merging (and
+  so re-writing) parts that already sit on the slow disk. The parts moved there
+  are closed, fully merged partitions, so nothing is lost; whole partitions
+  past their retention are dropped by the reconciler's partition sweep, which
+  does not need a merge.
+
+  move_factor (default 0.1) is ClickHouse's own safety valve: when the hot
+  volume has less than 10 % free space, it starts moving the oldest parts to
+  cold on its own, independently of AS-Stats.
+-->
+<clickhouse>
+    <storage_configuration>
+        <disks>
+            <!-- `default` (/var/lib/clickhouse/) is implicit; only the new disk is declared. -->
+            <cold>
+                <path>/var/lib/clickhouse-cold/</path>
+            </cold>
+        </disks>
+        <policies>
+            <hot_cold>
+                <volumes>
+                    <default>
+                        <disk>default</disk>
+                    </default>
+                    <cold>
+                        <disk>cold</disk>
+                        <prefer_not_to_merge>true</prefer_not_to_merge>
+                    </cold>
+                </volumes>
+                <move_factor>0.1</move_factor>
+            </hot_cold>
+        </policies>
+    </storage_configuration>
+</clickhouse>
