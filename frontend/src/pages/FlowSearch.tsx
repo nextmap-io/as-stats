@@ -178,7 +178,7 @@ export function FlowSearch() {
                   ))}
                 </select>
               </Field>
-              <Field label="Port, either side">
+              <Field label="Either port">
                 <input
                   type="number"
                   value={filters.port || ""}
