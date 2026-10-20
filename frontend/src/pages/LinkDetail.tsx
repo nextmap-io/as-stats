@@ -18,6 +18,8 @@ import { ASRef } from "@/components/ASRef"
 import { useUnit } from "@/hooks/useUnit"
 import { seriesColor, useChartColors } from "@/hooks/useChartColors"
 import { bytesToBps, stepSecondsOf } from "@/lib/rate"
+import { ErrorDisplay } from "@/components/ui/error"
+import { PageSkeleton } from "@/components/ui/skeleton"
 
 /** One percentile row (p50/p95/p99) showing in + out throughput. Renders
  *  nothing when neither direction is present (older backend). */
@@ -49,7 +51,7 @@ export function LinkDetail() {
   const { filters, filterSearch, periodSeconds, timeBounds, bounds } = useFilters()
   const chartColors = useChartColors()
   const { formatTraffic } = useUnit()
-  const { data, isLoading, error } = useLinkDetail(tag || "", filters)
+  const { data, isLoading, error, refetch } = useLinkDetail(tag || "", filters)
   const loadCurveQuery = useLinkLoadCurve(tag || "", filters)
 
   // Comparison overlay (Module D). When off, the prev query reuses the active
@@ -73,8 +75,10 @@ export function LinkDetail() {
   })
   const linkConfig = linksData?.data?.find(l => l.tag === tag)
 
-  if (isLoading) return <p className="text-muted-foreground">Loading…</p>
-  if (error) return <p className="text-destructive">{error.message}</p>
+  // Same loading / error vocabulary as every other page: a flat skeleton, and
+  // an error that names what failed and offers a retry.
+  if (isLoading) return <PageSkeleton />
+  if (error) return <ErrorDisplay error={error} title={`Could not load link ${tag}`} onRetry={() => void refetch()} />
 
   const detail = data?.data
   if (!detail) return null
