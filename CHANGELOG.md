@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Port statistics counted every flow twice, and their "direction" was not a
+  direction.** `traffic_by_port` was fed by two views over the same flows: one
+  stored each flow as "in" under its destination port, the other stored it
+  again as "out" under its source port. Totals were doubled, Top Protocols
+  showed inbound = outbound for every protocol, and Top Ports listed the
+  ephemeral client ports of every download. Migration 000018 replaces them by
+  one view: each flow once, `in` / `out` = the direction of the configured
+  link it crossed, under its **service port** (the lower of its two ports; the
+  non-zero one if one is 0; none for ICMP / ICMPv6 and portless protocols).
+  Flows on no configured link are stored without a direction and are not
+  listed under Inbound / Outbound, like the link totals. Percentages are now
+  per direction, and a port links to Flow Search on either side
+  (`/flows/search?port=`, new).
+- **Upgrade: port history restarts at 3.5.** The old rows cannot be split back
+  into flows, so they are not converted: the migration keeps them as
+  `traffic_by_port_legacy` (atomic `EXCHANGE TABLES`, milliseconds, the
+  collector keeps inserting; no INSERT fails) and starts an empty
+  `traffic_by_port`. Top Protocols, Top Ports and Changes › port movers read
+  only the new table and show a note while the selected window reaches back
+  before the upgrade (`meta.port_history_since`). The legacy table is never
+  shown, follows the `traffic_by_port` retention and cold tier, and empties
+  itself; Admin › Storage lists it as *legacy (pre-3.5 port stats)*.
+- **Private-use ASNs listed one by one on the IP page.** "Traffic by AS" on an
+  IP's detail page, `/as/{asn}/peers` and the anomaly explanation's top source
+  ASes now fold 64512–65534 and 4200000000–4294967294 into the single
+  "Private / Internal" row, like every other view. That row is never a link,
+  in the anomaly explanation and conversations included, and scheduled
+  reports no longer print it as "AS4294967295".
+- Flow Search opened from another page now applies the protocol, port and AS
+  filters and the period of the link (it only read the IPs and the range).
+
 ## [3.4.0] - 2026-10-20
 
 ### Changed

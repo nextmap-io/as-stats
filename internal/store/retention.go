@@ -44,14 +44,15 @@ var retentionTables = map[string]retentionTable{
 	"traffic_by_prefix":      {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 30},
 
 	// Optional / feature-gated tables (migrations 000007 / 000008 / 000009 / 000011)
-	"flows_log":           {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 180}, // seed overridden by FLOW_LOG_RETENTION_DAYS
-	"flows_log_legacy":    {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 180}, // follows flows_log, see retentionFollowers
-	"traffic_by_port":     {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 365},
-	"traffic_by_dst_1min": {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 7},
-	"traffic_by_src_1min": {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 7},
-	"alerts":              {TTLColumn: "triggered_at", TTLExpr: "triggered_at", DefaultDays: 365},
-	"audit_log":           {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 365},
-	"bgp_blocks":          {TTLColumn: "blocked_at", TTLExpr: "blocked_at", DefaultDays: 365},
+	"flows_log":              {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 180}, // seed overridden by FLOW_LOG_RETENTION_DAYS
+	"flows_log_legacy":       {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 180}, // follows flows_log, see retentionFollowers
+	"traffic_by_port":        {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 365},
+	"traffic_by_port_legacy": {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 365}, // follows traffic_by_port, see retentionFollowers
+	"traffic_by_dst_1min":    {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 7},
+	"traffic_by_src_1min":    {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 7},
+	"alerts":                 {TTLColumn: "triggered_at", TTLExpr: "triggered_at", DefaultDays: 365},
+	"audit_log":              {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 365},
+	"bgp_blocks":             {TTLColumn: "blocked_at", TTLExpr: "blocked_at", DefaultDays: 365},
 }
 
 // retentionFollowers maps a whitelisted table that has no retention policy of
@@ -61,11 +62,14 @@ var retentionTables = map[string]retentionTable{
 // refuses to set one, so there is a single knob.
 //
 // flows_log_legacy is the pre-3.4 flows_log (old sort key), renamed by
-// migration 000017 instead of being copied. It only ever loses data: once it
-// has no active part left (or does not exist) the reconciler leaves it alone,
-// and a later release can drop it.
+// migration 000017 instead of being copied; traffic_by_port_legacy is the
+// pre-3.5 traffic_by_port (every flow counted twice), renamed by migration
+// 000018 and never read. They only ever lose data: once a follower has no
+// active part left (or does not exist) the reconciler leaves it alone, and a
+// later release can drop it.
 var retentionFollowers = map[string]string{
-	"flows_log_legacy": "flows_log",
+	"flows_log_legacy":       "flows_log",
+	"traffic_by_port_legacy": "traffic_by_port",
 }
 
 // followersOf returns the tables that follow leader's retention policy, sorted.
@@ -190,11 +194,13 @@ func (s *ClickHouseStore) EnsureRetentionPolicies(ctx context.Context, flowLogDa
 		if l, ok := live[table]; ok && l > 0 {
 			days = l
 		}
-		// After migration 000017 the new flows_log only carries the migration
-		// default; the retention the operator actually ran with is on the
-		// renamed pre-3.4 table.
-		if l, ok := live["flows_log_legacy"]; ok && l > 0 && table == "flows_log" {
-			days = l
+		// After migrations 000017 / 000018 the new flows_log / traffic_by_port
+		// only carry the migration default; the retention the operator
+		// actually ran with is on the renamed legacy table.
+		for _, f := range followersOf(table) {
+			if l, ok := live[f]; ok && l > 0 {
+				days = l
+			}
 		}
 		// An explicit FLOW_LOG_RETENTION_DAYS is an operator decision and wins.
 		if table == "flows_log" && flowLogDays > 0 {

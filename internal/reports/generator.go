@@ -306,6 +306,7 @@ func templateFuncs() template.FuncMap {
 			return f2(*v) + "%"
 		},
 		"fmtTime": func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04 UTC") },
+		"asLabel": asLabel,
 	}
 }
 
@@ -329,4 +330,14 @@ func scale(v float64, units []string) string {
 		return fmt.Sprintf("%.0f %s", v, units[i])
 	}
 	return fmt.Sprintf("%.2f %s", v, units[i])
+}
+
+// asLabel renders the AS column of the Top AS table: "AS1234", or a dash for
+// the collapsed private-use row, whose Name column already reads
+// model.PrivateASName — "AS4294967295" would read as a real ASN.
+func asLabel(asn uint32) string {
+	if asn == model.PrivateASGroup {
+		return "—"
+	}
+	return "AS" + strconv.FormatUint(uint64(asn), 10)
 }

@@ -1,9 +1,12 @@
 package store
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nextmap-io/as-stats/internal/model"
 )
@@ -55,5 +58,47 @@ func TestGroupedASName(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "any(an.as_name))") {
 		t.Errorf("label expression must fall back to the joined name: %q", got)
+	}
+}
+
+// TestPerASListsGroupPrivateASNs runs every reader that returns one row per AS
+// against a recording connection and checks it groups on the private-use fold
+// of its AS column — so no view lists 64512, 65001, 4200000001… one by one
+// while the others show a single "Private / Internal" row. AnomalyExplain
+// (QueryRow first) is covered by TestIntegrationPrivateASGrouping. Add any new
+// per-AS reader here.
+func TestPerASListsGroupPrivateASNs(t *testing.T) {
+	from := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	to := from.Add(24 * time.Hour)
+	p := QueryParams{From: from, To: to, Limit: 10}
+	ctx := context.Background()
+	readers := map[string]struct {
+		col string
+		run func(*ClickHouseStore) error
+	}{
+		"TopAS":     {"t.as_number", func(s *ClickHouseStore) error { _, _, err := s.TopAS(ctx, p); return err }},
+		"LinkTopAS": {"t.as_number", func(s *ClickHouseStore) error { _, _, err := s.LinkTopAS(ctx, "l", p); return err }},
+		"IPTopAS":   {"t.as_number", func(s *ClickHouseStore) error { _, err := s.IPTopAS(ctx, "192.0.2.1", p); return err }},
+		"ASPeers":   {"f.dst_as", func(s *ClickHouseStore) error { _, err := s.ASPeers(ctx, 64500, p); return err }},
+		"Movers/as": {"t.as_number", func(s *ClickHouseStore) error { _, err := s.Movers(ctx, "as", from, to, 10); return err }},
+		"Talkers/as": {"t.as_number", func(s *ClickHouseStore) error {
+			_, err := s.Talkers(ctx, "as", from, to, 10)
+			return err
+		}},
+		"Conversations/src_dst_as": {"t.src_as", func(s *ClickHouseStore) error {
+			_, err := s.Conversations(ctx, p, "src_dst_as", true)
+			return err
+		}},
+	}
+	for name, r := range readers {
+		t.Run(name, func(t *testing.T) {
+			rc := &recordingConn{}
+			if err := r.run(&ClickHouseStore{conn: rc}); !errors.Is(err, errRecorded) {
+				t.Fatalf("expected the recorded query error, got %v", err)
+			}
+			if q := rc.queries[0]; !strings.Contains(q, groupedAS(r.col)) {
+				t.Errorf("query does not group %s through groupedAS:\n%s", r.col, q)
+			}
+		})
 	}
 }

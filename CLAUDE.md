@@ -29,7 +29,10 @@ in `frontend/`.
   reads** to handle not-yet-merged rows.
 - **Separate MVs per direction** (`_in_mv` / `_out_mv`) writing to the same
   target table — no `UNION ALL` in MVs (ClickHouse does not support it for
-  this pattern).
+  this pattern). That is right only when the two views write *different
+  entities* of one flow (src AS / dst AS, src IP / dst IP); two views writing
+  the same entity count every flow twice (bug #21, `traffic_by_port`, now one
+  view keyed on `flows_raw.direction`).
 - **IPv6 columns everywhere** — IPv4 is stored as IPv4-mapped IPv6
   (`::ffff:1.2.3.4`). This is the source of two distinct bug families that
   have already cost us:
@@ -155,7 +158,9 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 | `internal/store/step.go` | Source-table + bucket-width planner (`linkSeriesPlan`, `asSeriesPlan`, `ipSeriesPlan`, `capacityPlan`) and the exported `*StepSeconds` helpers handlers put in `meta.step_seconds`. |
 | `internal/store/names.go` | `asNamesLatest` / `linksLatest`: deduplicated views every name join must use (see bug #15). |
 | `internal/store/status.go` | `LiveStatus` for `GET /status/live` (10-min flows_raw scan + configured routers + disk). |
-| `internal/store/flow_log.go` | `SearchFlowLog`, `FlowLogTimeSeries`, `TopProtocols`, `TopPorts`. Every flow-log read goes through `flowLogReadTable` (`flows_log_all`) + `flowLogTimeFilter` — see "Flow log layout" and bug #18. (`SetFlowLogRetention` removed — retention is now in `retention.go`.) |
+| `internal/store/port_stats.go` | `TopProtocols`, `TopPorts` (read `traffic_by_port` only, Inbound/Outbound = `direction IN ('in','out')`, percent per direction), `ServicePort` (Go mirror of the 000018 view), `PortHistorySince`. See "Port statistics". |
+| `internal/store/as_group.go` | `groupedAS` / `groupedASName`: the private-use ASN fold every per-AS list must group on (`TestPerASListsGroupPrivateASNs`). |
+| `internal/store/flow_log.go` | `SearchFlowLog` (`port` = either side), `FlowLogTimeSeries`. Every flow-log read goes through `flowLogReadTable` (`flows_log_all`) + `flowLogTimeFilter` — see "Flow log layout" and bug #18. (`SetFlowLogRetention` removed — retention is now in `retention.go`.) |
 | `internal/store/threats.go` | Live Threats queries: `ThreatCandidates`, `ThreatBaselines`, `ThreatPeerBaselines`, `ThreatPorts`, `ThreatSeries`. Classification lives in `api/handler/threat_classify.go` (pure, table-tested). See "Live Threats". |
 | `internal/store/alerts.go` | Alert rules / alerts / webhooks / audit log CRUD. `AlertDetails` JSON marshaling for `details` column. |
 | `internal/store/alert_queries.go` | `Eval*` query helpers used by the alert engine (incl. `EvalDiskUsage`, `EvalLinkCapacity`, `EvalAnomaly`). **`buildCIDRFilter` lives here** — read its docstring before touching any IP filtering code. |
@@ -175,7 +180,7 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 | `internal/services/wellknown.go` | IANA protocol + well-known port name resolution (used by Flow Search and Top Ports). |
 | `internal/model/` | Shared types: `FlowRecord`, `ASTraffic`, `IPTraffic`, `LiveThreats` / `ThreatRow`, `AlertRule`, etc. |
 | `internal/config/` | Env-var config loading. `LoadCollector` and `LoadAPI`. |
-| `migrations/` | ClickHouse DDL, numbered 000001–000017 (000007–000013 include feature-gated tables; 000012 `retention_policies`, 000013 `report_schedules`, 000014 `api_tokens`, 000015 hot-table `SimpleAggregateFunction` fix, 000016 `retention_policies.cold_after_days`, 000017 `flows_log` sort key + `flows_log_legacy` + `flows_log_all`). Every released schema level has a `DetectBaseline` probe in `internal/migrate/clickhouse.go` — add one with each migration. Embedded in and applied by `cmd/migrate` (the `migrate` service runs before collector/api), which records each file's SHA-256 — **never edit a released migration**, add a new one. |
+| `migrations/` | ClickHouse DDL, numbered 000001–000018 (000007–000013 include feature-gated tables; 000012 `retention_policies`, 000013 `report_schedules`, 000014 `api_tokens`, 000015 hot-table `SimpleAggregateFunction` fix, 000016 `retention_policies.cold_after_days`, 000017 `flows_log` sort key + `flows_log_legacy` + `flows_log_all`, 000018 `traffic_by_port` one row per flow + `traffic_by_port_legacy` + `traffic_by_port_mv`). Every released schema level has a `DetectBaseline` probe in `internal/migrate/clickhouse.go` — add one with each migration. Embedded in and applied by `cmd/migrate` (the `migrate` service runs before collector/api), which records each file's SHA-256 — **never edit a released migration**, add a new one. |
 | `frontend/src/pages/` | One React page per route in `App.tsx`. |
 | `frontend/src/hooks/` | TanStack Query hooks (`useApi.ts`), URL-synced filters (`useFilters.ts`), unit toggle (`useUnit.ts`), chart theme (`useChartColors.ts`), DNS (`useDns.ts`), feature flags (`useFeatures.ts`). |
 | `frontend/src/components/charts/` | `TrafficChart` (single in/out), `LinkTrafficChart` (stacked by link), `ASTrafficChart` (stacked by AS) — all Recharts `AreaChart` with `stepAfter`. |
@@ -225,7 +230,8 @@ feature flag is enabled.
 | `flows_log_legacy` | `FEATURE_FLOW_SEARCH` | The pre-000017 `flows_log` (old sort key), kept instead of copied; follows the `flows_log` retention and empties itself. Empty on fresh installs. |
 | `flows_log_all` | `FEATURE_FLOW_SEARCH` | `Merge(currentDatabase(), '^flows_log(_legacy)?$')` — the read side of the flow log. |
 | `report_schedules` | `FEATURE_REPORTS` | Scheduled HTML+CSV email reports (`ReplacingMergeTree`, soft-delete). Cron goroutine in the collector sends via SMTP. |
-| `traffic_by_port` | `FEATURE_PORT_STATS` | Aggregates per `(link, direction, protocol, port)`, 5-min, 1y TTL. |
+| `traffic_by_port` | `FEATURE_PORT_STATS` | Per `(link, direction, protocol, service port, ip_version)`, 5-min, 1y TTL. **One row per flow** since 000018 (`traffic_by_port_mv`); see "Port statistics". |
+| `traffic_by_port_legacy` | `FEATURE_PORT_STATS` | The pre-000018 table (every flow counted twice). **Never read**; follows the `traffic_by_port` retention and empties itself. Empty on fresh installs. |
 | `traffic_by_dst_1min` | `FEATURE_ALERTS` | `AggregatingMergeTree` keyed by `(ts, dst_ip, protocol)`. Stores `bytes`, `packets`, `flow_count`, `syn_count`, plus HyperLogLog sketches `unique_src_ips` / `unique_src_ports`. 7d TTL. **Used exclusively by the alert engine and Live Threats** — no other on-demand queries. |
 | `traffic_by_src_1min` | `FEATURE_ALERTS` | Symmetric for outbound traffic. Used by `volume_out` / `port_scan`. |
 | `alert_rules` | `FEATURE_ALERTS` | Configurable detection rules (`ReplacingMergeTree`). 10 default rules seeded on first startup (idempotent — only if the table is empty). |
@@ -264,6 +270,44 @@ window 0.16 s both; 1.01 GiB → 892 MiB per day.
   recovery notes are in the migration file.
 - A column added to `flows_log` must also exist on `flows_log_legacy` (or the
   Merge read breaks) until the legacy table is dropped by a later release.
+
+### Port statistics (migration 000018)
+
+`traffic_by_port` is fed by **one** view, `traffic_by_port_mv`: one row per
+`flows_raw` row, never two (bug #21).
+
+- `direction` = `flows_raw.direction` when the flow was credited to a
+  configured link (`'in'` entered our network on it, `'out'` left it), and
+  `''` when `link_tag = ''` — even if the exporter sent a flowDirection,
+  which is router-relative. `''` rows are stored (so `sum(flow_count)` over the
+  table equals `count()` of `flows_raw`) but Top Protocols / Top Ports list
+  only `IN ('in','out')` (`portDirectionFilter`), the population of the link
+  totals; Movers by port is direction-agnostic and includes them.
+- `port` = the **service port**: `least(src_port, dst_port)` when both are set
+  (client ports are ephemeral), the non-zero one otherwise, `0` for ICMP /
+  ICMPv6 (1 / 58) and portless protocols (GRE, ESP…, kept so per-protocol sums
+  are exact). Go mirror: `store.ServicePort`; `TestIntegrationPortStats` checks
+  the SQL against it on a 405-tuple grid. Top Ports hides port 0 except ICMP.
+- Percentages in Top Protocols / Top Ports are of the row's **direction**.
+  Drill-down to Flow Search uses `port` (either side), not `dst_port`.
+- **Migration**: create `traffic_by_port_new`, `DROP VIEW` the two 000007
+  views, `EXCHANGE TABLES`, `RENAME … TO traffic_by_port_legacy`, `CREATE
+  MATERIALIZED VIEW traffic_by_port_mv`. The old views are dropped *before*
+  the swap, or they would write old-semantics rows into the new table; no
+  view ever targets a missing name (bug #19), so no INSERT fails. Each insert
+  block lands in the new table exactly once (inserted after the CREATE) or not
+  at all; blocks inserted in the milliseconds between DROP and CREATE are in
+  neither table (start of the new history). `TestIntegrationPortStatsMigration`:
+  4 inserters across the migration, per-inserter suffix property, 0 errors;
+  ad hoc, 300 cycles of the DDL sequence under 2,418 concurrent INSERTs, 0
+  failures. Guards refuse a re-run; recovery notes in the file.
+- **History restarts** at the upgrade (the old rows cannot be split back into
+  flows). `PortHistorySince` (system.parts only) returns the start of the new
+  history while `traffic_by_port_legacy` still has parts; the handlers put it
+  in `meta.port_history_since` when the window (Movers: the prior window)
+  reaches back before it, and the pages say so.
+- `traffic_by_port_legacy` is a retention follower of `traffic_by_port` and is
+  **never read** (`TestNoLegacyPortReads`, `TestPortReadersReadOnlyTheNewTable`).
 
 ### Retention subsystem (v2, Module A)
 
@@ -321,14 +365,16 @@ disk", `clickhouse/config.d/storage-hot-cold.xml.example`) — its hot volume
   `default`, second volume `cold`, plain-identifier name). Zero / several
   candidates or a non-default current policy: left alone, logged once. This is
   how the 000017 `flows_log` (created on `default`) inherits prod's `hot_cold`.
-- **Followers** (`retentionFollowers`: `flows_log_legacy` → `flows_log`): in the
-  whitelist (so DDL builders accept them) but never seeded, `SetRetentionPolicy`
+- **Followers** (`retentionFollowers`: `flows_log_legacy` → `flows_log`,
+  `traffic_by_port_legacy` → `traffic_by_port`): in the whitelist (so DDL builders accept them) but never seeded, `SetRetentionPolicy`
   refuses them, and the reconciler applies the leader's policy (adoption, TTL,
   expired and cold sweeps) to them — only while they exist **and have active
   parts**, so an empty legacy table is never touched. `StorageStats` marks
   them `legacy` / `retention_follows` (read-only row in Admin › Storage).
-  `EnsureRetentionPolicies` seeds `flows_log` from `flows_log_legacy`'s live
-  TTL when present (the new table only carries the migration default).
+  `EnsureRetentionPolicies` seeds a leader without a policy row from its
+  follower's live TTL when present (the new table only carries the migration
+  default). This is how the 000018 `traffic_by_port` inherits prod's hot_cold
+  policy (`adoptColdPolicy`) and the legacy table keeps aging out.
 - `disk_usage` and `/status/live` use `fullestDisk` over **all** disks.
 - `TestIntegrationColdTier` (needs a policy with a `cold` volume, skipped
   otherwise) checks moves, convergence, no-op cycles and ttl changes.
@@ -397,8 +443,8 @@ Registered only when the corresponding `FEATURE_*` env var is set.
 | `GET` | `/flows/search` | `FLOW_SEARCH` | `?format=csv` for export, max 100k rows |
 | `GET` | `/flows/timeseries` | `FLOW_SEARCH` | drill-down |
 | `GET` | `/conversations` | `FLOW_SEARCH` | bidirectional top-talkers (`dim=src_dst_ip/src_dst_as/dst_port_proto`) |
-| `GET` | `/top/protocol` | `PORT_STATS` | |
-| `GET` | `/top/port` | `PORT_STATS` | |
+| `GET` | `/top/protocol` | `PORT_STATS` | per (protocol, direction in/out); `meta.port_history_since` while the port history is younger than the window |
+| `GET` | `/top/port` | `PORT_STATS` | service ports, `LIMIT … BY direction`; same `meta.port_history_since` (also on `/changes/movers?dimension=port`) |
 | `GET` | `/alerts` | `ALERTS` | |
 | `GET` | `/alerts/summary` | `ALERTS` | header badge counts |
 | `GET` | `/threats/live` | `ALERTS` | Live Threats — local hosts ranked by deviation from their own history (`direction=in/out`, `window`, `limit`, `all=0/1`); 30 s cache group. See "Live Threats" |
@@ -694,6 +740,12 @@ alert rule use the same busier-direction definition.
   `as_names` / `links` tables (bug #15).
 - **SQL**: group and filter on typed `IPv6` columns; `toString()` only the
   rows you return (after `LIMIT`).
+- **SQL**: every list with one row per AS groups on `groupedAS(col)` and
+  labels with `groupedASName` (private-use ASNs → one `PrivateASGroup` row,
+  sentinel 4294967295); add new readers to `TestPerASListsGroupPrivateASNs`.
+  The frontend renders AS identities with `ASRef` / `asPath` (the sentinel is
+  a non-clickable "Private / Internal") and never builds a flow filter from it.
+  Per-IP / per-prefix rows keep the address's real origin ASN.
 - **Tests**: `ASSTATS_IT_CLICKHOUSE=host:9000 go test ./internal/store
   ./internal/api/handler -run Integration` runs every read / alert query
   (and Live Threats end to end) against a throwaway ClickHouse with the
@@ -854,6 +906,22 @@ frontend lint + typecheck + build).
     last, so a completed migration read as dirty. `Append` now binds a
     nanosecond string into `toDateTime64(?, 9, 'UTC')`, and `History`
     tie-breaks `applying` first.
+
+21. **Two views writing the same entity of one flow.** 000007 fed
+    `traffic_by_port` from `_in_mv` (direction `'in'`, `dst_port`) and `_out_mv`
+    (direction `'out'`, `src_port`) over the *same* `flows_raw` rows: every flow
+    was stored twice, "direction" only said which port column had been copied,
+    Top Protocols showed in == out by construction (~35 GiB a year of it in
+    production), and Top Ports "in" listed every download's ephemeral client
+    port. Fixed by 000018 (one view, `flows_raw.direction`, service port). A
+    per-direction view pair is only valid when the two write different
+    entities (src AS vs dst AS); test any new rollup with
+    `sum(flow_count) == count(flows_raw)`.
+
+22. **A per-AS list that skips the private-use fold.** The IP detail page's
+    "Traffic by AS" (and AS peers, the anomaly explanation) listed 64512,
+    65001, 4200000001… one by one, nameless, while every other view showed one
+    "Private / Internal" row. Group on `groupedAS` (code conventions above).
 
 ## Operational notes — ClickHouse
 

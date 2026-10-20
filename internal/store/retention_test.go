@@ -31,6 +31,7 @@ func TestRetentionTablesWhitelist(t *testing.T) {
 		"flows_log":              {"ts", "ts", 180},
 		"flows_log_legacy":       {"ts", "ts", 180},
 		"traffic_by_port":        {"ts", "ts", 365},
+		"traffic_by_port_legacy": {"ts", "ts", 365},
 		"traffic_by_dst_1min":    {"ts", "ts", 7},
 		"traffic_by_src_1min":    {"ts", "ts", 7},
 		"alerts":                 {"triggered_at", "triggered_at", 365},
@@ -356,6 +357,9 @@ func TestRetentionFollowers(t *testing.T) {
 	}
 	if got := followersOf("flows_log"); len(got) != 1 || got[0] != "flows_log_legacy" {
 		t.Errorf("followersOf(flows_log) = %v", got)
+	}
+	if got := followersOf("traffic_by_port"); len(got) != 1 || got[0] != "traffic_by_port_legacy" {
+		t.Errorf("followersOf(traffic_by_port) = %v", got)
 	}
 	if got := followersOf("flows_raw"); len(got) != 0 {
 		t.Errorf("followersOf(flows_raw) = %v", got)

@@ -16,7 +16,7 @@ func TestLoadEmbeddedMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got, want := len(migrations), 17; got != want {
+	if got, want := len(migrations), 18; got != want {
 		t.Fatalf("migration count = %d, want %d", got, want)
 	}
 	for i, migration := range migrations {

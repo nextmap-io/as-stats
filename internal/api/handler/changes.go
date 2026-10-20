@@ -79,9 +79,15 @@ func (h *Handler) Movers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	meta := &ResponseMeta{From: p.From, To: p.To, Limit: p.Limit}
+	if dim == "port" {
+		// Movers compare against the prior window of equal length: a port
+		// history younger than that turns every port into a "gainer".
+		meta.PortHistorySince = h.portHistorySince(r, p.From.Add(-p.To.Sub(p.From)))
+	}
 	writeJSON(w, http.StatusOK, Response{
 		Data: MoversResponse{Dimension: dim, Gainers: gainers, Losers: losers},
-		Meta: &ResponseMeta{From: p.From, To: p.To, Limit: p.Limit},
+		Meta: meta,
 	})
 }
 

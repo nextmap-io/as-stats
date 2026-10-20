@@ -12,6 +12,7 @@ import { asView } from "@/lib/view"
 import { TopNViz, type VizDatum } from "@/components/charts/TopNViz"
 import { BarChart3 } from "lucide-react"
 import type { ProtocolTraffic } from "@/lib/types"
+import { portHistoryNote } from "@/lib/ports"
 
 export function TopProtocols() {
   const { filters, periodSeconds, filterSearch } = useFilters()
@@ -34,6 +35,7 @@ export function TopProtocols() {
   }
   inbound.sort((a, b) => b.bytes - a.bytes)
   outbound.sort((a, b) => b.bytes - a.bytes)
+  const historyNote = portHistoryNote(data?.meta?.port_history_since)
 
   const exportColumns: ExportColumn<ProtocolTraffic>[] = [
     { key: "protocol", header: "Protocol", value: (p) => p.protocol_name || String(p.protocol) },
@@ -55,6 +57,14 @@ export function TopProtocols() {
           <ViewToggle />
           <ExportButton rows={[...inbound, ...outbound]} columns={exportColumns} filename="top-protocols" />
         </div>
+      </div>
+
+      <div className="space-y-1 text-[13px] text-muted-foreground">
+        <p>
+          Each flow counts once: inbound = entering the network on a configured link, outbound = leaving it.
+          Percentages are of each direction.
+        </p>
+        {historyNote && <p>{historyNote}</p>}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

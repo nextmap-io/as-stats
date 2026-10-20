@@ -17,6 +17,7 @@ import { ASRef } from "@/components/ASRef"
 import { ArrowDown, ArrowUp } from "lucide-react"
 import type { Mover, TalkerChange } from "@/lib/types"
 import { Segmented } from "@/components/ui/segmented"
+import { portHistoryNote } from "@/lib/ports"
 
 type MoverDim = "as" | "prefix" | "port" | "country"
 type TalkerDim = "as" | "ip" | "prefix"
@@ -24,7 +25,7 @@ type TalkerDim = "as" | "ip" | "prefix"
 const MOVER_DIMS: { value: MoverDim; label: string; feature?: "port_stats" }[] = [
   { value: "as", label: "AS" },
   { value: "prefix", label: "Prefix" },
-  { value: "port", label: "Port", feature: "port_stats" },
+  { value: "port", label: "Service port", feature: "port_stats" },
   { value: "country", label: "Country" },
 ]
 
@@ -107,6 +108,7 @@ export function Changes() {
   const tdim = asTalkerDim(searchParams.get("tdim"))
 
   const moversQuery = useMovers(activeMoverDim, filters)
+  const moverPortNote = portHistoryNote(moversQuery.data?.meta?.port_history_since, true)
   const talkersQuery = useTalkers(tdim, filters)
 
   const setDim = (param: "mdim" | "tdim", value: string) => {
@@ -275,6 +277,12 @@ export function Changes() {
           </div>
         </CardHeader>
         <CardContent>
+          {activeMoverDim === "port" && (
+            <div className="mb-2 space-y-1 text-[13px] text-muted-foreground">
+              <p>Protocol / service port, all directions, each flow counted once.</p>
+              {moverPortNote && <p>{moverPortNote}</p>}
+            </div>
+          )}
           <QueryBoundary query={moversQuery} isEmpty={() => moverRows.length === 0} loadingCols={4}>
             {() => (
               <DataTable

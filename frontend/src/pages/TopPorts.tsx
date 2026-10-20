@@ -13,6 +13,7 @@ import { TopNViz, type VizDatum } from "@/components/charts/TopNViz"
 import { BarChart3 } from "lucide-react"
 import type { PortTraffic } from "@/lib/types"
 import { Segmented } from "@/components/ui/segmented"
+import { PORT_STATS_HELP, flowSearchPath, portHistoryNote, portLabel } from "@/lib/ports"
 
 const PROTOCOL_OPTIONS = [
   { value: 0, label: "All" },
@@ -43,6 +44,7 @@ export function TopPorts() {
   if (error) return <ErrorDisplay error={error as Error} onRetry={() => refetch()} />
 
   const rows: PortTraffic[] = (data?.data || []).filter((p) => p.direction === direction)
+  const historyNote = portHistoryNote(data?.meta?.port_history_since)
 
   const setProtocol = (p: number) => {
     setSearchParams((prev) => {
@@ -62,7 +64,7 @@ export function TopPorts() {
   }
 
   const exportColumns: ExportColumn<PortTraffic>[] = [
-    { key: "port", header: "Port", value: (p) => p.port },
+    { key: "port", header: "Service port", value: (p) => p.port },
     { key: "service", header: "Service", value: (p) => p.service ?? "" },
     { key: "protocol", header: "Protocol", value: (p) => p.protocol_name || String(p.protocol) },
     { key: "direction", header: "Direction", value: (p) => p.direction },
@@ -108,11 +110,16 @@ export function TopPorts() {
         </div>
       </div>
 
+      <div className="space-y-1 text-[13px] text-muted-foreground">
+        <p>{PORT_STATS_HELP}</p>
+        {historyNote && <p>{historyNote}</p>}
+      </div>
+
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>
-              {direction === "in" ? "Destination ports (services accessed)" : "Source ports (services exposed)"}
+              {direction === "in" ? "Inbound traffic, by service port" : "Outbound traffic, by service port"}
             </CardTitle>
             <div className="flex flex-wrap items-center gap-2">
               <ViewToggle />
@@ -129,19 +136,19 @@ export function TopPorts() {
             <TopNViz
               view={view}
               data={rows.map<VizDatum>((p) => ({
-                name: `${p.port}${p.service ? ` ${p.service}` : ""}`,
+                name: p.port > 0 ? `${p.port}${p.service ? ` ${p.service}` : ""}` : p.protocol_name || `proto:${p.protocol}`,
                 value: p.bytes,
-                path: `/flows${filterSearch}${filterSearch ? "&" : "?"}protocol=${p.protocol}&${direction === "in" ? "dst_port" : "src_port"}=${p.port}`,
+                path: flowSearchPath(filterSearch, p.protocol, p.port),
               }))}
               formatValue={(v) => formatTraffic(v, periodSeconds)}
-              label={`Top ${direction === "in" ? "destination" : "source"} ports by traffic`}
+              label={`${direction === "in" ? "Inbound" : "Outbound"} traffic by service port`}
             />
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
                   <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">#</th>
-                  <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Port</th>
+                  <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Service port</th>
                   <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Service</th>
                   <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Proto</th>
                   <th scope="col" className="pb-1.5 text-right font-medium text-muted-foreground">Traffic</th>
@@ -155,10 +162,11 @@ export function TopPorts() {
                     <td className="py-1.5 text-muted-foreground tabular-nums">{i + 1}</td>
                     <td className="py-1.5">
                       <Link
-                        to={`/flows${filterSearch}${filterSearch ? "&" : "?"}protocol=${p.protocol}&${direction === "in" ? "dst_port" : "src_port"}=${p.port}`}
+                        to={flowSearchPath(filterSearch, p.protocol, p.port)}
                         className="text-primary hover:underline"
+                        title="Flows with this port on either side"
                       >
-                        {p.port}
+                        {portLabel(p.port)}
                       </Link>
                     </td>
                     <td className="py-1.5 text-foreground/80">{p.service || "-"}</td>

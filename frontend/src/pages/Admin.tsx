@@ -361,6 +361,19 @@ function DaysField({
   )
 }
 
+/** What each pre-upgrade table kept by a migration is, for its Storage row. */
+const LEGACY_TABLES: Record<string, { badge: string; note: string }> = {
+  flows_log_legacy: {
+    badge: "legacy (pre-3.4 layout), expires by itself",
+    note: "Pre-3.4 layout, kept read-only and still searchable.",
+  },
+  traffic_by_port_legacy: {
+    badge: "legacy (pre-3.5 port stats), expires by itself",
+    note: "Pre-3.5 port statistics (every flow counted twice), kept until it expires and no longer shown anywhere.",
+  },
+}
+const LEGACY_FALLBACK = { badge: "legacy, expires by itself", note: "Kept from an earlier version until it expires." }
+
 function StorageRow({ table }: { table: TableStorageStats }) {
   const setRetention = useSetRetention()
 
@@ -393,11 +406,12 @@ function StorageRow({ table }: { table: TableStorageStats }) {
     ? `Partitions older than this move to the cold volume of storage policy “${table.storage_policy}” (0 = off; must be lower than the TTL)`
     : `Storage policy “${table.storage_policy || "default"}” has no volume named “cold” — switch the table to a hot/cold policy first (README › Cold storage on a second disk)`
 
-  // A follower (flows_log_legacy) has no policy of its own: its row shows the
-  // leader's values read-only.
+  // A follower (flows_log_legacy, traffic_by_port_legacy) has no policy of
+  // its own: its row shows the leader's values read-only.
   const follows = table.retention_follows
+  const legacy = table.legacy ? (LEGACY_TABLES[table.table] ?? LEGACY_FALLBACK) : undefined
   const followsTitle = follows
-    ? `${table.legacy ? "Pre-3.4 layout, kept read-only and still searchable. " : ""}Retention follows ${follows}: the table expires by itself under that policy — change it on the ${follows} row.`
+    ? `${legacy ? `${legacy.note} ` : ""}Retention follows ${follows}: the table expires by itself under that policy — change it on the ${follows} row.`
     : undefined
 
   return (
@@ -410,7 +424,7 @@ function StorageRow({ table }: { table: TableStorageStats }) {
               className="px-1 py-0.5 text-xs rounded border border-input text-muted-foreground"
               title={followsTitle}
             >
-              legacy (pre-3.4 layout), expires by itself
+              {legacy?.badge}
             </span>
           )}
           {table.pending_mutations > 0 && (

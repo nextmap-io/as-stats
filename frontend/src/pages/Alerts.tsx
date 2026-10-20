@@ -5,6 +5,8 @@ import { api } from "@/lib/api"
 import { blockErrorMessage } from "@/lib/block"
 import { useFeatureFlags } from "@/hooks/useFeatures"
 import { hostTarget } from "@/lib/home"
+import { isPrivateASGroup } from "@/lib/asn"
+import { ASRef } from "@/components/ASRef"
 import { formatAlertMetric } from "@/lib/format"
 import { useAnomalyExplain } from "@/hooks/useApi"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -480,7 +482,9 @@ function ExplanationGrid({ expl }: { expl: AnomalyExplanation }) {
       <ContribTable
         title="Top source ASes"
         rows={expl.top_ases.map((a) => ({
-          label: (
+          label: isPrivateASGroup(a.as_number) ? (
+            <ASRef asn={a.as_number} />
+          ) : (
             <Link to={`/as/${a.as_number}`} className="text-primary hover:underline">
               AS{a.as_number}
               {a.as_name ? <span className="text-muted-foreground"> · {a.as_name}</span> : null}
