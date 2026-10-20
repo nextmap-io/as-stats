@@ -57,7 +57,7 @@ on Go, ClickHouse and React.
 
 **Forensics**
 - Flow log (`FEATURE_FLOW_SEARCH`): search per-tuple flows by IP or CIDR, AS, port, protocol and time, CSV export up to 100,000 rows, 180-day default retention; a conversations explorer for bidirectional top talkers.
-- Top protocols and ports with IANA service names (`FEATURE_PORT_STATS`).
+- Top protocols and ports with IANA service names (`FEATURE_PORT_STATS`): each flow counted once, inbound / outbound by the link it crossed, under its service port (the lower of its two ports, so a download from a web server counts under 443, not under the client's ephemeral port).
 
 **Operations**
 - Collector for NetFlow v5 / v9, IPFIX and sFlow v5, parsed in Go. Decoding a NetFlow v5 record takes under 0.3 µs on one core (`BenchmarkDecodeV5`, 30-record packets). One production deployment runs on a single node and ingests about 1,300 flows/s, unsampled, from two routers.
@@ -226,6 +226,23 @@ cold tier) and **empties itself** as its partitions age out — within the
 switched to a hot/cold storage policy, the new table is switched to it by the
 reconciler on its first cycle (see step 3 of
 [Cold storage on a second disk](#cold-storage-on-a-second-disk)).
+
+**Upgrading to 3.5 (port statistics, migration 000018): no manual step, but
+port history restarts.** Until 3.4, `traffic_by_port` stored every flow twice
+— once as "in" under its destination port, once as "out" under its source
+port — so Top Protocols showed inbound = outbound and every total was doubled.
+From 3.5 each flow is stored once, under the direction of the link it crossed
+and its service port. The old rows cannot be split back into flows, so they are
+**not converted**: the migration keeps the table as `traffic_by_port_legacy`
+(atomic `EXCHANGE TABLES`, milliseconds, the collector keeps inserting) and
+starts an empty `traffic_by_port`. Top Protocols, Top Ports and Changes › port
+movers read only the new table and say so while the selected window reaches
+back before the upgrade. `traffic_by_port_legacy` is never shown; it follows
+the `traffic_by_port` retention and cold tier and **empties itself** (365 days
+by default); Admin › Storage lists it as *legacy (pre-3.5 port stats), expires
+by itself*. As in 3.4, a hot/cold storage policy is re-applied to the new table
+by the reconciler. Flows on no configured link are stored with no direction and
+are not listed under Inbound / Outbound (as in the link totals).
 
 ### Reverse proxy
 
@@ -515,6 +532,8 @@ old layout until it ages out (see the 3.4 upgrade note above).
 | `traffic_by_prefix` | 5 min | 30 days |
 | `flows_log` *(opt)* | per tuple | 180 days *(configurable)* |
 | `flows_log_legacy` *(after the 3.4 upgrade)* | per tuple | follows `flows_log` |
+| `traffic_by_port` *(opt)* | 5 min | 365 days |
+| `traffic_by_port_legacy` *(after the 3.5 upgrade, never read)* | 5 min | follows `traffic_by_port` |
 | `traffic_by_dst_1min` / `traffic_by_src_1min` *(opt)* | 1 min | 7 days |
 
 All TTLs are enforced by ClickHouse itself — no cron jobs to maintain.
@@ -620,7 +639,8 @@ but is still on ClickHouse's `default` policy, and **exactly one** configured
 policy has a first volume `default` (disk `default`) followed by a volume
 `cold`, the reconciler runs this `ALTER` itself and logs it. With no such
 policy, or several, it leaves the table alone and logs why once. This is how
-the `flows_log` created by the 3.4 upgrade inherits `hot_cold`.
+the `flows_log` created by the 3.4 upgrade and the `traffic_by_port` created by
+the 3.5 upgrade inherit `hot_cold`.
 
 **4. Set "Move to cold after (days)"** next to the retention in Admin ›
 Storage (or `PUT /admin/retention/{table}` with `{"ttl_days": 240,
