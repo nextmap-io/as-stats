@@ -282,6 +282,7 @@ export function Header() {
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             className={cn(toolButton, "lg:hidden")}
             aria-label="Navigation menu"
+            aria-controls="mobile-nav"
             aria-expanded={mobileMenuOpen}
           >
             {mobileMenuOpen ? <X className="size-4" aria-hidden /> : <Menu className="size-4" aria-hidden />}
@@ -290,7 +291,7 @@ export function Header() {
       </div>
 
       {mobileMenuOpen && (
-        <nav className="border-t border-border bg-card px-4 py-3 lg:hidden" aria-label="Mobile navigation">
+        <nav id="mobile-nav" className="border-t border-border bg-card px-4 py-3 lg:hidden" aria-label="Mobile navigation">
           <form onSubmit={handleSearch} className="relative mb-3 sm:hidden" role="search">
             <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
             <input
@@ -388,12 +389,28 @@ function NavMenu({
   onClose: () => void
 }) {
   const active = group.items.some(i => isActive(pathname, i.to))
+  const panelId = `nav-${group.label.toLowerCase()}`
+  // Disclosure pattern (button + list of links), not an ARIA menu: role="menu"
+  // promises arrow-key navigation that plain links do not have. Tabbing out of
+  // the group closes it; Escape closes it and puts focus back on the trigger.
   return (
-    <div className="relative flex" onMouseEnter={onHover}>
+    <div
+      className="relative flex"
+      onMouseEnter={onHover}
+      onBlur={e => {
+        if (open && !e.currentTarget.contains(e.relatedTarget as Node | null)) onClose()
+      }}
+      onKeyDown={e => {
+        if (e.key === "Escape" && open) {
+          onClose()
+          e.currentTarget.querySelector("button")?.focus()
+        }
+      }}
+    >
       <button
         type="button"
         onClick={onToggle}
-        aria-haspopup="true"
+        aria-controls={panelId}
         aria-expanded={open}
         className={cn(
           "inline-flex items-center gap-1 border-b-2 px-2.5 pt-0.5 text-sm",
@@ -407,14 +424,13 @@ function NavMenu({
       </button>
       {open && (
         <div
-          role="menu"
+          id={panelId}
           className="absolute left-0 top-full z-50 min-w-[190px] rounded-b border border-t-0 border-border bg-popover py-1 shadow-md"
         >
           {group.items.map(item => (
             <Link
               key={item.to}
               to={item.to}
-              role="menuitem"
               onClick={onClose}
               className={cn(
                 "block px-3.5 py-1.5 text-sm",

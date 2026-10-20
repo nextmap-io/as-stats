@@ -8,6 +8,7 @@ import { DataTable, PercentBar, type Column } from "@/components/DataTable"
 import { ExportButton, type ExportColumn } from "@/components/ExportButton"
 import { formatBitsPerSec, formatPercent } from "@/lib/utils"
 import type { LinkCapacity } from "@/lib/types"
+import { formatCapacity } from "@/lib/format"
 
 // utilBarClass maps a utilisation percentage to a bar colour. Normal stays
 // neutral ink; only "watch" (>= 70%, amber) and "incident" (>= 90%, red) light up.
@@ -83,7 +84,7 @@ export function Capacity() {
         sortable: true,
         className: "text-muted-foreground",
         sortValue: (l) => l.capacity_mbps || 0,
-        render: (l) => (l.capacity_mbps ? `${l.capacity_mbps.toLocaleString()} Mbps` : "-"),
+        render: (l) => (l.capacity_mbps ? formatCapacity(l.capacity_mbps * 1e6) : "-"),
       },
       {
         key: "current_bps",
@@ -159,7 +160,7 @@ export function Capacity() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-baseline justify-between">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
         <h1 className="text-2xl font-semibold">Capacity</h1>
       </div>
 

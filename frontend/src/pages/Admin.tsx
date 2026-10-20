@@ -18,8 +18,9 @@ import {
   useCreateAPIToken,
   useRevokeAPIToken,
 } from "@/hooks/useApi"
-import { Shield, Trash2, Plus, FileText, Pencil, HardDrive, Check, X, Mail, Send, KeyRound, Copy } from "lucide-react"
+import { Trash2, Plus, FileText, Pencil, HardDrive, Check, X, Mail, Send, KeyRound, Copy } from "lucide-react"
 import { cn, formatBytes, formatNumber, formatPercent } from "@/lib/utils"
+import { formatCapacity } from "@/lib/format"
 import type {
   AlertRule,
   Hostgroup,
@@ -65,11 +66,8 @@ export function Admin() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <Shield className="size-4" />
-          Admin
-        </h1>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+        <h1 className="text-2xl font-semibold">Admin</h1>
       </div>
 
       {/* Tabs */}
@@ -128,7 +126,7 @@ function LinksTab() {
               <tr className="border-b border-border">
                 <th className="pb-1.5 text-left font-medium text-muted-foreground">Tag</th>
                 <th className="pb-1.5 text-left font-medium text-muted-foreground">Router IP</th>
-                <th className="pb-1.5 text-right font-medium text-muted-foreground">SNMP idx</th>
+                <th className="pb-1.5 text-right font-medium text-muted-foreground">SNMP index</th>
                 <th className="pb-1.5 pl-6 text-left font-medium text-muted-foreground">Description</th>
                 <th className="pb-1.5 text-right font-medium text-muted-foreground">Capacity</th>
               </tr>
@@ -141,7 +139,7 @@ function LinksTab() {
                   <td className="py-1.5 text-right">{l.snmp_index}</td>
                   <td className="py-1.5 pl-6 text-muted-foreground">{l.description || "-"}</td>
                   <td className="py-1.5 text-right text-muted-foreground">
-                    {l.capacity_mbps ? `${l.capacity_mbps} Mbps` : "-"}
+                    {l.capacity_mbps ? formatCapacity(l.capacity_mbps * 1e6) : "-"}
                   </td>
                 </tr>
               ))}
@@ -193,7 +191,7 @@ function StorageTab() {
 
       <Card>
         <CardHeader>
-          <div className="flex items-baseline justify-between">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
             <CardTitle>Tables ({tables.length})</CardTitle>
             {pendingTotal > 0 && (
               <span
@@ -345,14 +343,14 @@ function DaysField({
         <div className="flex gap-0.5">
           <button
             onClick={save}
-            className="p-1 rounded hover:bg-success/10 hover:text-success transition-colors"
+            className="inline-flex size-7 items-center justify-center rounded hover:bg-success/10 hover:text-success transition-colors"
             title={saveTitle}
           >
             <Check className="size-3" />
           </button>
           <button
             onClick={() => setDraft(serverValue)}
-            className="p-1 rounded hover:bg-accent transition-colors"
+            className="inline-flex size-7 items-center justify-center rounded hover:bg-accent transition-colors"
             title="Discard"
           >
             <X className="size-3" />
@@ -585,7 +583,7 @@ function TokensTab() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <CardTitle className="flex items-center gap-2">
             <KeyRound className="size-3.5" />
             API tokens ({tokens.length})
@@ -745,10 +743,10 @@ function TokenRow({ token, onRevoke, revoking }: { token: APIToken; onRevoke: (i
           <button
             onClick={() => { if (confirm(`Revoke token "${token.name}"? This cannot be undone.`)) onRevoke(token.id) }}
             disabled={revoking}
-            className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors disabled:opacity-50"
+            className="inline-flex size-7 items-center justify-center rounded hover:bg-destructive/10 hover:text-destructive transition-colors disabled:opacity-50"
             title="Revoke token"
           >
-            <Trash2 className="size-3" />
+            <Trash2 className="size-3.5" aria-hidden />
           </button>
         ) : (
           <span className="text-muted-foreground">—</span>
@@ -833,7 +831,7 @@ function RulesTab() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <CardTitle>Alert rules ({rules.length})</CardTitle>
           <button
             onClick={() => { setShowForm((s) => !s); if (!showForm) setDraft(emptyRule()) }}
@@ -1088,10 +1086,10 @@ function RulesTab() {
                             deleteMutation.mutate(r.id)
                           }
                         }}
-                        className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
+                        className="inline-flex size-7 items-center justify-center rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
                         title="Delete rule"
                       >
-                        <Trash2 className="size-3" />
+                        <Trash2 className="size-3.5" aria-hidden />
                       </button>
                     </td>
                   </tr>
@@ -1208,7 +1206,7 @@ function WebhooksTab() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <div className="flex items-baseline justify-between">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
             <CardTitle>Notification webhooks ({webhooks.length})</CardTitle>
             <button
               onClick={() => setShowForm(!showForm)}
@@ -1315,9 +1313,9 @@ function WebhooksTab() {
                             deleteMutation.mutate(w.id)
                           }
                         }}
-                        className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
+                        className="inline-flex size-7 items-center justify-center rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
                       >
-                        <Trash2 className="size-3" />
+                        <Trash2 className="size-3.5" aria-hidden />
                       </button>
                     </td>
                   </tr>
@@ -1469,7 +1467,7 @@ function ReportsTab() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <CardTitle className="flex items-center gap-2">
             <Mail className="size-3.5" />
             Scheduled reports ({schedules.length})
@@ -1580,7 +1578,7 @@ function ReportsTab() {
                       type="checkbox"
                       checked={draft.sections.includes(s.value)}
                       onChange={() => toggleSection(s.value)}
-                      className="size-3.5 rounded border-input accent-primary"
+                      className="size-4 rounded border-input accent-primary"
                     />
                     {s.label}
                   </label>
@@ -1683,17 +1681,17 @@ function ReportRow({ schedule, editing, onEdit }: { schedule: ReportSchedule; ed
           </button>
           <button
             onClick={onEdit}
-            className="p-1 rounded hover:bg-accent transition-colors"
+            className="inline-flex size-7 items-center justify-center rounded hover:bg-accent transition-colors"
             title="Edit schedule"
           >
-            <Pencil className="size-3" />
+            <Pencil className="size-3.5" aria-hidden />
           </button>
           <button
             onClick={() => { if (confirm(`Delete report "${schedule.name}"?`)) deleteMutation.mutate(schedule.id) }}
-            className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
+            className="inline-flex size-7 items-center justify-center rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
             title="Delete schedule"
           >
-            <Trash2 className="size-3" />
+            <Trash2 className="size-3.5" aria-hidden />
           </button>
         </div>
       </td>
@@ -1718,7 +1716,7 @@ function AuditTab() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-baseline justify-between">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
           <CardTitle className="flex items-center gap-2">
             <FileText className="size-3.5" />
             Audit log (last 200 entries)
@@ -1848,7 +1846,7 @@ function HostgroupsTab() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <CardTitle>Hostgroups ({groups.length})</CardTitle>
           <button
             onClick={() => showForm ? resetForm() : setShowForm(true)}
@@ -1917,17 +1915,17 @@ function HostgroupsTab() {
                     <div className="flex justify-end gap-0.5">
                       <button
                         onClick={() => startEdit(g)}
-                        className="p-1 rounded hover:bg-accent transition-colors"
+                        className="inline-flex size-7 items-center justify-center rounded hover:bg-accent transition-colors"
                         title="Edit hostgroup"
                       >
-                        <Pencil className="size-3" />
+                        <Pencil className="size-3.5" aria-hidden />
                       </button>
                       <button
                         onClick={() => { if (confirm(`Delete hostgroup "${g.name}"?`)) deleteMutation.mutate(g.id) }}
-                        className="p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
+                        className="inline-flex size-7 items-center justify-center rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
                         title="Delete hostgroup"
                       >
-                        <Trash2 className="size-3" />
+                        <Trash2 className="size-3.5" aria-hidden />
                       </button>
                     </div>
                   </td>

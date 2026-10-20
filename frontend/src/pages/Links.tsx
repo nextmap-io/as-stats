@@ -16,6 +16,7 @@ import { seriesColor, useChartColors } from "@/hooks/useChartColors"
 import { Plus, Trash2, BarChart3 } from "lucide-react"
 import { EmptyState } from "@/components/ui/error"
 import type { LinkTraffic } from "@/lib/types"
+import { formatCapacity } from "@/lib/format"
 
 export function Links() {
   const { filters, filterSearch, periodSeconds, timeBounds } = useFilters()
@@ -54,7 +55,7 @@ export function Links() {
       sortable: true,
       className: "text-muted-foreground",
       sortValue: (l) => l.capacity_mbps || 0,
-      render: (l) => (l.capacity_mbps ? `${l.capacity_mbps} Mbps` : "-"),
+      render: (l) => (l.capacity_mbps ? formatCapacity(l.capacity_mbps * 1e6) : "-"),
     },
     {
       key: "bytes_in",
@@ -95,7 +96,7 @@ export function Links() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-baseline justify-between">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
         <h1 className="text-2xl font-semibold">Links</h1>
       </div>
 
@@ -208,8 +209,8 @@ function LinkManager() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle>Link Configuration</CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <CardTitle>Link configuration</CardTitle>
           <button
             onClick={() => setShowForm(!showForm)}
             className="text-xs text-primary hover:underline inline-flex items-center gap-1"
@@ -285,7 +286,7 @@ function LinkManager() {
                 <th className="pb-2 w-6"></th>
                 <th className="pb-2 text-left font-medium text-muted-foreground">Tag</th>
                 <th className="pb-2 text-left font-medium text-muted-foreground">Router IP</th>
-                <th className="pb-2 text-right font-medium text-muted-foreground">SNMP Index</th>
+                <th className="pb-2 text-right font-medium text-muted-foreground">SNMP index</th>
                 <th className="pb-2 pl-6 text-left font-medium text-muted-foreground">Description</th>
                 <th className="pb-2 text-right font-medium text-muted-foreground">Capacity</th>
                 <th className="pb-2 text-right font-medium text-muted-foreground"></th>
@@ -307,7 +308,7 @@ function LinkManager() {
                           })
                         }
                       }}
-                      className="size-5 rounded cursor-pointer border-0 p-0"
+                      className="size-6 rounded cursor-pointer border-0 p-0"
                       title={l.color ? "Link colour" : "Automatic colour from the theme. Pick one to fix it."}
                       aria-label={`Colour for ${l.tag}`}
                     />
@@ -316,7 +317,7 @@ function LinkManager() {
                   <td className="py-1.5 font-ip text-muted-foreground">{l.router_ip}</td>
                   <td className="py-1.5 text-right">{l.snmp_index}</td>
                   <td className="py-1.5 pl-6 text-muted-foreground truncate max-w-48">{l.description || "-"}</td>
-                  <td className="py-1.5 text-right">{l.capacity_mbps ? `${l.capacity_mbps} Mbps` : "-"}</td>
+                  <td className="py-1.5 text-right">{l.capacity_mbps ? formatCapacity(l.capacity_mbps * 1e6) : "-"}</td>
                   <td className="py-1.5 text-right">
                     <button
                       onClick={() => {
@@ -324,10 +325,11 @@ function LinkManager() {
                           deleteMutation.mutate(l.tag)
                         }
                       }}
-                      className="text-muted-foreground hover:text-destructive transition-colors"
+                      className="inline-flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
                       title="Delete link"
+                      aria-label={`Delete link ${l.tag}`}
                     >
-                      <Trash2 className="size-3.5" />
+                      <Trash2 className="size-3.5" aria-hidden />
                     </button>
                   </td>
                 </tr>
