@@ -7,6 +7,7 @@ import { formatBytes, formatNumber } from "@/lib/utils"
 import { Search, Download, X, AlertCircle } from "lucide-react"
 import type { FlowSearchFilters, FlowLogEntry } from "@/lib/types"
 import { IPWithPTR } from "@/components/PTR"
+import { Segmented } from "@/components/ui/segmented"
 
 const PROTOCOLS = [
   { value: 0, label: "All" },
@@ -88,8 +89,8 @@ export function FlowSearch() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold">Flow Search</h1>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+        <h1 className="text-2xl font-semibold">Flow search</h1>
         <span className="text-xs text-muted-foreground">
           Forensic search over the flow log (max 30 days)
         </span>
@@ -102,24 +103,14 @@ export function FlowSearch() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-3">
             {/* Period */}
-            <div className="flex items-center gap-2" role="group" aria-label="Period">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs text-muted-foreground w-20 shrink-0">Period</span>
-              <div className="flex gap-1">
-                {PERIODS.map(p => (
-                  <button
-                    key={p.value}
-                    type="button"
-                    onClick={() => setFilters(f => ({ ...f, period: p.value, from: undefined, to: undefined }))}
-                    className={`px-2.5 py-1 text-xs rounded transition-colors ${
-                      filters.period === p.value
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted/50 text-muted-foreground hover:bg-accent"
-                    }`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
+              <Segmented
+                label="Period"
+                value={filters.period ?? ""}
+                onChange={(v) => setFilters(f => ({ ...f, period: v, from: undefined, to: undefined }))}
+                options={PERIODS}
+              />
               {filters.from && filters.to && (
                 <span className="text-[13px] text-foreground-secondary">
                   {new Date(filters.from).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -290,7 +281,7 @@ export function FlowSearch() {
       {submitted && !error && (
         <Card>
           <CardHeader>
-            <div className="flex items-baseline justify-between">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
               <CardTitle>
                 Results {isLoading ? "(loading...)" : `(${formatNumber(results.length)})`}
               </CardTitle>

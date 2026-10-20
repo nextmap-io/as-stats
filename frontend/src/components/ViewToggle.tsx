@@ -1,6 +1,6 @@
 import { useSearchParams } from "react-router-dom"
 import { Table2, LayoutGrid, ChartPie } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { Segmented } from "@/components/ui/segmented"
 import { asView, type TopView } from "@/lib/view"
 
 const OPTIONS: { value: TopView; label: string; Icon: typeof Table2 }[] = [
@@ -30,29 +30,20 @@ export function ViewToggle({ param = "view" }: { param?: string }) {
   }
 
   return (
-    <div
-      className="flex gap-0.5 rounded border border-input bg-muted/30 p-0.5"
-      role="group"
-      aria-label="View mode"
-    >
-      {OPTIONS.map(({ value: v, label, Icon }) => (
-        <button
-          key={v}
-          type="button"
-          onClick={() => set(v)}
-          aria-pressed={value === v}
-          title={label}
-          className={cn(
-            "inline-flex items-center gap-1 px-2 py-0.5 text-[13px] font-medium rounded transition-colors",
-            value === v
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:text-foreground hover:bg-accent",
-          )}
-        >
-          <Icon className="size-3" aria-hidden />
-          <span className="hidden sm:inline">{label}</span>
-        </button>
-      ))}
-    </div>
+    <Segmented
+      label="View mode"
+      value={value}
+      onChange={set}
+      options={OPTIONS.map(({ value: v, label, Icon }) => ({
+        value: v,
+        title: label,
+        label: (
+          <>
+            <Icon className="size-3.5" aria-hidden />
+            <span className="max-sm:sr-only">{label}</span>
+          </>
+        ),
+      }))}
+    />
   )
 }
