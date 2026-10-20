@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/providers/ThemeProvider"
 import { UnitProvider, useUnitState } from "@/hooks/useUnit"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { AppLayout } from "@/components/layout/AppLayout"
+import { FeatureGate } from "@/components/FeatureGate"
 import { Dashboard } from "@/pages/Dashboard"
 import { TopAS } from "@/pages/TopAS"
 import { TopIP } from "@/pages/TopIP"
@@ -55,14 +56,14 @@ function AppWithProviders() {
             <Route path="/capacity" element={<Capacity />} />
             <Route path="/status" element={<Status />} />
             <Route path="/search" element={<SearchPage />} />
-            <Route path="/flows" element={<FlowSearch />} />
-            <Route path="/conversations" element={<Conversations />} />
+            <Route path="/flows" element={<FeatureGate flag="flow_search" title="Flow search" setting="FEATURE_FLOW_SEARCH=true"><FlowSearch /></FeatureGate>} />
+            <Route path="/conversations" element={<FeatureGate flag="flow_search" title="Conversations" setting="FEATURE_FLOW_SEARCH=true"><Conversations /></FeatureGate>} />
             <Route path="/changes" element={<Changes />} />
-            <Route path="/top/protocol" element={<TopProtocols />} />
-            <Route path="/top/port" element={<TopPorts />} />
-            <Route path="/alerts" element={<Alerts />} />
-            <Route path="/live" element={<LiveThreats />} />
-            <Route path="/bgp" element={<BGP />} />
+            <Route path="/top/protocol" element={<FeatureGate flag="port_stats" title="Top protocols" setting="FEATURE_PORT_STATS=true"><TopProtocols /></FeatureGate>} />
+            <Route path="/top/port" element={<FeatureGate flag="port_stats" title="Top ports" setting="FEATURE_PORT_STATS=true"><TopPorts /></FeatureGate>} />
+            <Route path="/alerts" element={<FeatureGate flag="alerts" title="Alerts" setting="FEATURE_ALERTS=true"><Alerts /></FeatureGate>} />
+            <Route path="/live" element={<FeatureGate flag="alerts" title="Live threats" setting="FEATURE_ALERTS=true"><LiveThreats /></FeatureGate>} />
+            <Route path="/bgp" element={<FeatureGate flag="bgp" title="BGP blocks" setting="BGP_ENABLED=true (plus the BGP peer settings)"><BGP /></FeatureGate>} />
             <Route path="/admin" element={<Admin />} />
           </Route>
         </Routes>
