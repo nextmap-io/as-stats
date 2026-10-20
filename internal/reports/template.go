@@ -54,7 +54,7 @@ const reportTemplate = `<!DOCTYPE html>
       </tr>
       {{range .TopAS}}
       <tr>
-        <td style="padding:6px 8px;border-bottom:1px solid #f0f2f4;font-variant-numeric:tabular-nums;">AS{{.ASNumber}}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #f0f2f4;font-variant-numeric:tabular-nums;">{{asLabel .ASNumber}}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #f0f2f4;">{{.ASName}}{{if .Country}} ({{.Country}}){{end}}</td>
         <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #f0f2f4;font-variant-numeric:tabular-nums;">{{humanBytes .Bytes}}</td>
         <td style="padding:6px 8px;text-align:right;border-bottom:1px solid #f0f2f4;font-variant-numeric:tabular-nums;">{{pct .Percent}}</td>

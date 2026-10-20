@@ -286,13 +286,14 @@ func (s *ClickHouseStore) AnomalyExplain(ctx context.Context, target string, fro
 		return float64(b) / float64(totalBytes) * 100
 	}
 
-	// Top source ASes.
+	// Top source ASes, private-use ASNs collapsed into model.PrivateASGroup
+	// (as_group.go) like every per-AS list.
 	// Names are joined after aggregation from the deduplicated view (names.go).
-	asRows, err := s.conn.Query(ctx, `
-		SELECT a.asn, an.as_name AS as_name, a.bytes, a.packets
+	asRows, err := s.conn.Query(ctx, fmt.Sprintf(`
+		SELECT a.asn, %[2]s AS as_name, a.bytes, a.packets
 		FROM (
 			SELECT
-				f.src_as AS asn,
+				%[1]s AS asn,
 				toUInt64(sum(f.bytes * f.sampling_rate)) AS bytes,
 				toUInt64(sum(f.packets * f.sampling_rate)) AS packets
 			FROM flows_raw f
@@ -300,13 +301,13 @@ func (s *ClickHouseStore) AnomalyExplain(ctx context.Context, target string, fro
 			  AND f.timestamp >= @from
 			  AND f.timestamp < @to
 			  AND f.src_as > 0
-			GROUP BY f.src_as
+			GROUP BY asn
 			ORDER BY bytes DESC
 			LIMIT @limit
 		) a
-		LEFT JOIN `+asNamesLatest+` an ON a.asn = an.as_number
+		LEFT JOIN %[3]s an ON a.asn = an.as_number
 		ORDER BY a.bytes DESC, a.asn
-	`,
+	`, groupedAS("f.src_as"), groupedASName("a.asn", "an.as_name"), asNamesLatest),
 		clickhouse.Named("tag", target),
 		clickhouse.Named("from", from),
 		clickhouse.Named("to", to),

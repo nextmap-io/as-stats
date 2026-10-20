@@ -106,6 +106,36 @@ func TestGenerateAllSections(t *testing.T) {
 	}
 }
 
+// TestGenerateTopASPrivateGroup: the collapsed private-use row (the sentinel
+// ASN TopAS returns) reads as its group name, never as "AS4294967295".
+func TestGenerateTopASPrivateGroup(t *testing.T) {
+	fs := &fakeStore{
+		overview: &model.Overview{},
+		topAS: []model.ASTraffic{
+			{ASNumber: model.PrivateASGroup, ASName: model.PrivateASName, Bytes: 500, Percent: 50},
+			{ASNumber: 15169, ASName: "GOOGLE", Bytes: 500, Percent: 50},
+		},
+	}
+	gen, err := NewGenerator(fs)
+	if err != nil {
+		t.Fatalf("NewGenerator: %v", err)
+	}
+	sched := model.ReportSchedule{Name: "AS", Frequency: "daily", Sections: "top_as", Format: "both"}
+	r, err := gen.Generate(context.Background(), sched, ts(2026, 6, 30, 9, 0))
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	html := string(r.HTML)
+	if strings.Contains(html, "AS4294967295") {
+		t.Error("HTML renders the private-use sentinel as an ASN")
+	}
+	for _, want := range []string{model.PrivateASName, "AS15169"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("HTML missing %q", want)
+		}
+	}
+}
+
 func TestGenerateSubsetOnlyRendersRequested(t *testing.T) {
 	fs := &fakeStore{
 		overview: &model.Overview{TotalBytesIn: 1},

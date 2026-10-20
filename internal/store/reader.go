@@ -545,13 +545,14 @@ func (s *ClickHouseStore) ASRemoteIPs(ctx context.Context, asn uint32, p QueryPa
 	return results, nil
 }
 
-// ASPeers returns ASes seen in the same flows as the given AS.
+// ASPeers returns ASes seen in the same flows as the given AS, private-use
+// ASNs collapsed into the model.PrivateASGroup row like every per-AS list.
 func (s *ClickHouseStore) ASPeers(ctx context.Context, asn uint32, p QueryParams) ([]model.ASTraffic, error) {
-	query := `
-		SELECT a.as_number, an.as_name AS as_name, a.total_bytes, a.total_packets, a.total_flows
+	query := fmt.Sprintf(`
+		SELECT a.as_num, %[2]s AS as_name, a.total_bytes, a.total_packets, a.total_flows
 		FROM (
 			SELECT
-				f.dst_as AS as_number,
+				%[1]s AS as_num,
 				sum(f.bytes * f.sampling_rate) AS total_bytes,
 				sum(f.packets * f.sampling_rate) AS total_packets,
 				count() AS total_flows
@@ -559,13 +560,13 @@ func (s *ClickHouseStore) ASPeers(ctx context.Context, asn uint32, p QueryParams
 			WHERE f.src_as = @asn
 			  AND f.timestamp >= @from AND f.timestamp < @to
 			  AND f.dst_as > 0 AND f.dst_as != @asn
-			GROUP BY f.dst_as
+			GROUP BY as_num
 			ORDER BY total_bytes DESC
 			LIMIT @limit
 		) a
-		LEFT JOIN ` + asNamesLatest + ` an ON a.as_number = an.as_number
-		ORDER BY a.total_bytes DESC, a.as_number
-	`
+		LEFT JOIN %[3]s an ON a.as_num = an.as_number
+		ORDER BY a.total_bytes DESC, a.as_num
+	`, groupedAS("f.dst_as"), groupedASName("a.as_num", "an.as_name"), asNamesLatest)
 
 	rows, err := s.conn.Query(ctx, query,
 		clickhouse.Named("asn", asn),
@@ -682,29 +683,31 @@ func (s *ClickHouseStore) ASTopIPs(ctx context.Context, asn uint32, p QueryParam
 }
 
 // IPTopAS returns the top ASes communicating with a given internal IP.
+// Private-use ASNs collapse into the single model.PrivateASGroup row, as in
+// Top AS: listed one by one they showed as nameless "64512", "65001", …
 func (s *ClickHouseStore) IPTopAS(ctx context.Context, ip string, p QueryParams) ([]model.ASTraffic, error) {
 	dirFilter, dirArgs := buildDirectionFilter(p.Direction)
 	linkFilter, linkArgs := buildLinkFilter(p.LinkTags)
 
 	query := fmt.Sprintf(`
-		SELECT a.as_number, an.as_name AS as_name, a.total_bytes, a.total_packets, a.total_flows
+		SELECT a.as_num, %[2]s AS as_name, a.total_bytes, a.total_packets, a.total_flows
 		FROM (
 			SELECT
-				t.as_number AS as_number,
+				%[1]s AS as_num,
 				sum(t.bytes) AS total_bytes,
 				sum(t.packets) AS total_packets,
 				sum(t.flow_count) AS total_flows
 			FROM traffic_by_ip_as t
 			WHERE t.ip_address = toIPv6(@ip)
 			  AND t.ts >= @from AND t.ts < @to
-			  %s %s
-			GROUP BY t.as_number
+			  %[3]s %[4]s
+			GROUP BY as_num
 			ORDER BY total_bytes DESC
 			LIMIT @limit
 		) a
-		LEFT JOIN %s an ON a.as_number = an.as_number
-		ORDER BY a.total_bytes DESC, a.as_number
-	`, dirFilter, linkFilter, asNamesLatest)
+		LEFT JOIN %[5]s an ON a.as_num = an.as_number
+		ORDER BY a.total_bytes DESC, a.as_num
+	`, groupedAS("t.as_number"), groupedASName("a.as_num", "an.as_name"), dirFilter, linkFilter, asNamesLatest)
 
 	args := append([]any{
 		clickhouse.Named("ip", ip),

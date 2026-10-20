@@ -10,6 +10,7 @@ import { ExportButton, type ExportColumn } from "@/components/ExportButton"
 import { IPWithPTR } from "@/components/PTR"
 import { formatNumber } from "@/lib/utils"
 import { ASRef } from "@/components/ASRef"
+import { isPrivateASGroup } from "@/lib/asn"
 import { Search } from "lucide-react"
 import type { Conversation } from "@/lib/types"
 import { Segmented } from "@/components/ui/segmented"
@@ -61,6 +62,8 @@ export function Conversations() {
         return `${base}&src_ip=${encodeURIComponent(c.endpoint_a)}&dst_ip=${encodeURIComponent(c.endpoint_b)}`
       }
       if (dim === "src_dst_as") {
+        // The private-use group is not an ASN a flow carries: no flow filter.
+        if (isPrivateASGroup(c.endpoint_a) || isPrivateASGroup(c.endpoint_b)) return null
         return `${base}&src_as=${encodeURIComponent(c.endpoint_a)}&dst_as=${encodeURIComponent(c.endpoint_b)}`
       }
       return `${base}&protocol=${encodeURIComponent(c.endpoint_a)}&dst_port=${encodeURIComponent(c.endpoint_b)}`
