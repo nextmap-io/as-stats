@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-10-20
+
 ### Changed
 - **Faster Flow Search by IP.** `flows_log` is now sorted by
   (15-minute bucket, destination IP, …) instead of (time, link, protocol,
