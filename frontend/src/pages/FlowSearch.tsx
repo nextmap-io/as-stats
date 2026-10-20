@@ -386,7 +386,7 @@ function ProtocolBadge({ protocol }: { protocol: string }) {
   const encrypted = ["HTTPS", "SSH", "TLS", "DoT"]
   const common = ["TCP", "UDP", "ICMP", "DNS", "NTP"]
 
-  let color = "bg-muted/50 text-muted-foreground"
+  let color = "bg-muted/50 text-foreground-secondary"
   if (risky.some(r => protocol.includes(r))) color = "bg-destructive/20 text-destructive"
   else if (admin.some(r => protocol.includes(r))) color = "bg-blue-500/20 text-blue-500"
   else if (encrypted.some(r => protocol.includes(r))) color = "bg-success/20 text-success"
