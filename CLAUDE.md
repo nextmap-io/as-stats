@@ -155,7 +155,7 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 | `internal/store/step.go` | Source-table + bucket-width planner (`linkSeriesPlan`, `asSeriesPlan`, `ipSeriesPlan`, `capacityPlan`) and the exported `*StepSeconds` helpers handlers put in `meta.step_seconds`. |
 | `internal/store/names.go` | `asNamesLatest` / `linksLatest`: deduplicated views every name join must use (see bug #15). |
 | `internal/store/status.go` | `LiveStatus` for `GET /status/live` (10-min flows_raw scan + configured routers + disk). |
-| `internal/store/flow_log.go` | `SearchFlowLog`, `FlowLogTimeSeries`, `TopProtocols`, `TopPorts`. (`SetFlowLogRetention` removed — retention is now in `retention.go`.) |
+| `internal/store/flow_log.go` | `SearchFlowLog`, `FlowLogTimeSeries`, `TopProtocols`, `TopPorts`. Every flow-log read goes through `flowLogReadTable` (`flows_log_all`) + `flowLogTimeFilter` — see "Flow log layout" and bug #18. (`SetFlowLogRetention` removed — retention is now in `retention.go`.) |
 | `internal/store/threats.go` | Live Threats queries: `ThreatCandidates`, `ThreatBaselines`, `ThreatPeerBaselines`, `ThreatPorts`, `ThreatSeries`. Classification lives in `api/handler/threat_classify.go` (pure, table-tested). See "Live Threats". |
 | `internal/store/alerts.go` | Alert rules / alerts / webhooks / audit log CRUD. `AlertDetails` JSON marshaling for `details` column. |
 | `internal/store/alert_queries.go` | `Eval*` query helpers used by the alert engine (incl. `EvalDiskUsage`, `EvalLinkCapacity`, `EvalAnomaly`). **`buildCIDRFilter` lives here** — read its docstring before touching any IP filtering code. |
@@ -175,7 +175,7 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 | `internal/services/wellknown.go` | IANA protocol + well-known port name resolution (used by Flow Search and Top Ports). |
 | `internal/model/` | Shared types: `FlowRecord`, `ASTraffic`, `IPTraffic`, `LiveThreats` / `ThreatRow`, `AlertRule`, etc. |
 | `internal/config/` | Env-var config loading. `LoadCollector` and `LoadAPI`. |
-| `migrations/` | ClickHouse DDL, numbered 000001–000016 (000007–000013 include feature-gated tables; 000012 `retention_policies`, 000013 `report_schedules`, 000014 `api_tokens`, 000015 hot-table `SimpleAggregateFunction` fix, 000016 `retention_policies.cold_after_days`). Embedded in and applied by `cmd/migrate` (the `migrate` service runs before collector/api), which records each file's SHA-256 — **never edit a released migration**, add a new one. |
+| `migrations/` | ClickHouse DDL, numbered 000001–000017 (000007–000013 include feature-gated tables; 000012 `retention_policies`, 000013 `report_schedules`, 000014 `api_tokens`, 000015 hot-table `SimpleAggregateFunction` fix, 000016 `retention_policies.cold_after_days`, 000017 `flows_log` sort key + `flows_log_legacy` + `flows_log_all`). Every released schema level has a `DetectBaseline` probe in `internal/migrate/clickhouse.go` — add one with each migration. Embedded in and applied by `cmd/migrate` (the `migrate` service runs before collector/api), which records each file's SHA-256 — **never edit a released migration**, add a new one. |
 | `frontend/src/pages/` | One React page per route in `App.tsx`. |
 | `frontend/src/hooks/` | TanStack Query hooks (`useApi.ts`), URL-synced filters (`useFilters.ts`), unit toggle (`useUnit.ts`), chart theme (`useChartColors.ts`), DNS (`useDns.ts`), feature flags (`useFeatures.ts`). |
 | `frontend/src/components/charts/` | `TrafficChart` (single in/out), `LinkTrafficChart` (stacked by link), `ASTrafficChart` (stacked by AS) — all Recharts `AreaChart` with `stepAfter`. |
@@ -221,7 +221,9 @@ feature flag is enabled.
 
 | Table | Feature | Purpose |
 |---|---|---|
-| `flows_log` | `FEATURE_FLOW_SEARCH` | Full per-tuple log, 1-min buckets, 180d default TTL, bloom-filter skip indexes on `src_ip` / `dst_ip`. |
+| `flows_log` | `FEATURE_FLOW_SEARCH` | Full per-tuple log, 1-min buckets, 180d default TTL. Sorted by `(toStartOfFifteenMinutes(ts), dst_ip, ts, …)` since 000017; bloom filter on `src_ip` only. **Write-only from Go** — read `flows_log_all`. See "Flow log layout". |
+| `flows_log_legacy` | `FEATURE_FLOW_SEARCH` | The pre-000017 `flows_log` (old sort key), kept instead of copied; follows the `flows_log` retention and empties itself. Empty on fresh installs. |
+| `flows_log_all` | `FEATURE_FLOW_SEARCH` | `Merge(currentDatabase(), '^flows_log(_legacy)?$')` — the read side of the flow log. |
 | `report_schedules` | `FEATURE_REPORTS` | Scheduled HTML+CSV email reports (`ReplacingMergeTree`, soft-delete). Cron goroutine in the collector sends via SMTP. |
 | `traffic_by_port` | `FEATURE_PORT_STATS` | Aggregates per `(link, direction, protocol, port)`, 5-min, 1y TTL. |
 | `traffic_by_dst_1min` | `FEATURE_ALERTS` | `AggregatingMergeTree` keyed by `(ts, dst_ip, protocol)`. Stores `bytes`, `packets`, `flow_count`, `syn_count`, plus HyperLogLog sketches `unique_src_ips` / `unique_src_ports`. 7d TTL. **Used exclusively by the alert engine and Live Threats** — no other on-demand queries. |
@@ -230,6 +232,38 @@ feature flag is enabled.
 | `alerts` | `FEATURE_ALERTS` | Triggered instances with full lifecycle (active → ack → resolved). 1y TTL. |
 | `webhook_configs` | `FEATURE_ALERTS` | Slack / Teams / Discord / generic destinations (`ReplacingMergeTree`). |
 | `audit_log` | `FEATURE_ALERTS` | Compliance trail for all sensitive actions. 1y TTL. |
+
+### Flow log layout (migration 000017)
+
+`flows_log` is `ORDER BY (toStartOfFifteenMinutes(ts), dst_ip, ts, link_tag,
+protocol, dst_port, src_ip, src_as, dst_as, src_port, tcp_flags, ip_version)` —
+the same column *set* as the 000007 key (router_ip still out of it), so
+SummingMergeTree collapses the same rows. Indexes: `src_ip` bloom_filter(0.01)
+GRANULARITY 1, minmax on `src_as` / `dst_as`; no `dst_ip` bloom (it is in the
+key). Why: under the old `(ts, link_tag, protocol, dst_port, …)` key an IP
+filter had only the bloom filter, which skipped ~7 % of granules for a busy
+host. Prod, one day (99 M rows), cold caches: busy dst 24 h 2.3 s / 5.2 GiB →
+0.32 s / 73 MiB; busy src 24 h 2.6 s / 6.2 GiB → 1.1 s / 1.5 GiB; 15-min
+window 0.16 s both; 1.01 GiB → 892 MiB per day.
+
+- **Reads** go to `flows_log_all` (`flowLogReadTable`), a `Merge` table over
+  `flows_log` + `flows_log_legacy`, with `flowLogTimeFilter(alias, from, to)`
+  (bug #18). `TestFlowLogQueriesCarryBucketPredicate` runs every reader against
+  a recording conn; `TestNoDirectFlowLogReads` fails on any `FROM flows_log…`
+  in Go sources. **Writes** only go to `flows_log` via `flows_log_mv`.
+- **The migration copies nothing.** It creates `flows_log_new`, `EXCHANGE
+  TABLES flows_log AND flows_log_new`, renames `flows_log_new` (now the old
+  data) to `flows_log_legacy`, creates `flows_log_all`. Verified on 24.3: a
+  `TO` MV resolves its target **by name** at insert time, so after the swap
+  `flows_log_mv` writes to the new table untouched; EXCHANGE is atomic, so no
+  insert block is lost or doubled (`TestIntegrationFlowLogMigration`: 4
+  inserters across the migration, `count(flows_raw) = sum(flow_count)` over
+  `flows_log_all`; ad hoc, 300 EXCHANGEs under 6000 concurrent INSERTs, exact
+  totals). A plain RENAME instead fails every INSERT INTO `flows_raw` until the
+  target reappears (bug #19). Guards (`SELECT throwIf(…)`) refuse a re-run;
+  recovery notes are in the migration file.
+- A column added to `flows_log` must also exist on `flows_log_legacy` (or the
+  Merge read breaks) until the legacy table is dropped by a later release.
 
 ### Retention subsystem (v2, Module A)
 
@@ -280,6 +314,21 @@ disk", `clickhouse/config.d/storage-hot-cold.xml.example`) — its hot volume
   that table's sweep for the cycle, is logged, and other tables continue.
   Re-moving a partition already fully on cold errors in ClickHouse ("All parts
   of partition … are already on volume"), hence the hot-parts filter.
+- **Policy adoption** (`adoptColdPolicy`): a table with `0 < c < ttl_days`
+  still on ClickHouse's `default` storage policy is switched with
+  `ALTER TABLE … MODIFY SETTING storage_policy = '<p>'` (logged) when exactly
+  one policy qualifies (`coldPolicyCandidates`: first volume `default` on disk
+  `default`, second volume `cold`, plain-identifier name). Zero / several
+  candidates or a non-default current policy: left alone, logged once. This is
+  how the 000017 `flows_log` (created on `default`) inherits prod's `hot_cold`.
+- **Followers** (`retentionFollowers`: `flows_log_legacy` → `flows_log`): in the
+  whitelist (so DDL builders accept them) but never seeded, `SetRetentionPolicy`
+  refuses them, and the reconciler applies the leader's policy (adoption, TTL,
+  expired and cold sweeps) to them — only while they exist **and have active
+  parts**, so an empty legacy table is never touched. `StorageStats` marks
+  them `legacy` / `retention_follows` (read-only row in Admin › Storage).
+  `EnsureRetentionPolicies` seeds `flows_log` from `flows_log_legacy`'s live
+  TTL when present (the new table only carries the migration default).
 - `disk_usage` and `/status/live` use `fullestDisk` over **all** disks.
 - `TestIntegrationColdTier` (needs a policy with a `cold` volume, skipped
   otherwise) checks moves, convergence, no-op cycles and ttl changes.
@@ -648,7 +697,11 @@ alert rule use the same busier-direction definition.
 - **Tests**: `ASSTATS_IT_CLICKHOUSE=host:9000 go test ./internal/store
   ./internal/api/handler -run Integration` runs every read / alert query
   (and Live Threats end to end) against a throwaway ClickHouse with the
-  migrations applied (skipped when unset).
+  migrations applied (skipped when unset). `TestIntegrationFlowLogMigration` /
+  `…FreshInstall` build their own scratch databases with the real migration
+  runner (`scratchSchema`); the former needs exactly one hot/cold storage
+  policy on the server (see `retention_integration_test.go` for the
+  `docker run` line) and skips otherwise.
 - **Docker**: `FROM --platform=$BUILDPLATFORM` + `TARGETARCH` for
   cross-compilation.
 
@@ -777,6 +830,30 @@ frontend lint + typecheck + build).
     them by the full width under-reads. Alert rules use complete minutes
     (`completeMinutes`), capacity "current" uses the last complete bucket
     (`completeBuckets`), `link_capacity` complete hours.
+
+18. **Relying on ClickHouse to derive a function-of-`ts` key range.** With
+    `flows_log` keyed on `toStartOfFifteenMinutes(ts)` first, 24.3 only
+    partially derives that range from `ts >= a AND ts < b`: a 15-minute window
+    read ~80 % of a production day, and 99 % of a synthetic one (19.8 M of
+    20 M rows vs 213 k with the predicate) — and the `dst_ip` key column behind
+    it is useless too. Every flow-log query must also carry
+    `toStartOfFifteenMinutes(t.ts) BETWEEN toStartOfFifteenMinutes(@from) AND
+    toStartOfFifteenMinutes(@to_incl)`: use `flowLogTimeFilter`, never write
+    the time predicate by hand (two unit tests enforce it).
+
+19. **Renaming the target of a `TO` materialised view.** The MV resolves its
+    target by name on every insert; between `RENAME flows_log TO x` and the
+    re-creation of `flows_log`, every `INSERT INTO flows_raw` fails ("Target
+    table … of view … doesn't exists") — and the collector never retries a
+    batch. Swap tables with `EXCHANGE TABLES` (atomic) instead.
+
+20. **Binding a `time.Time` positionally where sub-second order matters.**
+    clickhouse-go formats a positional / named `time.Time` as
+    `toDateTime('…')` — whole seconds. `schema_migrations` events of one
+    migration tied, and across unmerged parts the `applying` row could sort
+    last, so a completed migration read as dirty. `Append` now binds a
+    nanosecond string into `toDateTime64(?, 9, 'UTC')`, and `History`
+    tie-breaks `applying` first.
 
 ## Operational notes — ClickHouse
 

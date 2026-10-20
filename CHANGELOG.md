@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Faster Flow Search by IP.** `flows_log` is now sorted by
+  (15-minute bucket, destination IP, …) instead of (time, link, protocol,
+  port, …) — migration 000017. On a production day (99 M rows): a busy
+  destination IP over 24 h went from 2.3 s / 5.2 GiB read to 0.32 s / 73 MiB,
+  a busy source IP from 2.6 s / 6.2 GiB to 1.1 s / 1.5 GiB (bloom filter now
+  at granularity 1); 15-minute windows are unchanged (0.16 s) and the table is
+  ~14 % smaller (892 MiB vs 1.01 GiB per day). Every flow-log query also states the 15-minute key range, which
+  ClickHouse 24.3 does not derive from the `ts` bounds on its own.
+- **Upgrade: no manual step, no data copy.** The migration keeps the existing
+  table as `flows_log_legacy` (atomic `EXCHANGE TABLES`, milliseconds, the
+  collector keeps inserting — no flow lost or duplicated). Flow Search, its
+  time series and Conversations read both through the `flows_log_all` Merge
+  table. `flows_log_legacy` follows the `flows_log` retention and cold tier and
+  empties itself within that retention; Admin › Storage shows it read-only as
+  *legacy (pre-3.4 layout), expires by itself*.
+- The retention reconciler switches a table that has a cold tier configured
+  but sits on ClickHouse's `default` storage policy to the server's hot/cold
+  policy when exactly one qualifies (first volume `default`, then `cold`), and
+  logs it — the new `flows_log` inherits `hot_cold` on its own.
+
+### Fixed
+- `cmd/migrate` recorded `schema_migrations.recorded_at` truncated to the
+  second, so a migration's `applying` and `applied` events could tie and a
+  later run could read a completed migration as dirty and refuse to start.
+  Events are now recorded at nanosecond precision and ties resolve to the
+  later status.
+
 ## [3.3.0] - 2026-10-19
 
 ### Added
