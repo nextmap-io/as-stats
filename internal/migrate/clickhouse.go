@@ -215,6 +215,9 @@ func (s *ClickHouseStore) DetectBaseline(ctx context.Context) (uint64, error) {
 		{14, "API tokens", objects("api_tokens")},
 		{15, "summable hot aggregate counters", s.hotCountersFixed},
 		{16, "retention cold tier", columns("retention_policies", "cold_after_days")},
+		// 000017 is not replayable (it EXCHANGEs flows_log), so a schema that
+		// already has it must never be baselined below it.
+		{17, "flow log sort key", objects("flows_log_legacy", "flows_log_all")},
 	}
 
 	var baseline uint64

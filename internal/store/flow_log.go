@@ -11,7 +11,37 @@ import (
 	"github.com/nextmap-io/as-stats/internal/model"
 )
 
-// SearchFlowLog executes a forensic query against the flows_log table.
+// flowLogReadTable is what every flow-log READ queries: a Merge table
+// (migration 000017) over flows_log and flows_log_legacy, the pre-3.4 layout
+// kept until it ages out. Writes go to flows_log only, through flows_log_mv.
+const flowLogReadTable = "flows_log_all"
+
+// flowLogTimeFilter returns the time predicate every flow-log query must carry,
+// qualified with the table alias, and its bound parameters (@from, @to,
+// @to_incl).
+//
+// flows_log is sorted by (toStartOfFifteenMinutes(ts), dst_ip, ts, …).
+// ClickHouse 24.3 only partially derives a key range on that first column from
+// `ts >= @from AND ts < @to` — a 15-minute window read ~80 % of the day on
+// production — so the bucket range is stated explicitly as well. Without it a
+// dst_ip lookup cannot use the second key column either. @to is exclusive, so
+// the last bucket is the one holding the last second before it.
+func flowLogTimeFilter(alias string, from, to time.Time) (string, []any) {
+	toIncl := to.Truncate(time.Second)
+	if toIncl.Equal(to) {
+		toIncl = toIncl.Add(-time.Second)
+	}
+	cond := fmt.Sprintf(
+		"%[1]s.ts >= @from AND %[1]s.ts < @to AND toStartOfFifteenMinutes(%[1]s.ts) BETWEEN toStartOfFifteenMinutes(@from) AND toStartOfFifteenMinutes(@to_incl)",
+		alias)
+	return cond, []any{
+		clickhouse.Named("from", from),
+		clickhouse.Named("to", to),
+		clickhouse.Named("to_incl", toIncl),
+	}
+}
+
+// SearchFlowLog executes a forensic query against the flow log (flowLogReadTable).
 // Filters are additive — empty fields are ignored.
 // Returns up to p.Limit rows, sorted by bytes (or ts if p.OrderBy == "ts").
 func (s *ClickHouseStore) SearchFlowLog(ctx context.Context, p model.FlowSearchFilters) ([]model.FlowLogEntry, error) {
@@ -44,8 +74,9 @@ func (s *ClickHouseStore) SearchFlowLog(ctx context.Context, p model.FlowSearchF
 	// AS src_ip` etc. — without the alias ClickHouse tries to resolve `ts`
 	// in the WHERE as the aggregated `min(ts)` and fails with
 	// "Aggregate function min(ts) AS ts is found in WHERE in query".
-	where = append(where, "f.ts >= @from AND f.ts < @to")
-	args = append(args, clickhouse.Named("from", p.From), clickhouse.Named("to", p.To))
+	timeCond, timeArgs := flowLogTimeFilter("f", p.From, p.To)
+	where = append(where, timeCond)
+	args = append(args, timeArgs...)
 
 	// src_ip / dst_ip are IPv6 columns holding IPv4 as ::ffff:a.b.c.d, so a raw
 	// IPv4 CIDR never matches (CLAUDE.md bug family #1). cidrBounds maps it to
@@ -148,13 +179,13 @@ func (s *ClickHouseStore) SearchFlowLog(ctx context.Context, p model.FlowSearchF
 			sum(f.bytes) AS total_bytes,
 			sum(f.packets) AS total_packets,
 			sum(f.flow_count) AS total_flows
-		FROM flows_log f
+		FROM %s f
 		WHERE %s
 		GROUP BY f.link_tag, f.src_ip, f.dst_ip, f.src_as, f.dst_as, f.protocol, f.src_port, f.dst_port, f.ip_version
 		%s
 		ORDER BY %s
 		LIMIT @limit OFFSET @offset
-	`, strings.Join(where, " AND "), having, order)
+	`, flowLogReadTable, strings.Join(where, " AND "), having, order)
 
 	rows, err := s.conn.Query(ctx, query, args...)
 	if err != nil {
@@ -183,39 +214,38 @@ func (s *ClickHouseStore) SearchFlowLog(ctx context.Context, p model.FlowSearchF
 // FlowLogTimeSeries returns per-bucket traffic for a specific flow tuple.
 // Used to drill down from a search result into a time-series view.
 func (s *ClickHouseStore) FlowLogTimeSeries(ctx context.Context, p model.FlowSearchFilters) ([]model.TrafficPoint, error) {
-	var where []string
-	var args []any
-
-	where = append(where, "ts >= @from AND ts < @to")
-	args = append(args, clickhouse.Named("from", p.From), clickhouse.Named("to", p.To))
+	// Table alias `f` + qualified columns: the SELECT exposes `ts` and the
+	// sums under their column names (CLAUDE.md bug #2).
+	timeCond, args := flowLogTimeFilter("f", p.From, p.To)
+	where := []string{timeCond}
 
 	if p.SrcIP != "" {
-		where = append(where, "src_ip = toIPv6(@src_ip)")
+		where = append(where, "f.src_ip = toIPv6(@src_ip)")
 		args = append(args, clickhouse.Named("src_ip", p.SrcIP))
 	}
 	if p.DstIP != "" {
-		where = append(where, "dst_ip = toIPv6(@dst_ip)")
+		where = append(where, "f.dst_ip = toIPv6(@dst_ip)")
 		args = append(args, clickhouse.Named("dst_ip", p.DstIP))
 	}
 	if p.Protocol > 0 {
-		where = append(where, "protocol = @protocol")
+		where = append(where, "f.protocol = @protocol")
 		args = append(args, clickhouse.Named("protocol", p.Protocol))
 	}
 	if p.DstPort > 0 {
-		where = append(where, "dst_port = @dst_port")
+		where = append(where, "f.dst_port = @dst_port")
 		args = append(args, clickhouse.Named("dst_port", p.DstPort))
 	}
 
 	query := fmt.Sprintf(`
 		SELECT
-			ts,
-			sum(bytes) AS bytes,
-			sum(packets) AS packets
-		FROM flows_log
+			f.ts AS ts,
+			sum(f.bytes) AS bytes,
+			sum(f.packets) AS packets
+		FROM %s f
 		WHERE %s
-		GROUP BY ts
+		GROUP BY f.ts
 		ORDER BY ts
-	`, strings.Join(where, " AND "))
+	`, flowLogReadTable, strings.Join(where, " AND "))
 
 	rows, err := s.conn.Query(ctx, query, args...)
 	if err != nil {
