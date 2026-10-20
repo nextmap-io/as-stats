@@ -134,6 +134,11 @@ export interface ResponseMeta {
    *  bucket / step_seconds * 8 = bps. Absent on servers older than 3.1: use
    *  `stepSecondsOf()` in lib/rate.ts, which falls back to the old guess. */
   step_seconds?: number
+  /** Port statistics only (/top/protocol, /top/port, /changes/movers?dimension=port):
+   *  start of the current port history when the window (or, for movers, the
+   *  prior comparison window) reaches back before it — port stats restarted
+   *  at the 3.5 upgrade. Absent otherwise. */
+  port_history_since?: string
 }
 
 export interface ApiResponse<T> {
@@ -575,6 +580,8 @@ export interface FlowSearchFilters {
   protocol?: number
   src_port?: number
   dst_port?: number
+  /** Either side: the service port of a Top Ports row. */
+  port?: number
   link?: string
   min_bytes?: number
   ip_version?: 4 | 6

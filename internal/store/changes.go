@@ -143,13 +143,16 @@ func (s *ClickHouseStore) Movers(ctx context.Context, dim string, from, to time.
 			ORDER BY abs(toInt64(a.cur) - toInt64(a.prev)) DESC, a.k
 		`
 	case "port":
+		// Service ports, every flow once (migration 000018), all directions —
+		// including the '' rows of flows on no configured link. Never the
+		// pre-3.5 traffic_by_port_legacy: it counted each flow twice.
 		query = `
 			SELECT
 				concat(toString(t.protocol), '/', toString(t.port)) AS k,
 				'' AS lbl,
 				sumIf(t.bytes, t.ts >= @from) AS cur,
 				sumIf(t.bytes, t.ts < @from) AS prev
-			FROM traffic_by_port t
+			FROM ` + portStatsTable + ` t
 			WHERE t.ts >= @from2 AND t.ts < @to AND t.port > 0
 			GROUP BY t.protocol, t.port
 			HAVING cur > 0 OR prev > 0

@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/csv"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -19,7 +20,7 @@ const (
 
 // FlowSearch handles GET /api/v1/flows/search
 // Query params: from, to (RFC3339), src_ip, dst_ip, src_as, dst_as,
-// protocol, src_port, dst_port, link, min_bytes, ip_version, limit, offset,
+// protocol, src_port, dst_port, port (either side), link, min_bytes, ip_version, limit, offset,
 // order_by, format (json|csv)
 func (h *Handler) FlowSearch(w http.ResponseWriter, r *http.Request) {
 	if !h.FeatureFlowSearch {
@@ -167,7 +168,7 @@ func (h *Handler) TopProtocols(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, Response{
 		Data: results,
-		Meta: &ResponseMeta{From: p.From, To: p.To},
+		Meta: &ResponseMeta{From: p.From, To: p.To, PortHistorySince: h.portHistorySince(r, p.From)},
 	})
 }
 
@@ -202,8 +203,23 @@ func (h *Handler) TopPortsHandler(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, Response{
 		Data: results,
-		Meta: &ResponseMeta{From: p.From, To: p.To, Limit: p.Limit},
+		Meta: &ResponseMeta{From: p.From, To: p.To, Limit: p.Limit, PortHistorySince: h.portHistorySince(r, p.From)},
 	})
+}
+
+// portHistorySince returns the start of the current port history when it is
+// later than from (the window begins before it: the port tables restarted at
+// the 3.5 upgrade), nil otherwise. A failure only drops the hint.
+func (h *Handler) portHistorySince(r *http.Request, from time.Time) *time.Time {
+	since, err := h.Store.PortHistorySince(r.Context())
+	if err != nil {
+		log.Printf("port history start: %v", err)
+		return nil
+	}
+	if since.IsZero() || !since.After(from) {
+		return nil
+	}
+	return &since
 }
 
 // parseFlowSearchFilters extracts FlowSearchFilters from query params.
@@ -288,6 +304,13 @@ func parseFlowSearchFilters(r *http.Request) (model.FlowSearchFilters, error) {
 			return f, fmt.Errorf("invalid dst_port: %w", err)
 		}
 		f.DstPort = uint16(n)
+	}
+	if v := q.Get("port"); v != "" {
+		n, err := strconv.ParseUint(v, 10, 16)
+		if err != nil {
+			return f, fmt.Errorf("invalid port: %w", err)
+		}
+		f.Port = uint16(n)
 	}
 	if v := q.Get("min_bytes"); v != "" {
 		n, err := strconv.ParseUint(v, 10, 64)

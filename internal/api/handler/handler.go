@@ -62,6 +62,12 @@ type ResponseMeta struct {
 	// finer than the source table (flows_raw 60, 5-min rollups 300, hourly
 	// 3600, daily 86400) — see store/step.go.
 	StepSeconds int `json:"step_seconds,omitempty"`
+	// PortHistorySince is set on port-statistics responses (/top/protocol,
+	// /top/port, /changes/movers?dimension=port) when the window reaches back
+	// before the start of the current port history, which restarted at the
+	// 3.5 upgrade (migration 000018): the UI says so instead of showing a
+	// short history as if it were the whole window.
+	PortHistorySince *time.Time `json:"port_history_since,omitempty"`
 }
 
 // writeJSON writes a JSON response with the given status code.

@@ -8,6 +8,7 @@ import { Search, Download, X, AlertCircle } from "lucide-react"
 import type { FlowSearchFilters, FlowLogEntry } from "@/lib/types"
 import { IPWithPTR } from "@/components/PTR"
 import { Segmented } from "@/components/ui/segmented"
+import { filtersFromURL } from "@/lib/flowSearchUrl"
 
 const PROTOCOLS = [
   { value: 0, label: "All" },
@@ -26,31 +27,6 @@ const PERIODS = [
   { value: "7d", label: "7d" },
   { value: "30d", label: "30d" },
 ]
-
-/**
- * Filters passed in the URL by other pages (Live Threats links here with
- * ?dst_ip=…&from=…&to=…). When present, the search runs straight away.
- */
-function filtersFromURL(params: URLSearchParams): FlowSearchFilters | null {
-  const out: FlowSearchFilters = { limit: 100 }
-  let any = false
-  for (const key of ["src_ip", "dst_ip"] as const) {
-    const v = params.get(key)?.trim()
-    if (v) {
-      out[key] = v
-      any = true
-    }
-  }
-  const from = params.get("from")
-  const to = params.get("to")
-  if (from && to && !Number.isNaN(Date.parse(from)) && !Number.isNaN(Date.parse(to))) {
-    out.from = from
-    out.to = to
-  } else {
-    out.period = "1h"
-  }
-  return any ? out : null
-}
 
 export function FlowSearch() {
   const [searchParams] = useSearchParams()
@@ -201,6 +177,17 @@ export function FlowSearch() {
                     <option key={p.value} value={p.value}>{p.label}</option>
                   ))}
                 </select>
+              </Field>
+              <Field label="Port, either side">
+                <input
+                  type="number"
+                  value={filters.port || ""}
+                  onChange={e => update("port", e.target.value ? Number(e.target.value) : undefined)}
+                  placeholder="e.g. 53"
+                  className="w-24 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  min={1}
+                  max={65535}
+                />
               </Field>
               <Field label="IP version">
                 <select

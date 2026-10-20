@@ -220,6 +220,7 @@ type FlowSearchFilters struct {
 	Protocol  uint8  // 0 = any
 	SrcPort   uint16 // 0 = any
 	DstPort   uint16 // 0 = any
+	Port      uint16 // 0 = any; matches either side (Top Ports drill-down: service port)
 	LinkTag   string
 	MinBytes  uint64
 	IPVersion uint8 // 0 = any
@@ -546,7 +547,8 @@ type TableStorageStats struct {
 	// RetentionFollows names the table whose retention policy the reconciler
 	// applies to this one (TTLDays / TTLEnabled / ColdAfterDays above are that
 	// policy); it cannot be edited on its own. Legacy marks a pre-upgrade copy
-	// kept read-only until it ages out (flows_log_legacy, migration 000017).
+	// kept read-only until it ages out (flows_log_legacy, migration 000017;
+	// traffic_by_port_legacy, migration 000018 — the latter is never read).
 	RetentionFollows string `json:"retention_follows,omitempty"`
 	Legacy           bool   `json:"legacy,omitempty"`
 

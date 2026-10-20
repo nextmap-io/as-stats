@@ -198,6 +198,18 @@ func (s *ClickHouseStore) DetectBaseline(ctx context.Context) (uint64, error) {
 		}
 	}
 
+	anyOf := func(checks ...func(context.Context) (bool, error)) func(context.Context) (bool, error) {
+		return func(ctx context.Context) (bool, error) {
+			for _, check := range checks {
+				ok, err := check(ctx)
+				if err != nil || ok {
+					return ok, err
+				}
+			}
+			return false, nil
+		}
+	}
+
 	probes := []schemaProbe{
 		{1, "core schema", objects("flows_raw", "traffic_by_as", "traffic_by_as_out_mv", "traffic_by_as_in_mv", "traffic_by_ip", "traffic_by_ip_in_mv", "traffic_by_ip_out_mv", "traffic_by_prefix", "traffic_by_prefix_in_mv", "traffic_by_prefix_out_mv", "traffic_by_link", "traffic_by_link_mv", "traffic_by_as_hourly", "traffic_by_as_hourly_out_mv", "traffic_by_as_hourly_in_mv", "traffic_by_ip_as", "traffic_by_ip_as_in_mv", "traffic_by_ip_as_out_mv")},
 		{2, "configuration tables", objects("links", "as_names")},
@@ -205,7 +217,10 @@ func (s *ClickHouseStore) DetectBaseline(ctx context.Context) (uint64, error) {
 		{4, "progressive retention rollups", objects("traffic_by_link_hourly", "traffic_by_link_hourly_mv", "traffic_by_as_daily", "traffic_by_as_daily_out_mv", "traffic_by_as_daily_in_mv", "traffic_by_link_daily", "traffic_by_link_daily_mv")},
 		{5, "AS IP version", all(columns("traffic_by_as", "ip_version"), columns("traffic_by_as_hourly", "ip_version"), columns("traffic_by_as_daily", "ip_version"))},
 		{6, "link colour", columns("links", "color")},
-		{7, "flow log and port statistics", objects("flows_log", "flows_log_mv", "traffic_by_port", "traffic_by_port_in_mv", "traffic_by_port_out_mv")},
+		// 000018 replaces the two 000007 port views by traffic_by_port_mv, so
+		// either set marks 000007 as applied.
+		{7, "flow log and port statistics", all(objects("flows_log", "flows_log_mv", "traffic_by_port"),
+			anyOf(objects("traffic_by_port_in_mv", "traffic_by_port_out_mv"), objects("traffic_by_port_mv")))},
 		{8, "hot aggregates", objects("traffic_by_dst_1min", "traffic_by_dst_1min_mv", "traffic_by_src_1min", "traffic_by_src_1min_mv")},
 		{9, "alerts and audit", objects("alert_rules", "alerts", "audit_log", "webhook_configs")},
 		{10, "host groups", all(objects("hostgroups"), columns("alert_rules", "hostgroup_id", "subnet_prefix_len"))},
@@ -218,6 +233,8 @@ func (s *ClickHouseStore) DetectBaseline(ctx context.Context) (uint64, error) {
 		// 000017 is not replayable (it EXCHANGEs flows_log), so a schema that
 		// already has it must never be baselined below it.
 		{17, "flow log sort key", objects("flows_log_legacy", "flows_log_all")},
+		// 000018 is not replayable either (it EXCHANGEs traffic_by_port).
+		{18, "port statistics per service port", objects("traffic_by_port_legacy", "traffic_by_port_mv")},
 	}
 
 	var baseline uint64

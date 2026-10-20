@@ -128,6 +128,10 @@ func (s *ClickHouseStore) SearchFlowLog(ctx context.Context, p model.FlowSearchF
 		where = append(where, "f.dst_port = @dst_port")
 		args = append(args, clickhouse.Named("dst_port", p.DstPort))
 	}
+	if p.Port > 0 {
+		where = append(where, "(f.src_port = @port OR f.dst_port = @port)")
+		args = append(args, clickhouse.Named("port", p.Port))
+	}
 	if p.LinkTag != "" {
 		where = append(where, "f.link_tag = @link_tag")
 		args = append(args, clickhouse.Named("link_tag", p.LinkTag))
@@ -235,6 +239,10 @@ func (s *ClickHouseStore) FlowLogTimeSeries(ctx context.Context, p model.FlowSea
 		where = append(where, "f.dst_port = @dst_port")
 		args = append(args, clickhouse.Named("dst_port", p.DstPort))
 	}
+	if p.Port > 0 {
+		where = append(where, "(f.src_port = @port OR f.dst_port = @port)")
+		args = append(args, clickhouse.Named("port", p.Port))
+	}
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -263,119 +271,6 @@ func (s *ClickHouseStore) FlowLogTimeSeries(ctx context.Context, p model.FlowSea
 		p.BytesIn = bytes
 		p.PacketsIn = packets
 		results = append(results, p)
-	}
-	return results, nil
-}
-
-// TopProtocols returns the top protocols by traffic volume.
-func (s *ClickHouseStore) TopProtocols(ctx context.Context, p QueryParams) ([]model.ProtocolTraffic, error) {
-	dirFilter, dirArgs := buildDirectionFilter(p.Direction)
-	linkFilter, linkArgs := buildLinkFilter(p.LinkTags)
-
-	query := fmt.Sprintf(`
-		SELECT
-			protocol,
-			direction,
-			sum(t.bytes) AS total_bytes,
-			sum(t.packets) AS total_packets,
-			sum(t.flow_count) AS total_flows
-		FROM traffic_by_port t
-		WHERE t.ts >= @from AND t.ts < @to
-		%s %s
-		GROUP BY protocol, direction
-		ORDER BY total_bytes DESC
-	`, dirFilter, linkFilter)
-
-	args := append([]any{
-		clickhouse.Named("from", p.From),
-		clickhouse.Named("to", p.To),
-	}, dirArgs...)
-	args = append(args, linkArgs...)
-
-	rows, err := s.conn.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("top protocols: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	var results []model.ProtocolTraffic
-	var total uint64
-	for rows.Next() {
-		var r model.ProtocolTraffic
-		if err := rows.Scan(&r.Protocol, &r.Direction, &r.Bytes, &r.Packets, &r.Flows); err != nil {
-			return nil, err
-		}
-		total += r.Bytes
-		results = append(results, r)
-	}
-	for i := range results {
-		if total > 0 {
-			results[i].Percent = float64(results[i].Bytes) / float64(total) * 100
-		}
-	}
-	return results, nil
-}
-
-// TopPorts returns the top (protocol, port) tuples by traffic volume.
-func (s *ClickHouseStore) TopPorts(ctx context.Context, p QueryParams, protocol uint8) ([]model.PortTraffic, error) {
-	dirFilter, dirArgs := buildDirectionFilter(p.Direction)
-	linkFilter, linkArgs := buildLinkFilter(p.LinkTags)
-
-	protoFilter := ""
-	if protocol > 0 {
-		protoFilter = "AND t.protocol = @protocol"
-		dirArgs = append(dirArgs, clickhouse.Named("protocol", protocol))
-	}
-
-	query := fmt.Sprintf(`
-		SELECT
-			protocol,
-			port,
-			direction,
-			sum(t.bytes) AS total_bytes,
-			sum(t.packets) AS total_packets,
-			sum(t.flow_count) AS total_flows
-		FROM traffic_by_port t
-		WHERE t.ts >= @from AND t.ts < @to
-		  AND t.port > 0
-		%s %s %s
-		GROUP BY protocol, port, direction
-		ORDER BY total_bytes DESC
-		LIMIT @limit OFFSET @offset
-	`, dirFilter, linkFilter, protoFilter)
-
-	limit := p.Limit
-	if limit <= 0 {
-		limit = 50
-	}
-	args := append([]any{
-		clickhouse.Named("from", p.From),
-		clickhouse.Named("to", p.To),
-		clickhouse.Named("limit", limit),
-		clickhouse.Named("offset", p.Offset),
-	}, dirArgs...)
-	args = append(args, linkArgs...)
-
-	rows, err := s.conn.Query(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("top ports: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	var results []model.PortTraffic
-	var total uint64
-	for rows.Next() {
-		var r model.PortTraffic
-		if err := rows.Scan(&r.Protocol, &r.Port, &r.Direction, &r.Bytes, &r.Packets, &r.Flows); err != nil {
-			return nil, err
-		}
-		total += r.Bytes
-		results = append(results, r)
-	}
-	for i := range results {
-		if total > 0 {
-			results[i].Percent = float64(results[i].Bytes) / float64(total) * 100
-		}
 	}
 	return results, nil
 }
