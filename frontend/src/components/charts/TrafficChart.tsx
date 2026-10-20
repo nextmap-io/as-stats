@@ -11,7 +11,7 @@ import {
 } from "recharts"
 import type { TrafficPoint } from "@/lib/types"
 import { useUnit } from "@/hooks/useUnit"
-import { axisTick, tooltipBoxStyle, useChartColors } from "@/hooks/useChartColors"
+import { axisTick, tooltipBoxStyle, useChartColors, annotationLabel, X_TICK_MARGIN } from "@/hooks/useChartColors"
 import { inferStepSeconds, formatTimeShort } from "./time"
 
 interface TrafficChartProps {
@@ -141,6 +141,7 @@ export function TrafficChart({
         <AreaChart data={rows} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke={colors.grid} />
           <XAxis
+            tickMargin={X_TICK_MARGIN}
             type="number"
             dataKey="t"
             scale="time"
@@ -165,7 +166,7 @@ export function TrafficChart({
               y={p95In}
               stroke={colors.ink}
               strokeDasharray="2 3"
-              label={{ value: `p95 in ${formatValue(p95In, interval)}`, position: "insideTopRight", fontSize: 12, fill: colors.text }}
+              label={annotationLabel(colors, `p95 in ${formatValue(p95In, interval)}`, "insideTopRight")}
             />
           )}
           {!usePps && p95Out != null && p95Out > 0 && (
@@ -173,7 +174,7 @@ export function TrafficChart({
               y={-p95Out}
               stroke={colors.ink}
               strokeDasharray="2 3"
-              label={{ value: `p95 out ${formatValue(p95Out, interval)}`, position: "insideBottomRight", fontSize: 12, fill: colors.text }}
+              label={annotationLabel(colors, `p95 out ${formatValue(p95Out, interval)}`, "insideBottomRight")}
             />
           )}
           <Tooltip

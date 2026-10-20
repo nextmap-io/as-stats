@@ -10,7 +10,7 @@ import {
 } from "recharts"
 import type { ASTrafficDetail } from "@/lib/types"
 import { useUnit } from "@/hooks/useUnit"
-import { axisTick, seriesColor, tooltipBoxStyle, useChartColors } from "@/hooks/useChartColors"
+import { axisTick, seriesColor, tooltipBoxStyle, useChartColors, X_TICK_MARGIN } from "@/hooks/useChartColors"
 import { formatTimeShort } from "./time"
 
 
@@ -142,7 +142,7 @@ export function ASTrafficChart({ data, height = 300, title, timeBounds, stepSeco
       <ResponsiveContainer width="100%" height={height}>
         <AreaChart data={chartData} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke={chartColors.grid} />
-          <XAxis dataKey="time" tick={axisTick(chartColors)} tickLine={false} axisLine={false} interval={tickInterval} />
+          <XAxis dataKey="time" tick={axisTick(chartColors)} tickLine={false} axisLine={false} tickMargin={X_TICK_MARGIN} interval={tickInterval} />
           <YAxis tick={axisTick(chartColors)} tickLine={false} axisLine={false} tickFormatter={(v) => formatAxis(Math.abs(Number(v)), interval)} width={44} />
           <ReferenceLine y={0} stroke={chartColors.ink} strokeWidth={1} />
           <Tooltip

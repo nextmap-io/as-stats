@@ -144,6 +144,21 @@
     font-stretch: 108%;
   }
 
+  /* No orphaned last word under a caption or a heading. */
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+
+  /* Browser surfaces carry the palette too. */
+  ::selection {
+    background: color-mix(in srgb, var(--color-ring) 28%, transparent);
+  }
+
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
