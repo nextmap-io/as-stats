@@ -75,7 +75,7 @@ func convDimensionFor(dim string) (convDimension, bool) {
 
 // Conversations returns bidirectional top-talker rows for the chosen dimension
 // (F3). A→B and B→A are folded into a single row via a canonical endpoint
-// ordering. It reads flows_log when the flow-search feature is enabled
+// ordering. It reads the flow log (flowLogReadTable) when the flow-search feature is enabled
 // (useFlowLog=true) and flows_raw otherwise; flows_raw counts are scaled by
 // sampling_rate. Results are bounded by p.Limit and ordered by total bytes.
 func (s *ClickHouseStore) Conversations(ctx context.Context, p QueryParams, dim string, useFlowLog bool) ([]model.Conversation, error) {
@@ -92,14 +92,20 @@ func (s *ClickHouseStore) Conversations(ctx context.Context, p QueryParams, dim 
 		limit = 1000
 	}
 
-	// Source table differs in ts column, byte scaling and flow counting.
-	var table, tsCol, byteExpr, pktExpr, flowExpr string
+	// Source table differs in time predicate, byte scaling and flow counting.
+	// The flow log is read through flowLogReadTable with flowLogTimeFilter
+	// (the 15-minute key-bucket predicate is mandatory there).
+	var table, timeCond, byteExpr, pktExpr, flowExpr string
+	var timeArgs []any
 	if useFlowLog {
-		table, tsCol = "flows_log", "ts"
+		table = flowLogReadTable
+		timeCond, timeArgs = flowLogTimeFilter("t", p.From, p.To)
 		byteExpr, pktExpr = "t.bytes", "t.packets"
 		flowExpr = "sum(t.flow_count)"
 	} else {
-		table, tsCol = "flows_raw", "timestamp"
+		table = "flows_raw"
+		timeCond = "t.timestamp >= @from AND t.timestamp < @to"
+		timeArgs = []any{clickhouse.Named("from", p.From), clickhouse.Named("to", p.To)}
 		byteExpr, pktExpr = "t.bytes * t.sampling_rate", "t.packets * t.sampling_rate"
 		flowExpr = "count()"
 	}
@@ -118,7 +124,7 @@ func (s *ClickHouseStore) Conversations(ctx context.Context, p QueryParams, dim 
 			sumIf(%s, NOT (%s)) AS rev_packets,
 			%s AS total_flows
 		FROM %s t
-		WHERE t.%s >= @from AND t.%s < @to
+		WHERE %s
 		%s
 		GROUP BY endpoint_a, endpoint_b
 		ORDER BY total_bytes DESC
@@ -132,15 +138,13 @@ func (s *ClickHouseStore) Conversations(ctx context.Context, p QueryParams, dim 
 		pktExpr, d.fwdExpr,
 		flowExpr,
 		table,
-		tsCol, tsCol,
+		timeCond,
 		linkFilter,
 	)
 
-	args := append([]any{
-		clickhouse.Named("from", p.From),
-		clickhouse.Named("to", p.To),
-		clickhouse.Named("limit", limit),
-	}, linkArgs...)
+	args := timeArgs
+	args = append(args, clickhouse.Named("limit", limit))
+	args = append(args, linkArgs...)
 
 	rows, err := s.conn.Query(ctx, query, args...)
 	if err != nil {

@@ -29,6 +29,7 @@ func TestRetentionTablesWhitelist(t *testing.T) {
 		"traffic_by_ip_as":       {"ts", "ts", 14},
 		"traffic_by_prefix":      {"ts", "ts", 30},
 		"flows_log":              {"ts", "ts", 180},
+		"flows_log_legacy":       {"ts", "ts", 180},
 		"traffic_by_port":        {"ts", "ts", 365},
 		"traffic_by_dst_1min":    {"ts", "ts", 7},
 		"traffic_by_src_1min":    {"ts", "ts", 7},
@@ -329,5 +330,84 @@ func TestBuildMovePartitionToColdStatement(t *testing.T) {
 	}
 	if _, ok := buildMovePartitionToColdStatement("system.tables", "20260630"); ok {
 		t.Error("unknown table must be refused")
+	}
+}
+
+// TestRetentionFollowers: every follower and its leader are whitelisted with
+// the same TTL column/expression, a follower never leads, and the API refuses
+// a policy of its own (before any DB access).
+func TestRetentionFollowers(t *testing.T) {
+	for f, leader := range retentionFollowers {
+		ft, ok1 := retentionTables[f]
+		lt, ok2 := retentionTables[leader]
+		if !ok1 || !ok2 {
+			t.Fatalf("%s -> %s: both must be in retentionTables", f, leader)
+		}
+		if ft.TTLColumn != lt.TTLColumn || ft.TTLExpr != lt.TTLExpr {
+			t.Errorf("%s TTL %+v differs from leader %s %+v", f, ft, leader, lt)
+		}
+		if _, chained := retentionFollowers[leader]; chained {
+			t.Errorf("leader %s is itself a follower", leader)
+		}
+		s := &ClickHouseStore{}
+		if _, err := s.SetRetentionPolicy(context.Background(), f, 30, true, nil); err == nil || !strings.Contains(err.Error(), "follows") {
+			t.Errorf("SetRetentionPolicy(%s) = %v, want a 'follows' error", f, err)
+		}
+	}
+	if got := followersOf("flows_log"); len(got) != 1 || got[0] != "flows_log_legacy" {
+		t.Errorf("followersOf(flows_log) = %v", got)
+	}
+	if got := followersOf("flows_raw"); len(got) != 0 {
+		t.Errorf("followersOf(flows_raw) = %v", got)
+	}
+	stmt, ok := buildModifyTTLStatement("flows_log_legacy", 180, 14)
+	if !ok || stmt != "ALTER TABLE flows_log_legacy MODIFY TTL ts + INTERVAL 14 DAY TO VOLUME 'cold', ts + INTERVAL 180 DAY SETTINGS materialize_ttl_after_modify = 0" {
+		t.Errorf("flows_log_legacy TTL stmt = %q ok=%v", stmt, ok)
+	}
+}
+
+func TestColdPolicyCandidates(t *testing.T) {
+	def := policyVolume{Name: "default", Priority: 1, Disks: []string{"default"}}
+	cold := policyVolume{Name: "cold", Priority: 2, Disks: []string{"hdd"}}
+	cases := map[string]struct {
+		policies map[string][]policyVolume
+		want     []string
+	}{
+		"one hot_cold": {map[string][]policyVolume{
+			"default":  {def},
+			"hot_cold": {cold, def}, // row order does not matter, priority does
+		}, []string{"hot_cold"}},
+		"none": {map[string][]policyVolume{"default": {def}}, nil},
+		"two": {map[string][]policyVolume{
+			"default": {def}, "a": {def, cold}, "b": {def, cold},
+		}, []string{"a", "b"}},
+		"hot volume not named default": {map[string][]policyVolume{
+			"x": {{Name: "hot", Priority: 1, Disks: []string{"default"}}, cold},
+		}, nil},
+		"default volume on another disk": {map[string][]policyVolume{
+			"x": {{Name: "default", Priority: 1, Disks: []string{"ssd"}}, cold},
+		}, nil},
+		"cold not second": {map[string][]policyVolume{
+			"x": {def, {Name: "warm", Priority: 2, Disks: []string{"w"}}, {Name: "cold", Priority: 3, Disks: []string{"c"}}},
+		}, nil},
+		"unsafe name": {map[string][]policyVolume{"x'y": {def, cold}}, nil},
+	}
+	for name, c := range cases {
+		got := coldPolicyCandidates(c.policies)
+		if strings.Join(got, ",") != strings.Join(c.want, ",") {
+			t.Errorf("%s: got %v, want %v", name, got, c.want)
+		}
+	}
+}
+
+func TestBuildAdoptStoragePolicyStatement(t *testing.T) {
+	stmt, ok := buildAdoptStoragePolicyStatement("flows_log", "hot_cold")
+	if !ok || stmt != "ALTER TABLE flows_log MODIFY SETTING storage_policy = 'hot_cold'" {
+		t.Fatalf("got %q ok=%v", stmt, ok)
+	}
+	for _, c := range [][2]string{{"nope", "hot_cold"}, {"flows_log", "a'b"}, {"flows_log", ""}} {
+		if _, ok := buildAdoptStoragePolicyStatement(c[0], c[1]); ok {
+			t.Errorf("%v must be refused", c)
+		}
 	}
 }

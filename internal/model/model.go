@@ -543,6 +543,13 @@ type TableStorageStats struct {
 	TTLEnabled        bool       `json:"ttl_enabled"`       // whether the reconciler manages this table
 	PendingMutations  uint64     `json:"pending_mutations"` // not-yet-done mutations (incl. TTL materialization)
 
+	// RetentionFollows names the table whose retention policy the reconciler
+	// applies to this one (TTLDays / TTLEnabled / ColdAfterDays above are that
+	// policy); it cannot be edited on its own. Legacy marks a pre-upgrade copy
+	// kept read-only until it ages out (flows_log_legacy, migration 000017).
+	RetentionFollows string `json:"retention_follows,omitempty"`
+	Legacy           bool   `json:"legacy,omitempty"`
+
 	// Hot / cold tier. StoragePolicy is the table's live storage policy;
 	// HasColdVolume is true when that policy has a volume named `cold` (the
 	// only case where ColdAfterDays has any effect). BytesOnDisk is split by

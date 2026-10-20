@@ -211,6 +211,22 @@ SELECT * FROM asstats.schema_migration_lock;
 DROP TABLE asstats.schema_migration_lock;
 ```
 
+**Upgrading to 3.4 (flow log sort key, migration 000017): no manual step.**
+`flows_log` gets a new sort order that makes Flow Search IP lookups an order
+of magnitude faster (see [Flow Search performance](#flow-search-performance)).
+Nothing is copied: the migration renames the existing table to
+`flows_log_legacy` and swaps in an empty `flows_log` in one atomic
+`EXCHANGE TABLES`, which takes milliseconds whatever the size of the table;
+the collector keeps inserting throughout and no flow is lost or counted twice.
+Flow Search, its time series and Conversations read both tables, so history
+stays searchable. `flows_log_legacy` follows the `flows_log` retention (and
+cold tier) and **empties itself** as its partitions age out — within the
+`flows_log` retention, 180 days by default; Admin › Storage lists it as
+*legacy (pre-3.4 layout), expires by itself*. If `flows_log` had been
+switched to a hot/cold storage policy, the new table is switched to it by the
+reconciler on its first cycle (see step 3 of
+[Cold storage on a second disk](#cold-storage-on-a-second-disk)).
+
 ### Reverse proxy
 
 Caddyfile example:
@@ -468,6 +484,25 @@ are strongly recommended for query performance even at small sizes.
 per 6 months per Gbps** at 1:1000 sampling. Port stats and reports are
 lightweight; the alert hot tables are bounded by their 7-day retention.
 
+### Flow Search performance
+
+`flows_log` (since 3.4) is sorted by 15-minute time bucket, then destination
+IP, then the rest of the tuple. A search by destination IP therefore reads
+only that host's rows in each bucket, and a search by source IP is narrowed by
+a bloom filter. Measured on one production day (99 M rows, 620 k distinct
+destination IPs, cold caches, top 100 by bytes):
+
+| Search | 3.3 layout | 3.4 layout |
+|---|---|---|
+| busy destination IP, 24 h | 2.3 s, 5.2 GiB read | 0.32 s, 73 MiB |
+| busy destination IP, 1 h | — | 0.11 s, 3.5 MiB |
+| busy source IP, 24 h | 2.6 s, 6.2 GiB | 1.1 s, 1.5 GiB |
+| 15-minute window, no IP | 0.16 s | 0.16 s |
+
+Searches by destination IP are the fastest; prefer them (with a narrow time
+range) when you have the choice. Data written before the upgrade keeps the
+old layout until it ages out (see the 3.4 upgrade note above).
+
 ### Default retention
 
 | Table | Granularity | Retention |
@@ -479,6 +514,7 @@ lightweight; the alert hot tables are bounded by their 7-day retention.
 | `traffic_by_ip` | 5 min | 14 days |
 | `traffic_by_prefix` | 5 min | 30 days |
 | `flows_log` *(opt)* | per tuple | 180 days *(configurable)* |
+| `flows_log_legacy` *(after the 3.4 upgrade)* | per tuple | follows `flows_log` |
 | `traffic_by_dst_1min` / `traffic_by_src_1min` *(opt)* | 1 min | 7 days |
 
 All TTLs are enforced by ClickHouse itself — no cron jobs to maintain.
@@ -578,6 +614,13 @@ rewritten or moved by this statement):
 ALTER TABLE asstats.flows_log       MODIFY SETTING storage_policy = 'hot_cold';
 ALTER TABLE asstats.traffic_by_port MODIFY SETTING storage_policy = 'hot_cold';
 ```
+
+You can also skip this step: when a table has a "Move to cold after" value
+but is still on ClickHouse's `default` policy, and **exactly one** configured
+policy has a first volume `default` (disk `default`) followed by a volume
+`cold`, the reconciler runs this `ALTER` itself and logs it. With no such
+policy, or several, it leaves the table alone and logs why once. This is how
+the `flows_log` created by the 3.4 upgrade inherits `hot_cold`.
 
 **4. Set "Move to cold after (days)"** next to the retention in Admin ›
 Storage (or `PUT /admin/retention/{table}` with `{"ttl_days": 240,
