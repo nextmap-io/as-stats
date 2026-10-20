@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-10-21
+
+### Changed
+- **Design review with [impeccable](https://github.com/pbakaus/impeccable)**
+  (report in `docs/design-review/impeccable-2026-10.md`): its detector went
+  from 98 findings to 0 on the rendered pages, light and dark, desktop and
+  phone. Sortable table headers and navigation menus work from the keyboard;
+  alert actions no longer clip on a phone and Resolve is a labelled button;
+  the active time range stays visible on a phone; an IP's page states the
+  active incident on that host; pages of a disabled feature say which setting
+  enables them instead of showing errors; one segmented control replaces nine
+  hand-rolled switches; chart labels stay legible over the data; utilisation
+  states carry a word, not only a colour; heading outline and AA contrast fixed.
+
 ### Fixed
 - **Port statistics counted every flow twice, and their "direction" was not a
   direction.** `traffic_by_port` was fed by two views over the same flows: one
