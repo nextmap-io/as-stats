@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { TableSkeleton } from "@/components/ui/skeleton"
 import { PercentBar } from "@/components/DataTable"
-import { Bell, Check, X, AlertTriangle, ShieldAlert, Info, ChevronRight, ChevronDown, Sparkles, Loader2 } from "lucide-react"
+import { Check, AlertTriangle, ShieldAlert, Info, ChevronRight, ChevronDown, Sparkles, Loader2 } from "lucide-react"
 import { cn, formatBytes } from "@/lib/utils"
 import type {
   Alert,
@@ -83,11 +83,8 @@ export function Alerts() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline justify-between">
-        <h1 className="flex items-center gap-2 text-2xl font-semibold">
-          <Bell className="size-5" aria-hidden />
-          Alerts
-        </h1>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+        <h1 className="text-2xl font-semibold">Alerts</h1>
         <Link to="/admin?tab=rules" className="text-[13px] text-foreground-secondary underline underline-offset-2 hover:text-foreground">
           Manage rules
         </Link>
@@ -149,7 +146,7 @@ export function Alerts() {
                   <tr className="border-b border-border">
                     <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Severity</th>
                     <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Rule</th>
-                    <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Target</th>
+                    <th scope="col" className="hidden pb-1.5 text-left font-medium text-muted-foreground sm:table-cell">Target</th>
                     <th scope="col" className="pb-1.5 text-right font-medium text-muted-foreground hidden sm:table-cell">Value</th>
                     <th scope="col" className="pb-1.5 pr-3 text-right font-medium text-muted-foreground hidden sm:table-cell">Threshold</th>
                     <th scope="col" className="pb-1.5 pl-3 text-left font-medium text-muted-foreground hidden md:table-cell">Triggered</th>
@@ -261,28 +258,32 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, canBlock, linkTags, ack
   })
   const liveExpl = explainQuery.data?.data
 
+  const targetCell = host ? (
+    <Link to={`/ip/${encodeURIComponent(host)}`} className="font-ip font-medium hover:underline">
+      {host}
+    </Link>
+  ) : target && linkTags.has(target) ? (
+    <Link to={`/link/${encodeURIComponent(target)}`} className="font-medium hover:underline" title="Link">
+      {target}
+    </Link>
+  ) : target ? (
+    <span className="font-medium">{target}</span>
+  ) : (
+    <span className="text-muted-foreground">No single host</span>
+  )
+
   return (
     <>
       <tr className="border-b border-border last:border-0 hover:bg-accent/50">
         <td className="py-1.5">
           <SeverityBadge severity={a.severity} />
         </td>
-        <td className="py-1.5 font-medium">{a.rule_name}</td>
-        <td className="py-1.5">
-          {host ? (
-            <Link to={`/ip/${encodeURIComponent(host)}`} className="font-ip font-medium hover:underline">
-              {host}
-            </Link>
-          ) : target && linkTags.has(target) ? (
-            <Link to={`/link/${encodeURIComponent(target)}`} className="font-medium hover:underline" title="Link">
-              {target}
-            </Link>
-          ) : target ? (
-            <span className="font-medium">{target}</span>
-          ) : (
-            <span className="text-muted-foreground">No single host</span>
-          )}
+        <td className="py-1.5 pr-2 font-medium">
+          {a.rule_name}
+          {/* On a phone the target rides under the rule, so the actions keep their room. */}
+          <div className="mt-0.5 font-normal sm:hidden">{targetCell}</div>
         </td>
+        <td className="hidden py-1.5 sm:table-cell">{targetCell}</td>
         <td className="py-1.5 text-right hidden sm:table-cell">
           {formatMetric(a.metric_type, a.metric_value)}
         </td>
@@ -293,11 +294,11 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, canBlock, linkTags, ack
           {new Date(a.triggered_at).toLocaleString()}
         </td>
         <td className="py-1.5 text-right">
-          <div className="flex justify-end gap-1 items-center">
+          <div className="flex flex-wrap items-center justify-end gap-1">
             {hasDetails && (
               <button
                 onClick={() => setExpanded((s) => !s)}
-                className="inline-flex items-center gap-0.5 rounded border border-input px-1.5 py-0.5 text-xs hover:bg-accent"
+                className="inline-flex min-h-7 items-center gap-0.5 rounded border px-2 text-xs border-input hover:bg-accent"
                 title={expanded ? "Hide details" : "Show details"}
                 aria-expanded={expanded}
               >
@@ -310,7 +311,7 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, canBlock, linkTags, ack
                 <button
                   onClick={onAck}
                   disabled={ackPending}
-                  className="rounded border border-input px-1.5 py-0.5 text-xs hover:bg-accent"
+                  className="inline-flex min-h-7 items-center gap-0.5 rounded border px-2 text-xs border-input hover:bg-accent"
                   title="Acknowledge"
                 >
                   Ack
@@ -320,7 +321,7 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, canBlock, linkTags, ack
                     type="button"
                     onClick={onBlock}
                     disabled={blockPending}
-                    className="rounded border border-destructive px-1.5 py-0.5 text-xs text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                    className="inline-flex min-h-7 items-center gap-0.5 rounded border px-2 text-xs border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground"
                     title="Blackhole this address through BGP (admins only)"
                   >
                     Block
@@ -332,10 +333,10 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, canBlock, linkTags, ack
               <button
                 onClick={onResolve}
                 disabled={resolvePending}
-                className="rounded border border-input px-1.5 py-0.5 text-xs hover:bg-accent"
-                title="Resolve"
+                className="inline-flex min-h-7 items-center gap-0.5 rounded border px-2 text-xs border-input hover:bg-accent"
+                title="Mark as resolved"
               >
-                <X className="size-3" aria-label="Resolve" />
+                Resolve
               </button>
             )}
           </div>
