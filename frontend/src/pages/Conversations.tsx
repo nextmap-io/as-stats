@@ -2,7 +2,6 @@ import { useMemo } from "react"
 import { Link } from "react-router-dom"
 import { useConversations } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
-import { useFeatureFlags } from "@/hooks/useFeatures"
 import { useUnit } from "@/hooks/useUnit"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { QueryBoundary } from "@/components/QueryBoundary"
@@ -10,10 +9,10 @@ import { DataTable, PercentBar, type Column } from "@/components/DataTable"
 import { ExportButton, type ExportColumn } from "@/components/ExportButton"
 import { IPWithPTR } from "@/components/PTR"
 import { formatNumber } from "@/lib/utils"
-import { cn } from "@/lib/utils"
 import { ASRef } from "@/components/ASRef"
 import { Search } from "lucide-react"
 import type { Conversation } from "@/lib/types"
+import { Segmented } from "@/components/ui/segmented"
 
 /** Conversation grouping dimensions (F3). Mirrors store.convDimensions. */
 type Dim = "src_dst_ip" | "src_dst_as" | "dst_port_proto"
@@ -46,7 +45,6 @@ function protoLabel(proto: string): string {
 export function Conversations() {
   const { filters, setFilter, periodSeconds, filterSearch } = useFilters()
   const { formatTraffic } = useUnit()
-  const features = useFeatureFlags()
 
   const dim = asDim(filters.dim)
   const query = useConversations({ ...filters, dim, limit: 100 })
@@ -239,23 +237,9 @@ export function Conversations() {
     { key: "flows", header: "Flows", value: (r) => r.flows },
   ]
 
-  if (!features.flow_search) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-semibold">Conversations</h1>
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            The Conversations explorer requires the flow-search feature
-            (<code>FEATURE_FLOW_SEARCH</code>) to be enabled.
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-6">
-      <div className="flex items-baseline justify-between">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
         <h1 className="text-2xl font-semibold">Conversations</h1>
         <span className="text-xs text-muted-foreground">
           Bidirectional top talkers — A↔B folded into one row
@@ -267,28 +251,12 @@ export function Conversations() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>Top conversations</CardTitle>
             <div className="flex flex-wrap items-center gap-2">
-              <div
-                className="inline-flex gap-0.5 rounded border border-input p-0.5"
-                role="group"
-                aria-label="Conversation dimension"
-              >
-                {DIMS.map((d) => (
-                  <button
-                    key={d.value}
-                    type="button"
-                    onClick={() => setFilter("dim", d.value === "src_dst_ip" ? undefined : d.value)}
-                    aria-pressed={dim === d.value}
-                    className={cn(
-                      "px-2 py-0.5 text-[13px] font-medium rounded transition-colors",
-                      dim === d.value
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent",
-                    )}
-                  >
-                    {d.label}
-                  </button>
-                ))}
-              </div>
+              <Segmented
+                label="Conversation dimension"
+                value={dim}
+                onChange={(v) => setFilter("dim", v === "src_dst_ip" ? undefined : v)}
+                options={DIMS}
+              />
               <ExportButton rows={rows} columns={exportColumns} filename={`conversations-${dim}`} />
             </div>
           </div>

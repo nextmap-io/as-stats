@@ -95,7 +95,7 @@ export function LiveThreats() {
           Triggered alerts
         </Link>
       </div>
-      <p className="mt-1 max-w-[75ch] text-[13px] text-muted-foreground">
+      <p className="mt-1 max-w-[62ch] text-[13px] text-muted-foreground">
         Each host is compared with its own usual level at this hour over the last 7 days. The dashed line on each chart
         is that usual peak (p95); a host that is busy but at its usual level stays quiet.
       </p>
@@ -121,7 +121,7 @@ export function LiveThreats() {
             type="checkbox"
             checked={showAll}
             onChange={(e) => setParam("all", e.target.checked ? "1" : null)}
-            className="size-3.5 accent-[var(--color-ring)]"
+            className="size-4 accent-[var(--color-ring)]"
           />
           Show all busy hosts
         </label>

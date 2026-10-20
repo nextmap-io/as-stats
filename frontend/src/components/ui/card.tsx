@@ -12,11 +12,18 @@ export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElemen
   return <div className={cn("flex flex-col gap-1 pt-3 pb-3", className)} {...props} />
 }
 
-export function CardTitle({ className, children, ...props }: HTMLAttributes<HTMLHeadingElement>) {
+// A card is a top-level block of its page, so its title is an h2 under the
+// page's h1. Pass `as="h3"` for a card nested inside another h2 section.
+export function CardTitle({
+  className,
+  children,
+  as: Tag = "h2",
+  ...props
+}: HTMLAttributes<HTMLHeadingElement> & { as?: "h2" | "h3" }) {
   return (
-    <h3 className={cn("text-[15px] font-semibold leading-snug text-foreground", className)} {...props}>
+    <Tag className={cn("text-[15px] font-semibold leading-snug text-foreground", className)} {...props}>
       {children}
-    </h3>
+    </Tag>
   )
 }
 

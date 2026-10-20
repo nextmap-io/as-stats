@@ -9,7 +9,7 @@ import {
   ReferenceLine,
 } from "recharts"
 import type { LoadCurve } from "@/lib/types"
-import { axisTick, tooltipBoxStyle, useChartColors } from "@/hooks/useChartColors"
+import { axisTick, tooltipBoxStyle, useChartColors, annotationLabel, X_TICK_MARGIN } from "@/hooks/useChartColors"
 import { formatBitsPerSec } from "@/lib/utils"
 
 interface LoadDurationChartProps {
@@ -46,6 +46,7 @@ export function LoadDurationChart({ curve, capacityBps, height = 300, title }: L
         <AreaChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke={chartColors.grid} />
           <XAxis
+            tickMargin={X_TICK_MARGIN}
             dataKey="pct"
             type="number"
             domain={[0, 100]}
@@ -70,12 +71,7 @@ export function LoadDurationChart({ curve, capacityBps, height = 300, title }: L
               stroke={chartColors.ink}
               strokeDasharray="4 3"
               strokeWidth={1}
-              label={{
-                value: `capacity: ${formatBitsPerSec(capacityBps)}`,
-                position: "insideTopRight",
-                fontSize: 12,
-                fill: chartColors.ink,
-              }}
+              label={annotationLabel(chartColors, `capacity: ${formatBitsPerSec(capacityBps)}`, "insideTopRight")}
             />
           )}
           <Tooltip

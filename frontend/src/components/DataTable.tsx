@@ -159,24 +159,27 @@ export function DataTable<T>({
                   aria-sort={
                     col.sortable ? (active ? (sortDir === "asc" ? "ascending" : "descending") : "none") : undefined
                   }
-                  onClick={col.sortable ? () => toggleSort(col) : undefined}
                   className={cn(
                     "bg-background pb-2 pt-0.5 align-bottom text-[13px] font-normal text-muted-foreground whitespace-nowrap",
                     col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "text-left",
-                    col.sortable && "cursor-pointer select-none hover:text-foreground transition-colors",
                     col.hideOnMobile && "hidden sm:table-cell",
                     col.headerClassName,
                   )}
                 >
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1",
-                      col.align === "right" && "flex-row-reverse",
-                    )}
-                  >
-                    {col.header}
-                    {col.sortable &&
-                      (active ? (
+                  {col.sortable ? (
+                    // A real button, so sorting is reachable from the keyboard and
+                    // announced as an action; aria-sort on the <th> carries the state.
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(col)}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-sm select-none transition-colors hover:text-foreground",
+                        col.align === "right" && "flex-row-reverse",
+                        active && "text-foreground",
+                      )}
+                    >
+                      {col.header}
+                      {active ? (
                         sortDir === "asc" ? (
                           <ArrowUp className="size-3 shrink-0" aria-hidden />
                         ) : (
@@ -184,8 +187,11 @@ export function DataTable<T>({
                         )
                       ) : (
                         <ChevronsUpDown className="size-3 shrink-0 opacity-40" aria-hidden />
-                      ))}
-                  </span>
+                      )}
+                    </button>
+                  ) : (
+                    col.header
+                  )}
                 </th>
               )
             })}
@@ -213,7 +219,8 @@ export function DataTable<T>({
                     className={cn(
                       cellPad,
                       col.align === "right" ? "text-right" : col.align === "center" ? "text-center" : "text-left",
-                      col.numeric && "tabular-nums",
+                      // A value and its unit never split across lines ("2.26 / Gb/s").
+                      col.numeric && "tabular-nums whitespace-nowrap",
                       col.hideOnMobile && "hidden sm:table-cell",
                       col.className,
                     )}
@@ -251,7 +258,9 @@ export function PercentBar({
   const clamped = Math.min(Math.max(pct || 0, 0), 100)
   return (
     <div className="flex items-center justify-end gap-2">
-      <div className="h-1.5 w-16 rounded-[1px] bg-border-soft">
+      {/* The bar is a reading aid; on a phone the percentage alone keeps the
+          row on one line. */}
+      <div className="hidden h-1.5 w-16 rounded-[1px] bg-border-soft sm:block">
         <div className={cn("h-1.5 rounded-[1px]", barClassName)} style={{ width: `${clamped}%` }} />
       </div>
       <span className="w-12 text-right tabular-nums">{formatPercent(pct || 0)}</span>

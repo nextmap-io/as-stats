@@ -37,7 +37,7 @@ export function ComparisonToggle({ className }: { className?: string }) {
         "inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded border transition-colors",
         on
           ? "border-primary/50 bg-primary/15 text-primary"
-          : "border-input bg-muted/50 text-muted-foreground hover:bg-accent hover:text-foreground",
+          : "border-input text-foreground-secondary hover:bg-accent hover:text-foreground",
         className,
       )}
     >

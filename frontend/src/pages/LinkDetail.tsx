@@ -18,6 +18,10 @@ import { ASRef } from "@/components/ASRef"
 import { useUnit } from "@/hooks/useUnit"
 import { seriesColor, useChartColors } from "@/hooks/useChartColors"
 import { bytesToBps, stepSecondsOf } from "@/lib/rate"
+import { ErrorDisplay } from "@/components/ui/error"
+import { PageSkeleton } from "@/components/ui/skeleton"
+import { formatCapacity } from "@/lib/format"
+import { utilLevel } from "@/lib/home"
 
 /** One percentile row (p50/p95/p99) showing in + out throughput. Renders
  *  nothing when neither direction is present (older backend). */
@@ -49,7 +53,7 @@ export function LinkDetail() {
   const { filters, filterSearch, periodSeconds, timeBounds, bounds } = useFilters()
   const chartColors = useChartColors()
   const { formatTraffic } = useUnit()
-  const { data, isLoading, error } = useLinkDetail(tag || "", filters)
+  const { data, isLoading, error, refetch } = useLinkDetail(tag || "", filters)
   const loadCurveQuery = useLinkLoadCurve(tag || "", filters)
 
   // Comparison overlay (Module D). When off, the prev query reuses the active
@@ -73,8 +77,10 @@ export function LinkDetail() {
   })
   const linkConfig = linksData?.data?.find(l => l.tag === tag)
 
-  if (isLoading) return <p className="text-muted-foreground">Loading…</p>
-  if (error) return <p className="text-destructive">{error.message}</p>
+  // Same loading / error vocabulary as every other page: a flat skeleton, and
+  // an error that names what failed and offers a retry.
+  if (isLoading) return <PageSkeleton />
+  if (error) return <ErrorDisplay error={error} title={`Could not load link ${tag}`} onRetry={() => void refetch()} />
 
   const detail = data?.data
   if (!detail) return null
@@ -123,9 +129,22 @@ export function LinkDetail() {
         <PercentileItem label="p99" inVal={detail.p99_in} outVal={detail.p99_out} stepSeconds={step} />
         {capacityMbps > 0 && (
           <>
-            <div><span className="text-muted-foreground">Capacity</span> <span className="font-semibold">{capacityMbps.toLocaleString()} Mb/s</span></div>
+            <div><span className="text-muted-foreground">Capacity</span> <span className="font-semibold">{formatCapacity(capacityBps)}</span></div>
             {utilizationPct != null && (
-              <div><span className="text-muted-foreground">p95 utilisation, busier direction</span> <span className={`font-semibold ${utilizationPct >= 90 ? "text-destructive" : utilizationPct >= 70 ? "text-warning" : ""}`}>{formatPercent(utilizationPct)}</span></div>
+              <div>
+                <span className="text-muted-foreground">p95 utilisation, busier direction</span>{" "}
+                <span className={`font-semibold ${utilLevel(utilizationPct) === "critical" ? "text-destructive" : utilLevel(utilizationPct) === "watch" ? "text-warning" : ""}`}>
+                  {formatPercent(utilizationPct)}
+                </span>
+                {/* Colour never carries the state alone: the same words as the home strip. */}
+                {utilLevel(utilizationPct) !== "normal" && (
+                  <span
+                    className={`ml-1.5 rounded-sm px-1.5 text-xs font-semibold leading-5 ${utilLevel(utilizationPct) === "critical" ? "bg-destructive text-destructive-foreground" : "bg-warning-muted text-warning"}`}
+                  >
+                    {utilLevel(utilizationPct) === "critical" ? "Incident" : "Watch"}
+                  </span>
+                )}
+              </div>
             )}
           </>
         )}

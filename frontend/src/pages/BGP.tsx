@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorDisplay, EmptyState } from "@/components/ui/error"
 import { TableSkeleton } from "@/components/ui/skeleton"
 import { IPWithPTR } from "@/components/PTR"
-import { Shield, Plus, X } from "lucide-react"
+import { Plus, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { BGPBlock } from "@/lib/types"
 
@@ -109,11 +109,8 @@ export function BGP() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <Shield className="size-4" />
-          BGP Blocks
-        </h1>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+        <h1 className="text-2xl font-semibold">BGP blocks</h1>
       </div>
 
       {/* Section 1: Session Status */}
@@ -122,7 +119,7 @@ export function BGP() {
       ) : (
         <Card>
           <CardHeader className="pb-1">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
               <CardTitle>BGP Session</CardTitle>
               {session && (
                 <span
@@ -181,7 +178,7 @@ export function BGP() {
       {isAdmin && (
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
               <CardTitle>Manual block</CardTitle>
               <button
                 onClick={() => {

@@ -10,7 +10,7 @@ import {
 } from "recharts"
 import type { LinkTimeSeries } from "@/lib/types"
 import { useUnit } from "@/hooks/useUnit"
-import { axisTick, seriesColor, tooltipBoxStyle, useChartColors } from "@/hooks/useChartColors"
+import { axisTick, seriesColor, tooltipBoxStyle, useChartColors, annotationLabel, X_TICK_MARGIN } from "@/hooks/useChartColors"
 import { inferStepSeconds, formatTimeShort } from "./time"
 
 
@@ -156,12 +156,14 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
 
   return (
     <div className="overflow-hidden">
-      {title && <h3 className="mb-1 text-[13px] text-foreground-secondary">{title}</h3>}
+      {/* Top-level block of its page, so an h2 under the page h1. */}
+      {title && <h2 className="mb-1 text-[13px] font-normal text-foreground-secondary">{title}</h2>}
       <ResponsiveContainer width="100%" height={height}>
         <AreaChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
           {/* No gradients — solid fills like classic rrdtool */}
           <CartesianGrid vertical={false} stroke={chartColors.grid} />
           <XAxis
+            tickMargin={X_TICK_MARGIN}
             type="number"
             dataKey="t"
             scale="time"
@@ -182,10 +184,10 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
           />
           <ReferenceLine y={0} stroke={chartColors.ink} strokeWidth={1} />
           {!usePps && p95In != null && p95In > 0 && (
-            <ReferenceLine y={p95In} stroke={chartColors.ink} strokeDasharray="2 3" label={{ value: `p95 in ${formatValue(p95In, interval)}`, position: "insideTopRight", fontSize: 12, fill: chartColors.text }} />
+            <ReferenceLine y={p95In} stroke={chartColors.ink} strokeDasharray="2 3" label={annotationLabel(chartColors, `p95 in ${formatValue(p95In, interval)}`, "insideTopRight")} />
           )}
           {!usePps && p95Out != null && p95Out > 0 && (
-            <ReferenceLine y={-p95Out} stroke={chartColors.ink} strokeDasharray="2 3" label={{ value: `p95 out ${formatValue(p95Out, interval)}`, position: "insideBottomRight", fontSize: 12, fill: chartColors.text }} />
+            <ReferenceLine y={-p95Out} stroke={chartColors.ink} strokeDasharray="2 3" label={annotationLabel(chartColors, `p95 out ${formatValue(p95Out, interval)}`, "insideBottomRight")} />
           )}
           <Tooltip
             cursor={{ stroke: chartColors.text, strokeOpacity: 0.4 }}

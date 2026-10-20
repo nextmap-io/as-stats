@@ -46,9 +46,9 @@ export function TopProtocols() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold">Top Protocols</h1>
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+        <h1 className="text-2xl font-semibold">Top protocols</h1>
+        <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs text-muted-foreground">
             5-min aggregation
           </span>

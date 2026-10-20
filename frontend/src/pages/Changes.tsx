@@ -16,6 +16,7 @@ import { isPrivateASGroup } from "@/lib/asn"
 import { ASRef } from "@/components/ASRef"
 import { ArrowDown, ArrowUp } from "lucide-react"
 import type { Mover, TalkerChange } from "@/lib/types"
+import { Segmented } from "@/components/ui/segmented"
 
 type MoverDim = "as" | "prefix" | "port" | "country"
 type TalkerDim = "as" | "ip" | "prefix"
@@ -179,7 +180,7 @@ export function Changes() {
                 {formatTraffic(Math.abs(m.delta), periodSeconds)}
               </span>
               {m.previous > 0 && (
-                <span className="text-xs opacity-70">
+                <span className="text-xs text-muted-foreground">
                   ({up ? "+" : ""}
                   {formatPercent(m.pct)})
                 </span>
@@ -263,28 +264,12 @@ export function Changes() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>Top movers</CardTitle>
             <div className="flex flex-wrap items-center gap-2">
-              <div
-                className="inline-flex gap-0.5 rounded border border-input p-0.5"
-                role="group"
-                aria-label="Movers dimension"
-              >
-                {moverDims.map((d) => (
-                  <button
-                    key={d.value}
-                    type="button"
-                    onClick={() => setDim("mdim", d.value)}
-                    aria-pressed={activeMoverDim === d.value}
-                    className={cn(
-                      "px-2 py-0.5 text-[13px] font-medium rounded transition-colors",
-                      activeMoverDim === d.value
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent",
-                    )}
-                  >
-                    {d.label}
-                  </button>
-                ))}
-              </div>
+              <Segmented
+                label="Movers dimension"
+                value={activeMoverDim}
+                onChange={(v) => setDim("mdim", v)}
+                options={moverDims}
+              />
               <ExportButton rows={moverRows} columns={moverExport} filename={`movers-${activeMoverDim}`} />
             </div>
           </div>
@@ -310,28 +295,12 @@ export function Changes() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>New and disappeared talkers</CardTitle>
             <div className="flex flex-wrap items-center gap-2">
-              <div
-                className="inline-flex gap-0.5 rounded border border-input p-0.5"
-                role="group"
-                aria-label="Talkers dimension"
-              >
-                {TALKER_DIMS.map((d) => (
-                  <button
-                    key={d.value}
-                    type="button"
-                    onClick={() => setDim("tdim", d.value)}
-                    aria-pressed={tdim === d.value}
-                    className={cn(
-                      "px-2 py-0.5 text-[13px] font-medium rounded transition-colors",
-                      tdim === d.value
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent",
-                    )}
-                  >
-                    {d.label}
-                  </button>
-                ))}
-              </div>
+              <Segmented
+                label="Talkers dimension"
+                value={tdim}
+                onChange={(v) => setDim("tdim", v)}
+                options={TALKER_DIMS}
+              />
               <ExportButton rows={talkerRows} columns={talkerExport} filename={`talkers-${tdim}`} />
             </div>
           </div>

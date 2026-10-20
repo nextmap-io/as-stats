@@ -51,7 +51,7 @@ function TopCountriesBar({ rows }: { rows: CountryTraffic[] }) {
           type="category"
           dataKey="label"
           width={72}
-          tick={{ fill: colors.text, fontSize: 11 }}
+          tick={{ fill: colors.text, fontSize: 12 }}
           stroke={colors.grid}
         />
         <Tooltip

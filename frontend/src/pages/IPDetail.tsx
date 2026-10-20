@@ -11,18 +11,22 @@ import { ASRef } from "@/components/ASRef"
 import { useUnit } from "@/hooks/useUnit"
 import { IPWithPTR } from "@/components/PTR"
 import { Search } from "lucide-react"
+import { ErrorDisplay } from "@/components/ui/error"
+import { PageSkeleton } from "@/components/ui/skeleton"
+import { HostAlerts } from "@/components/HostAlerts"
 
-const QUICK_PERIODS = ["1h", "6h", "24h", "7d"] as const
 
 export function IPDetail() {
   const { ip } = useParams<{ ip: string }>()
-  const { filters, filterSearch, periodSeconds, timeBounds, setFilter } = useFilters()
+  const { filters, filterSearch, periodSeconds, timeBounds } = useFilters()
   const { formatTraffic } = useUnit()
   const features = useFeatureFlags()
-  const { data, isLoading, error } = useIPDetail(ip || "", filters)
+  const { data, isLoading, error, refetch } = useIPDetail(ip || "", filters)
 
-  if (isLoading) return <p className="text-muted-foreground">Loading…</p>
-  if (error) return <p className="text-destructive">{error.message}</p>
+  // Same loading / error vocabulary as every other page: a flat skeleton, and
+  // an error that names what failed and offers a retry.
+  if (isLoading) return <PageSkeleton />
+  if (error) return <ErrorDisplay error={error} title={`Could not load ${ip}`} onRetry={() => void refetch()} />
 
   const detail = data?.data
   if (!detail) return null
@@ -45,22 +49,6 @@ export function IPDetail() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {/* Quick period buttons — change current period filter without losing context */}
-          <div className="hidden md:flex items-center gap-0.5 px-1 py-0.5 rounded border border-input bg-background">
-            {QUICK_PERIODS.map(p => (
-              <button
-                key={p}
-                onClick={() => setFilter("period", p)}
-                className={`px-1.5 py-0.5 text-xs font-medium rounded transition-colors ${
-                  filters.period === p
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                }`}
-                title={`Switch to ${p} window`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
           {features.flow_search && (
             <Link
               to={`/flows?period=${filters.period || "1h"}&dst_ip=${encodeURIComponent(detail.ip)}`}
@@ -73,6 +61,8 @@ export function IPDetail() {
           )}
         </div>
       </div>
+
+      <HostAlerts ip={detail.ip} enabled={features.alerts} />
 
       <Card>
         <CardHeader>
@@ -94,7 +84,7 @@ export function IPDetail() {
         {detail.peer_ips && detail.peer_ips.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle>Top Communicating IPs</CardTitle>
+              <CardTitle>Top communicating IPs</CardTitle>
             </CardHeader>
             <CardContent>
               <table className="w-full text-sm">

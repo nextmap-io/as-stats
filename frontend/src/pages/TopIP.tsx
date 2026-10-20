@@ -15,6 +15,13 @@ import { formatNumber, formatBytes, cn } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 import { IPWithPTR } from "@/components/PTR"
 import type { IPTraffic } from "@/lib/types"
+import { Segmented } from "@/components/ui/segmented"
+
+const SCOPE_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "internal", label: "Internal", title: "Addresses in your announced prefixes" },
+  { value: "external", label: "External", title: "Everything else" },
+] as const
 
 type Scope = "all" | "internal" | "external"
 
@@ -134,19 +141,14 @@ export function TopIP() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-baseline justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Top IP</h1>
-        <div className="flex gap-1 text-xs">
-          {(["all", "internal", "external"] as Scope[]).map(s => (
-            <button
-              key={s}
-              onClick={() => { setScope(s); setFilter("offset", undefined) }}
-              className={`px-2.5 py-1 rounded transition-colors ${scope === s ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"}`}
-            >
-              {s === "all" ? "All" : s === "internal" ? "Internal" : "External"}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="Scope"
+          value={scope}
+          onChange={(s) => { setScope(s); setFilter("offset", undefined) }}
+          options={SCOPE_OPTIONS}
+        />
       </div>
 
       <Card>

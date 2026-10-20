@@ -45,6 +45,17 @@ export function FilterBar() {
   const { period, setPeriod, setAbsolute, bounds } = useFilters()
   const [customOpen, setCustomOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const presetsRef = useRef<HTMLDivElement>(null)
+
+  // On a phone the presets scroll sideways with no visible scrollbar, and the
+  // default 24h sits past the right edge: bring the active one into view so the
+  // current window is never hidden.
+  useEffect(() => {
+    const el = presetsRef.current?.querySelector<HTMLElement>('[aria-pressed="true"]')
+    const box = presetsRef.current
+    if (!el || !box || box.scrollWidth <= box.clientWidth) return
+    box.scrollLeft = Math.max(0, el.offsetLeft - box.offsetLeft - box.clientWidth / 2 + el.offsetWidth / 2)
+  }, [period])
 
   return (
     <div className="border-b border-border">
@@ -54,7 +65,7 @@ export function FilterBar() {
               popover must live OUTSIDE this overflow container: setting
               overflow-x also forces overflow-y to `auto`, which would clip the
               popover as it opens downward (it looked like "Custom does nothing"). */}
-          <div className="flex items-center gap-3 overflow-x-auto scrollbar-none min-w-0">
+          <div ref={presetsRef} className="flex items-center gap-3 overflow-x-auto scrollbar-none min-w-0">
             <FilterGroup label="Time range">
               {relativePresets.map((p) => (
                 <FilterButton key={p.value} active={period === p.value} onClick={() => setPeriod(p.value)}>
@@ -169,7 +180,7 @@ function CustomRangePopover({
     <div
       role="dialog"
       aria-label="Custom time range"
-      className="absolute left-0 top-full mt-1 z-50 w-72 rounded border border-border bg-popover p-4 shadow-md"
+      className="absolute left-0 top-full mt-1 z-50 w-72 rounded border border-border bg-popover p-4 shadow-md max-sm:fixed max-sm:inset-x-4 max-sm:top-[6.5rem] max-sm:mt-0 max-sm:w-auto"
     >
       <label htmlFor="custom-range-from" className="mb-1 block text-[13px] text-foreground-secondary">
         From

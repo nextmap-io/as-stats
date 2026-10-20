@@ -11,8 +11,8 @@ import { ViewToggle } from "@/components/ViewToggle"
 import { asView } from "@/lib/view"
 import { TopNViz, type VizDatum } from "@/components/charts/TopNViz"
 import { BarChart3 } from "lucide-react"
-import { cn } from "@/lib/utils"
 import type { PortTraffic } from "@/lib/types"
+import { Segmented } from "@/components/ui/segmented"
 
 const PROTOCOL_OPTIONS = [
   { value: 0, label: "All" },
@@ -73,8 +73,8 @@ export function TopPorts() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold">Top Ports</h1>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+        <h1 className="text-2xl font-semibold">Top ports</h1>
         <span className="text-xs text-muted-foreground">
           5-min aggregation
         </span>
@@ -83,47 +83,28 @@ export function TopPorts() {
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1.5">
-          <span className="text-xs font-medium text-muted-foreground">Direction</span>
-          <div className="flex gap-0.5">
-            <button
-              onClick={() => setDirection("in")}
-              className={cn(
-                "px-2 py-0.5 text-[13px] font-medium rounded transition-colors",
-                direction === "in" ? "bg-traffic-in text-background" : "text-muted-foreground hover:bg-accent"
-              )}
-            >
-              Inbound
-            </button>
-            <button
-              onClick={() => setDirection("out")}
-              className={cn(
-                "px-2 py-0.5 text-[13px] font-medium rounded transition-colors",
-                direction === "out" ? "bg-traffic-out text-background" : "text-muted-foreground hover:bg-accent"
-              )}
-            >
-              Outbound
-            </button>
-          </div>
+          <span className="text-[13px] text-muted-foreground">Direction</span>
+          <Segmented
+            label="Direction"
+            value={direction}
+            onChange={setDirection}
+            options={[
+              { value: "in", label: "Inbound" },
+              { value: "out", label: "Outbound" },
+            ]}
+          />
         </div>
 
         <div className="h-4 w-px bg-border" aria-hidden="true" />
 
         <div className="flex items-center gap-1.5">
-          <span className="text-xs font-medium text-muted-foreground">Protocol</span>
-          <div className="flex gap-0.5">
-            {PROTOCOL_OPTIONS.map((p) => (
-              <button
-                key={p.value}
-                onClick={() => setProtocol(p.value)}
-                className={cn(
-                  "px-2 py-0.5 text-[13px] font-medium rounded transition-colors",
-                  protocol === p.value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent"
-                )}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
+          <span className="text-[13px] text-muted-foreground">Protocol</span>
+          <Segmented
+            label="Protocol"
+            value={String(protocol)}
+            onChange={(v) => setProtocol(Number(v))}
+            options={PROTOCOL_OPTIONS.map((p) => ({ value: String(p.value), label: p.label }))}
+          />
         </div>
       </div>
 

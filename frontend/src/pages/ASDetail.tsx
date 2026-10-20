@@ -17,16 +17,18 @@ import { RatioBar, AsymmetryBadge } from "@/components/Asymmetry"
 import { countryFlag, countryName, hasCountry } from "@/lib/countries"
 import { ourView } from "@/lib/asn"
 import { stepSecondsOf } from "@/lib/rate"
+import { ErrorDisplay } from "@/components/ui/error"
+import { PageSkeleton } from "@/components/ui/skeleton"
 
 export function ASDetail() {
   const { asn } = useParams<{ asn: string }>()
   const asnNum = Number(asn) || 0
-  const { filters, filterSearch, periodSeconds, timeBounds, bounds, setFilter } = useFilters()
+  const { filters, filterSearch, periodSeconds, timeBounds, bounds } = useFilters()
   const { formatTraffic } = useUnit()
   const features = useFeatureFlags()
   const linkColors = useLinkColors()
 
-  const { data, isLoading, error } = useASDetail(asnNum, filters)
+  const { data, isLoading, error, refetch } = useASDetail(asnNum, filters)
   const { data: topIPsData } = useASTopIPs(asnNum, { ...filters, limit: 20 })
   const { data: remoteIPsData } = useASRemoteIPs(asnNum, { ...filters, limit: 20 })
 
@@ -44,13 +46,14 @@ export function ASDetail() {
       ? shiftSeries(prevDetail.data.data.time_series, windowMs)
       : undefined
 
-  if (isLoading) return <p className="text-muted-foreground">Loading…</p>
-  if (error) return <p className="text-destructive">{error.message}</p>
+  // Same loading / error vocabulary as every other page: a flat skeleton, and
+  // an error that names what failed and offers a retry.
+  if (isLoading) return <PageSkeleton />
+  if (error) return <ErrorDisplay error={error} title={`Could not load AS${asnNum}`} onRetry={() => void refetch()} />
 
   const detail = data?.data
   if (!detail) return null
 
-  const quickPeriods = ["1h", "6h", "24h", "7d"] as const
   // Bucket width the server used for the series and the p95 values.
   const step = stepSecondsOf(data?.meta, periodSeconds)
   // One direction convention on this page: your side. The IPv4/IPv6 totals and
@@ -77,24 +80,6 @@ export function ASDetail() {
           )}
         </h1>
         <div className="flex flex-wrap items-center gap-3 text-[13px]">
-          <div className="hidden md:inline-flex overflow-hidden rounded border border-input" role="group" aria-label="Quick time range">
-            {quickPeriods.map(p => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setFilter("period", p)}
-                aria-pressed={filters.period === p}
-                className={`px-2 py-0.5 text-[13px] ${
-                  filters.period === p
-                    ? "bg-accent font-semibold text-foreground"
-                    : "text-foreground-secondary hover:text-foreground"
-                }`}
-                title={`Switch to ${p} window`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
           <a href={`https://bgp.he.net/AS${detail.as_number}`} target="_blank" rel="noopener noreferrer"
             className="text-muted-foreground hover:text-primary transition-colors inline-flex items-center gap-1">
             HE.net <ExternalLink className="size-3" aria-hidden />

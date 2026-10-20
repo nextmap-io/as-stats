@@ -4,6 +4,8 @@ import { useTheme } from "./useTheme"
 const SERIES_COUNT = 8
 
 export interface ChartColors {
+  /** Page background, used as the halo behind annotation labels. */
+  background: string
   /** Gridlines. */
   grid: string
   /** Axis labels, secondary chart text. */
@@ -33,6 +35,7 @@ export function useChartColors(): ChartColors {
     const get = (v: string, fallback: string) => style.getPropertyValue(v).trim() || fallback
 
     return {
+      background: get("--color-background", "#191c20"),
       grid: get("--color-border-soft", "#2a2e35"),
       text: get("--color-muted-foreground", "#8c949e"),
       ink: get("--color-foreground", "#eceef1"),
@@ -76,3 +79,29 @@ export function tooltipBoxStyle(colors: ChartColors): React.CSSProperties {
 export function axisTick(colors: ChartColors) {
   return { fontSize: 12, fill: colors.text }
 }
+
+/**
+ * Label for a reference line (p95, capacity). It sits inside the plot, so it is
+ * drawn in ink with a halo of the page background: legible over a filled area
+ * instead of disappearing into it.
+ */
+export function annotationLabel(
+  colors: ChartColors,
+  value: string,
+  position: "insideTopRight" | "insideBottomRight",
+) {
+  return {
+    value,
+    position,
+    fontSize: 12,
+    fill: colors.ink,
+    stroke: colors.background,
+    strokeWidth: 3,
+    strokeLinejoin: "round" as const,
+    paintOrder: "stroke",
+  }
+}
+
+/** Space between the plot and the time labels, so the lowest value tick of a
+ *  mirrored chart never touches the first time label. */
+export const X_TICK_MARGIN = 8

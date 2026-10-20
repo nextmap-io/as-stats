@@ -8,9 +8,9 @@ import { previousWindow, shiftSeries, useCompareEnabled } from "@/lib/comparison
 import { directionStats, sumSeries } from "@/lib/home"
 import { formatBitRate, formatRate } from "@/lib/rate"
 import type { TrafficPoint } from "@/lib/types"
-import { cn } from "@/lib/utils"
 import { Key } from "./Section"
 import { formatClock, splitUnit } from "@/lib/format"
+import { Segmented } from "@/components/ui/segmented"
 
 type IPChoice = "both" | "4" | "6"
 
@@ -83,28 +83,18 @@ export function TotalTraffic({
         <Figure dir="in" label="Inbound now" value={nowLabel(sIn)} avg={sIn.avg} peak={sIn.peak} peakAt={at(sIn.peakAt)} showRates={!pps} />
         <Figure dir="out" label="Outbound now" value={nowLabel(sOut)} avg={sOut.avg} peak={sOut.peak} peakAt={at(sOut.peakAt)} showRates={!pps} />
         <div className="flex w-full flex-wrap items-center justify-between gap-3 text-[13px] text-foreground-secondary lg:ml-auto lg:w-auto lg:justify-end">
-          <div className="inline-flex overflow-hidden rounded border border-input" role="group" aria-label="IP version">
-            {IP_CHOICES.map((c) => (
-              <button
-                key={c.value}
-                type="button"
-                aria-pressed={choice === c.value}
-                onClick={() => setParam("ipv", c.value === "both" ? null : c.value)}
-                className={cn(
-                  "px-2.5 py-1",
-                  choice === c.value ? "bg-accent font-semibold text-foreground" : "hover:text-foreground",
-                )}
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
-          <label className="inline-flex cursor-pointer items-center gap-2">
+          <Segmented
+            label="IP version"
+            value={choice}
+            onChange={(v) => setParam("ipv", v === "both" ? null : v)}
+            options={IP_CHOICES}
+          />
+          <label className="inline-flex min-h-7 cursor-pointer items-center gap-2">
             <input
               type="checkbox"
               checked={compare}
               onChange={(e) => setParam("compare", e.target.checked ? "prev" : null)}
-              className="size-3.5 accent-[var(--color-ring)]"
+              className="size-4 accent-[var(--color-ring)]"
             />
             Compare with the previous {windowLabel}
           </label>
