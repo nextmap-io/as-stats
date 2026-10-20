@@ -508,6 +508,11 @@ export interface TableStorageStats {
   ttl_days: number
   ttl_enabled: boolean
   pending_mutations: number
+  // Set when the table has no retention policy of its own: ttl_days /
+  // ttl_enabled / cold_after_days are those of `retention_follows`, applied by
+  // the reconciler. `legacy` = pre-upgrade copy that expires by itself.
+  retention_follows?: string
+  legacy?: boolean
   // Hot / cold tier: the live storage policy, whether it has a `cold` volume
   // (the only case where cold_after_days does anything), and bytes on disk
   // split hot (any other volume) / cold, plus the per-disk breakdown.

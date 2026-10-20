@@ -395,11 +395,26 @@ function StorageRow({ table }: { table: TableStorageStats }) {
     ? `Partitions older than this move to the cold volume of storage policy “${table.storage_policy}” (0 = off; must be lower than the TTL)`
     : `Storage policy “${table.storage_policy || "default"}” has no volume named “cold” — switch the table to a hot/cold policy first (README › Cold storage on a second disk)`
 
+  // A follower (flows_log_legacy) has no policy of its own: its row shows the
+  // leader's values read-only.
+  const follows = table.retention_follows
+  const followsTitle = follows
+    ? `${table.legacy ? "Pre-3.4 layout, kept read-only and still searchable. " : ""}Retention follows ${follows}: the table expires by itself under that policy — change it on the ${follows} row.`
+    : undefined
+
   return (
     <tr className="border-b border-border-soft last:border-0 hover:bg-accent/50">
       <td className="py-1.5 text-[13px]">
         <div className="flex items-center gap-1.5">
           {table.table}
+          {table.legacy && (
+            <span
+              className="px-1 py-0.5 text-xs rounded border border-input text-muted-foreground"
+              title={followsTitle}
+            >
+              legacy (pre-3.4 layout), expires by itself
+            </span>
+          )}
           {table.pending_mutations > 0 && (
             <span
               className="px-1 py-0.5 text-xs font-medium rounded border border-warning/40 bg-warning/10 text-warning"
@@ -424,41 +439,57 @@ function StorageRow({ table }: { table: TableStorageStats }) {
       <td className="py-1.5 text-xs text-muted-foreground hidden md:table-cell whitespace-nowrap">
         {table.oldest_data ? new Date(table.oldest_data).toLocaleString() : "—"}
       </td>
-      <td className="py-1.5 text-right">
-        <DaysField
-          value={table.ttl_days}
-          min={Math.max(1, table.cold_after_days + 1)}
-          disabled={setRetention.isPending}
-          saveTitle="Save retention"
-          onSave={saveDays}
-        />
-      </td>
-      <td className="py-1.5 text-right">
-        <DaysField
-          value={table.cold_after_days}
-          min={0}
-          max={Math.max(0, table.ttl_days - 1)}
-          disabled={setRetention.isPending || !table.has_cold_volume}
-          title={coldTitle}
-          saveTitle="Save move-to-cold age"
-          onSave={saveCold}
-        />
-      </td>
-      <td className="py-1.5 text-center">
-        <button
-          onClick={toggleEnabled}
-          disabled={setRetention.isPending}
-          className={cn(
-            "px-1.5 py-0.5 text-xs rounded border font-medium disabled:opacity-50",
-            table.ttl_enabled
-              ? "border-success/40 bg-success/10 text-success"
-              : "border-input bg-background text-muted-foreground"
-          )}
-          title={table.ttl_enabled ? "Reconciler manages this table — click to disable" : "Unmanaged — click to enable reconciler"}
-        >
-          {table.ttl_enabled ? "ON" : "OFF"}
-        </button>
-      </td>
+      {follows ? (
+        <>
+          <td className="py-1.5 text-right tabular-nums text-xs text-muted-foreground" title={followsTitle}>
+            {table.ttl_days}
+          </td>
+          <td className="py-1.5 text-right tabular-nums text-xs text-muted-foreground" title={followsTitle}>
+            {table.cold_after_days}
+          </td>
+          <td className="py-1.5 text-center text-xs text-muted-foreground whitespace-nowrap" title={followsTitle}>
+            as {follows}
+          </td>
+        </>
+      ) : (
+        <>
+          <td className="py-1.5 text-right">
+            <DaysField
+              value={table.ttl_days}
+              min={Math.max(1, table.cold_after_days + 1)}
+              disabled={setRetention.isPending}
+              saveTitle="Save retention"
+              onSave={saveDays}
+            />
+          </td>
+          <td className="py-1.5 text-right">
+            <DaysField
+              value={table.cold_after_days}
+              min={0}
+              max={Math.max(0, table.ttl_days - 1)}
+              disabled={setRetention.isPending || !table.has_cold_volume}
+              title={coldTitle}
+              saveTitle="Save move-to-cold age"
+              onSave={saveCold}
+            />
+          </td>
+          <td className="py-1.5 text-center">
+            <button
+              onClick={toggleEnabled}
+              disabled={setRetention.isPending}
+              className={cn(
+                "px-1.5 py-0.5 text-xs rounded border font-medium disabled:opacity-50",
+                table.ttl_enabled
+                  ? "border-success/40 bg-success/10 text-success"
+                  : "border-input bg-background text-muted-foreground"
+              )}
+              title={table.ttl_enabled ? "Reconciler manages this table — click to disable" : "Unmanaged — click to enable reconciler"}
+            >
+              {table.ttl_enabled ? "ON" : "OFF"}
+            </button>
+          </td>
+        </>
+      )}
     </tr>
   )
 }

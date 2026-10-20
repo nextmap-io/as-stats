@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log"
@@ -44,12 +45,39 @@ var retentionTables = map[string]retentionTable{
 
 	// Optional / feature-gated tables (migrations 000007 / 000008 / 000009 / 000011)
 	"flows_log":           {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 180}, // seed overridden by FLOW_LOG_RETENTION_DAYS
+	"flows_log_legacy":    {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 180}, // follows flows_log, see retentionFollowers
 	"traffic_by_port":     {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 365},
 	"traffic_by_dst_1min": {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 7},
 	"traffic_by_src_1min": {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 7},
 	"alerts":              {TTLColumn: "triggered_at", TTLExpr: "triggered_at", DefaultDays: 365},
 	"audit_log":           {TTLColumn: "ts", TTLExpr: "ts", DefaultDays: 365},
 	"bgp_blocks":          {TTLColumn: "blocked_at", TTLExpr: "blocked_at", DefaultDays: 365},
+}
+
+// retentionFollowers maps a whitelisted table that has no retention policy of
+// its own to the table whose policy it follows. The reconciler applies the
+// leader's ttl_days / cold_after_days (TTL, expired-partition and cold sweeps)
+// to the follower; no retention_policies row is ever seeded for it and the API
+// refuses to set one, so there is a single knob.
+//
+// flows_log_legacy is the pre-3.4 flows_log (old sort key), renamed by
+// migration 000017 instead of being copied. It only ever loses data: once it
+// has no active part left (or does not exist) the reconciler leaves it alone,
+// and a later release can drop it.
+var retentionFollowers = map[string]string{
+	"flows_log_legacy": "flows_log",
+}
+
+// followersOf returns the tables that follow leader's retention policy, sorted.
+func followersOf(leader string) []string {
+	var out []string
+	for f, l := range retentionFollowers {
+		if l == leader {
+			out = append(out, f)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // coldVolumeName is the storage-policy volume the cold tier moves data to. The
@@ -137,6 +165,9 @@ func (s *ClickHouseStore) EnsureRetentionPolicies(ctx context.Context, flowLogDa
 
 	missing := make([]string, 0, len(retentionTables))
 	for table := range retentionTables {
+		if _, follows := retentionFollowers[table]; follows {
+			continue // governed by its leader's policy, never seeded
+		}
 		if _, ok := existing[table]; !ok {
 			missing = append(missing, table)
 		}
@@ -157,6 +188,12 @@ func (s *ClickHouseStore) EnsureRetentionPolicies(ctx context.Context, flowLogDa
 		rt := retentionTables[table]
 		days := rt.DefaultDays
 		if l, ok := live[table]; ok && l > 0 {
+			days = l
+		}
+		// After migration 000017 the new flows_log only carries the migration
+		// default; the retention the operator actually ran with is on the
+		// renamed pre-3.4 table.
+		if l, ok := live["flows_log_legacy"]; ok && l > 0 && table == "flows_log" {
 			days = l
 		}
 		// An explicit FLOW_LOG_RETENTION_DAYS is an operator decision and wins.
@@ -257,6 +294,9 @@ func (s *ClickHouseStore) SetRetentionPolicy(ctx context.Context, table string, 
 	rt, ok := retentionTables[table]
 	if !ok {
 		return model.RetentionPolicy{}, fmt.Errorf("unknown table %q", table)
+	}
+	if leader, follows := retentionFollowers[table]; follows {
+		return model.RetentionPolicy{}, fmt.Errorf("table %q follows the %s retention policy; change %s instead", table, leader, leader)
 	}
 	if days < 1 {
 		return model.RetentionPolicy{}, fmt.Errorf("ttl_days must be >= 1")
@@ -481,6 +521,14 @@ func (s *ClickHouseStore) presentTables(ctx context.Context) (map[string]bool, e
 // tier). There, the TTL gains a `TO VOLUME 'cold'` clause and
 // sweepColdPartitions moves the partitions that predate it. Every per-table
 // failure is logged and the loop moves on to the next table.
+//
+// A table with cold_after_days > 0 still on ClickHouse's `default` storage
+// policy is first switched to the server's hot/cold policy when exactly one
+// qualifies (adoptColdPolicy) — that is how the flows_log created by migration
+// 000017 inherits the policy the old table had been moved to by hand.
+//
+// Tables in retentionFollowers get their leader's policy, as long as they
+// exist and still hold at least one active part.
 func (s *ClickHouseStore) ReconcileRetention(ctx context.Context) error {
 	policies, err := s.ListRetentionPolicies(ctx)
 	if err != nil {
@@ -490,13 +538,14 @@ func (s *ClickHouseStore) ReconcileRetention(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	coldDisks, err := s.coldDisksByTable(ctx)
+	tablePolicies, err := s.tableStoragePolicies(ctx)
 	if err != nil {
 		// Non-fatal: without the policy map no cold tier is applied, which is
 		// exactly the pre-cold-tier behaviour.
 		log.Printf("retention: could not read storage policies, cold tier skipped this cycle: %v", err)
-		coldDisks = map[string][]string{}
+		tablePolicies = map[string]storagePolicyInfo{}
 	}
+	var withParts map[string]bool // lazily loaded: only needed when a follower exists
 
 	for _, p := range policies {
 		if !p.Enabled {
@@ -505,35 +554,209 @@ func (s *ClickHouseStore) ReconcileRetention(ctx context.Context) error {
 		if _, ok := retentionTables[p.TableName]; !ok {
 			continue // ignore policies for tables outside the whitelist
 		}
-		if !present[p.TableName] {
-			continue // feature-gated table not created — nothing to do
+		if _, follows := retentionFollowers[p.TableName]; follows {
+			continue // a stray row for a follower is never authoritative
 		}
-
-		cold := s.effectiveColdDays(p, coldDisks[p.TableName])
-
-		applied, err := s.applyTTLIfDiverged(ctx, p.TableName, p.TTLDays, cold)
-		if err != nil {
-			log.Printf("retention: reconcile %s failed: %v", p.TableName, err)
-			continue
-		}
-		if applied {
-			if cold > 0 {
-				log.Printf("retention: applied TTL %d day(s), move to volume '%s' after %d day(s), to %s", p.TTLDays, coldVolumeName, cold, p.TableName)
-			} else {
-				log.Printf("retention: applied TTL %d day(s) to %s", p.TTLDays, p.TableName)
+		targets := []string{p.TableName}
+		for _, f := range followersOf(p.TableName) {
+			if !present[f] {
+				continue
+			}
+			if withParts == nil {
+				if withParts, err = s.tablesWithActiveParts(ctx); err != nil {
+					log.Printf("retention: could not list active parts, followers skipped this cycle: %v", err)
+					withParts = map[string]bool{}
+				}
+			}
+			if withParts[f] {
+				targets = append(targets, f)
 			}
 		}
-
-		if err := s.sweepExpiredPartitions(ctx, p.TableName, p.TTLDays); err != nil {
-			log.Printf("retention: partition sweep %s failed: %v", p.TableName, err)
-		}
-		if cold > 0 {
-			if err := s.sweepColdPartitions(ctx, p.TableName, cold, p.TTLDays, coldDisks[p.TableName]); err != nil {
-				log.Printf("retention: cold move %s failed: %v", p.TableName, err)
+		for _, table := range targets {
+			if !present[table] {
+				continue // feature-gated table not created — nothing to do
 			}
+			s.reconcileTable(ctx, table, p, tablePolicies)
 		}
 	}
 	return nil
+}
+
+// reconcileTable applies policy p (possibly a leader's policy, for a follower)
+// to one existing table: storage-policy adoption, TTL, expired-partition sweep,
+// cold sweep. Failures are logged; the caller moves on to the next table.
+func (s *ClickHouseStore) reconcileTable(ctx context.Context, table string, p model.RetentionPolicy, tablePolicies map[string]storagePolicyInfo) {
+	pol := tablePolicies[table]
+	if p.ColdAfterDays > 0 && p.ColdAfterDays < p.TTLDays && len(pol.ColdDisks) == 0 {
+		if adopted, ok := s.adoptColdPolicy(ctx, table, pol.Policy); ok {
+			pol = adopted
+			tablePolicies[table] = adopted
+		}
+	}
+
+	tp := p
+	tp.TableName = table
+	cold := s.effectiveColdDays(tp, pol.ColdDisks)
+
+	applied, err := s.applyTTLIfDiverged(ctx, table, p.TTLDays, cold)
+	if err != nil {
+		log.Printf("retention: reconcile %s failed: %v", table, err)
+		return
+	}
+	if applied {
+		if cold > 0 {
+			log.Printf("retention: applied TTL %d day(s), move to volume '%s' after %d day(s), to %s", p.TTLDays, coldVolumeName, cold, table)
+		} else {
+			log.Printf("retention: applied TTL %d day(s) to %s", p.TTLDays, table)
+		}
+	}
+
+	if err := s.sweepExpiredPartitions(ctx, table, p.TTLDays); err != nil {
+		log.Printf("retention: partition sweep %s failed: %v", table, err)
+	}
+	if cold > 0 {
+		if err := s.sweepColdPartitions(ctx, table, cold, p.TTLDays, pol.ColdDisks); err != nil {
+			log.Printf("retention: cold move %s failed: %v", table, err)
+		}
+	}
+}
+
+// tablesWithActiveParts returns the tables of the current database that have
+// at least one active part.
+func (s *ClickHouseStore) tablesWithActiveParts(ctx context.Context) (map[string]bool, error) {
+	rows, err := s.conn.Query(ctx, `
+		SELECT DISTINCT table FROM system.parts
+		WHERE database = currentDatabase() AND active
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list tables with parts: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		out[name] = true
+	}
+	return out, rows.Err()
+}
+
+// defaultStoragePolicy is ClickHouse's built-in storage policy (one volume
+// `default` on disk `default`), the one every table gets unless its CREATE
+// names another.
+const defaultStoragePolicy = "default"
+
+// policyVolume is one volume of a storage policy (system.storage_policies).
+type policyVolume struct {
+	Name     string
+	Priority uint64
+	Disks    []string
+}
+
+// storagePolicyNamePattern bounds the policy names adoptColdPolicy will
+// interpolate into MODIFY SETTING (it cannot take a bound parameter).
+var storagePolicyNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// coldPolicyCandidates returns, sorted, the storage policies a table on the
+// default policy can be switched to for a cold tier: first volume named
+// `default` on exactly the `default` disk (ClickHouse refuses a switch to a
+// policy that lacks the old policy's volumes), second volume named `cold`.
+// Policies whose name is not a plain identifier are ignored.
+func coldPolicyCandidates(policies map[string][]policyVolume) []string {
+	var out []string
+	for name, vols := range policies {
+		if !storagePolicyNamePattern.MatchString(name) || len(vols) < 2 {
+			continue
+		}
+		v := slices.Clone(vols)
+		slices.SortFunc(v, func(a, b policyVolume) int { return cmp.Compare(a.Priority, b.Priority) })
+		if v[0].Name == "default" && slices.Equal(v[0].Disks, []string{"default"}) && v[1].Name == coldVolumeName {
+			out = append(out, name)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// buildAdoptStoragePolicyStatement returns the MODIFY SETTING storage_policy
+// statement for a whitelisted table, or ok=false for an unknown table or a
+// policy name that is not a plain identifier.
+func buildAdoptStoragePolicyStatement(table, policy string) (string, bool) {
+	if _, ok := retentionTables[table]; !ok {
+		return "", false
+	}
+	if !storagePolicyNamePattern.MatchString(policy) {
+		return "", false
+	}
+	return fmt.Sprintf("ALTER TABLE %s MODIFY SETTING storage_policy = '%s'", table, policy), true
+}
+
+// adoptColdPolicy switches a table that wants a cold tier but sits on the
+// default storage policy to the server's hot/cold policy — only when exactly
+// one candidate exists (coldPolicyCandidates). Zero or several candidates, or
+// a table on a non-default policy, are logged once and left alone: picking a
+// disk layout is the operator's call. The switch is metadata-only (the
+// existing parts stay on the `default` disk, which the new policy contains);
+// it cannot be undone to a policy without the cold volume, hence the strict
+// conditions. Returns the table's new policy info and ok=true on a switch.
+func (s *ClickHouseStore) adoptColdPolicy(ctx context.Context, table, current string) (storagePolicyInfo, bool) {
+	if current != defaultStoragePolicy {
+		return storagePolicyInfo{}, false // effectiveColdDays logs the missing cold volume
+	}
+	policies, err := s.storagePolicyVolumes(ctx)
+	if err != nil {
+		log.Printf("retention: %s: could not read storage policies for cold-tier adoption: %v", table, err)
+		return storagePolicyInfo{}, false
+	}
+	candidates := coldPolicyCandidates(policies)
+	if len(candidates) != 1 {
+		s.warnColdOnce("adopt:"+table, fmt.Sprintf(
+			"retention: %s wants a cold tier but is on the default storage policy and %d storage policies qualify (volume 'default' on disk 'default', then volume '%s'): %v — switch it by hand with ALTER TABLE %s MODIFY SETTING storage_policy = '…'",
+			table, len(candidates), coldVolumeName, candidates, table))
+		return storagePolicyInfo{}, false
+	}
+	stmt, ok := buildAdoptStoragePolicyStatement(table, candidates[0])
+	if !ok {
+		return storagePolicyInfo{}, false
+	}
+	if err := s.conn.Exec(ctx, stmt); err != nil {
+		log.Printf("retention: switching %s to storage policy %q failed: %v", table, candidates[0], err)
+		return storagePolicyInfo{}, false
+	}
+	var coldDisks []string
+	for _, v := range policies[candidates[0]] {
+		if v.Name == coldVolumeName {
+			coldDisks = v.Disks
+		}
+	}
+	log.Printf("retention: switched %s from storage policy %q to %q (the only policy with a '%s' volume) for its cold tier",
+		table, current, candidates[0], coldVolumeName)
+	return storagePolicyInfo{Policy: candidates[0], ColdDisks: coldDisks}, true
+}
+
+// storagePolicyVolumes returns every storage policy's volumes.
+func (s *ClickHouseStore) storagePolicyVolumes(ctx context.Context) (map[string][]policyVolume, error) {
+	rows, err := s.conn.Query(ctx, `
+		SELECT policy_name, volume_name, volume_priority, disks
+		FROM system.storage_policies
+		ORDER BY policy_name, volume_priority
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("query system.storage_policies: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := make(map[string][]policyVolume)
+	for rows.Next() {
+		var policy string
+		var v policyVolume
+		if err := rows.Scan(&policy, &v.Name, &v.Priority, &v.Disks); err != nil {
+			return nil, err
+		}
+		out[policy] = append(out[policy], v)
+	}
+	return out, rows.Err()
 }
 
 // effectiveColdDays returns the cold tier the reconciler actually applies to a
@@ -926,7 +1149,15 @@ func (s *ClickHouseStore) StorageStats(ctx context.Context) (model.StorageStats,
 			n := newest
 			t.NewestData = &n
 		}
-		if p, ok := policyByTable[t.Table]; ok {
+		policyTable := t.Table
+		if leader, follows := retentionFollowers[t.Table]; follows {
+			// Read-only in the UI: shows the leader's policy, which is the
+			// one the reconciler applies to it.
+			policyTable = leader
+			t.RetentionFollows = leader
+			t.Legacy = true
+		}
+		if p, ok := policyByTable[policyTable]; ok {
 			t.TTLDays = p.TTLDays
 			t.TTLEnabled = p.Enabled
 			t.ColdAfterDays = p.ColdAfterDays
