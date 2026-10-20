@@ -87,9 +87,14 @@ func (s *ClickHouseStore) EnsureHistory(ctx context.Context) error {
 }
 
 func (s *ClickHouseStore) History(ctx context.Context) ([]Record, error) {
+	// The latest event per version wins. Events recorded before Append bound
+	// recorded_at at full precision carry whole seconds, so an "applying" and
+	// its "applied" can tie; the tie-break puts "applying" first so a
+	// completed migration never reads as dirty (the order across unmerged
+	// parts is otherwise arbitrary — observed on 24.3).
 	query := fmt.Sprintf(`SELECT version, name, checksum, status, error
 	FROM %s
-	ORDER BY version, recorded_at`, s.table(historyTable))
+	ORDER BY version, recorded_at, status = '%s' DESC`, s.table(historyTable), StatusApplying)
 	rows, err := s.conn.Query(ctx, query)
 	if err != nil {
 		return nil, err
@@ -131,10 +136,14 @@ func (s *ClickHouseStore) HasUserSchema(ctx context.Context) (bool, error) {
 }
 
 func (s *ClickHouseStore) Append(ctx context.Context, record Record, owner string) error {
+	// recorded_at is passed as text: clickhouse-go binds a positional
+	// time.Time as toDateTime('…'), truncating it to the second, which made
+	// the "applying" and "applied" events of a migration tie.
 	query := fmt.Sprintf(`INSERT INTO %s
 		(version, name, checksum, status, owner, recorded_at, error)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`, s.table(historyTable))
-	return s.conn.Exec(ctx, query, record.Version, record.Name, record.Checksum, record.Status, owner, time.Now().UTC(), record.Error)
+		VALUES (?, ?, ?, ?, ?, toDateTime64(?, 9, 'UTC'), ?)`, s.table(historyTable))
+	recordedAt := time.Now().UTC().Format("2006-01-02 15:04:05.000000000")
+	return s.conn.Exec(ctx, query, record.Version, record.Name, record.Checksum, record.Status, owner, recordedAt, record.Error)
 }
 
 // Exec rewrites only the historical hard-coded schema qualifier. Checksums are
@@ -205,6 +214,7 @@ func (s *ClickHouseStore) DetectBaseline(ctx context.Context) (uint64, error) {
 		{13, "report schedules", objects("report_schedules")},
 		{14, "API tokens", objects("api_tokens")},
 		{15, "summable hot aggregate counters", s.hotCountersFixed},
+		{16, "retention cold tier", columns("retention_policies", "cold_after_days")},
 	}
 
 	var baseline uint64
