@@ -20,6 +20,8 @@ import { seriesColor, useChartColors } from "@/hooks/useChartColors"
 import { bytesToBps, stepSecondsOf } from "@/lib/rate"
 import { ErrorDisplay } from "@/components/ui/error"
 import { PageSkeleton } from "@/components/ui/skeleton"
+import { formatCapacity } from "@/lib/format"
+import { utilLevel } from "@/lib/home"
 
 /** One percentile row (p50/p95/p99) showing in + out throughput. Renders
  *  nothing when neither direction is present (older backend). */
@@ -127,9 +129,22 @@ export function LinkDetail() {
         <PercentileItem label="p99" inVal={detail.p99_in} outVal={detail.p99_out} stepSeconds={step} />
         {capacityMbps > 0 && (
           <>
-            <div><span className="text-muted-foreground">Capacity</span> <span className="font-semibold">{capacityMbps.toLocaleString()} Mb/s</span></div>
+            <div><span className="text-muted-foreground">Capacity</span> <span className="font-semibold">{formatCapacity(capacityBps)}</span></div>
             {utilizationPct != null && (
-              <div><span className="text-muted-foreground">p95 utilisation, busier direction</span> <span className={`font-semibold ${utilizationPct >= 90 ? "text-destructive" : utilizationPct >= 70 ? "text-warning" : ""}`}>{formatPercent(utilizationPct)}</span></div>
+              <div>
+                <span className="text-muted-foreground">p95 utilisation, busier direction</span>{" "}
+                <span className={`font-semibold ${utilLevel(utilizationPct) === "critical" ? "text-destructive" : utilLevel(utilizationPct) === "watch" ? "text-warning" : ""}`}>
+                  {formatPercent(utilizationPct)}
+                </span>
+                {/* Colour never carries the state alone: the same words as the home strip. */}
+                {utilLevel(utilizationPct) !== "normal" && (
+                  <span
+                    className={`ml-1.5 rounded-sm px-1.5 text-xs font-semibold leading-5 ${utilLevel(utilizationPct) === "critical" ? "bg-destructive text-destructive-foreground" : "bg-warning-muted text-warning"}`}
+                  >
+                    {utilLevel(utilizationPct) === "critical" ? "Incident" : "Watch"}
+                  </span>
+                )}
+              </div>
             )}
           </>
         )}
