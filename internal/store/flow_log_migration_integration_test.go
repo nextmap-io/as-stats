@@ -418,7 +418,10 @@ func explainPrimaryKeyGranules(t *testing.T, s *ClickHouseStore, table, extra st
 	}
 	inPK := false
 	for _, l := range lines {
-		if strings.TrimSpace(l) == "PrimaryKey" {
+		// 24.3 indents the plan with spaces; newer servers (seen on 26.8) draw
+		// a tree for multi-child steps such as ReadFromMerge ("│  ├──"), so
+		// strip the box-drawing prefix before matching the step name.
+		if strings.Trim(l, " │├└─") == "PrimaryKey" {
 			inPK = true
 		}
 		if m := granulesPattern.FindStringSubmatch(l); inPK && m != nil {

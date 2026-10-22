@@ -40,6 +40,12 @@ func NewClickHouseStore(cfg config.ClickHouseConfig) (*ClickHouseStore, error) {
 		},
 		Settings: clickhouse.Settings{
 			"max_execution_time": 120,
+			// ClickHouse 26.2+ turns async inserts on by default; the batch
+			// writer's semantics (one INSERT = one set of parts, never retried,
+			// see CLAUDE.md "BatchWriter") were designed and tested with
+			// synchronous inserts, and a 15 s batch gains nothing from the
+			// server-side buffer. Pinned so 24.3 and 26.8 behave the same.
+			"async_insert": 0,
 		},
 		MaxOpenConns:    30,
 		MaxIdleConns:    15,
