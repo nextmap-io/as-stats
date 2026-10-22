@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1] - 2026-10-22
+
+### Security
+- Images rebuilt on the October security releases: Alpine 3.24.3 (OpenSSL
+  3.5.9, musl, zlib, expat, c-ares, brotli, CA bundle), nginx 1.31.8, Go
+  1.27.3 for the binaries, Node 26.12.1 for the frontend build (Node does not
+  run in production). The runtime stages now run `apk upgrade` so a release
+  never ships packages older than the current Alpine point release.
+- CI and the release workflow build and test with the same Go (1.27) and Node
+  (26) as the images; the release binaries were still built with Go 1.26.
+- `npm audit` and `govulncheck` report no vulnerable dependency.
+
 ## [3.5.0] - 2026-10-21
 
 ### Changed

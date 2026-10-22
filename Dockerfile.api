@@ -13,7 +13,9 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-s -w
 
 FROM alpine:3.24
 
-RUN apk add --no-cache ca-certificates tzdata
+# The alpine:3.24 tag can lag behind the point release: upgrade so every
+# release ships the current security fixes (openssl, musl, zlib, …).
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /api /usr/local/bin/api
 
