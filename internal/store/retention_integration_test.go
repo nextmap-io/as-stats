@@ -20,7 +20,8 @@ import (
 //	  --tmpfs /var/lib/clickhouse-cold:uid=101,gid=101 \
 //	  -v $PWD/clickhouse/config.d/storage-hot-cold.xml.example:/etc/clickhouse-server/config.d/storage-hot-cold.xml:ro \
 //	  -e CLICKHOUSE_DB=asstats -e CLICKHOUSE_SKIP_USER_SETUP=1 clickhouse/clickhouse-server:24.3-alpine
-//	(apply migrations/*.up.sql)
+//	(or :26.8.33.10-alpine — CI runs both; apply migrations/*.up.sql with
+//	 clickhouse-client --database asstats, as the go-integration CI job does)
 //	ASSTATS_IT_CLICKHOUSE=127.0.0.1:19000 go test ./internal/store -run IntegrationColdTier -v
 //
 // It is skipped when no such policy exists. It switches flows_log to that
