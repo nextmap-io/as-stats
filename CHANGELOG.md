@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-10-22
+
 ### Added
 - **ClickHouse 26.8 LTS support.** The compose files take the server image
   from `CLICKHOUSE_IMAGE`; the default stays 24.3 until the operator
