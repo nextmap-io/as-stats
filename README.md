@@ -244,6 +244,28 @@ by itself*. As in 3.4, a hot/cold storage policy is re-applied to the new table
 by the reconciler. Flows on no configured link are stored with no direction and
 are not listed under Inbound / Outbound (as in the link totals).
 
+### Upgrading ClickHouse (24.3 → 26.8 LTS)
+
+The compose files still default to ClickHouse 24.3 LTS, which is out of
+upstream support. AS-Stats is tested on both 24.3 and 26.8 LTS, and CI runs
+the integration suite on both. The server image is chosen with
+`CLICKHOUSE_IMAGE` in `.env`. Read
+[docs/upgrades/clickhouse-26.8.md](docs/upgrades/clickhouse-26.8.md) before
+switching. In short:
+
+- **The CPU must have AVX2.** ClickHouse 26.6+ binaries need x86-64-v3; check
+  with `grep -c avx2 /proc/cpuinfo`. On Proxmox, the default VM CPU type
+  `x86-64-v2-AES` does not expose it.
+- **The upgrade is one-way.** Once 26.8 has written to the volume, 24.3 no
+  longer starts on it. Take a VM / disk snapshot first. Mounting
+  `clickhouse/config.d/merge-tree-downgrade-compat.xml.example` during a soak
+  period keeps the data readable by 24.3.
+- **Stop the collector before restarting ClickHouse** and start it again after
+  `migrate`. The ingestion gap then equals the restart window, about a minute.
+- `migrate` has nothing to apply, and the retention reconciler, flow log, cold
+  tier and every API response behave the same on 26.8 (rehearsed on a
+  production-shaped hot/cold volume).
+
 ### Reverse proxy
 
 Caddyfile example:
@@ -339,6 +361,7 @@ Everything is environment-variable driven. The full list lives in
 | Variable | Default | Description |
 |---|---|---|
 | `CLICKHOUSE_PASSWORD` | *required* | Strong password for the `asstats` user |
+| `CLICKHOUSE_IMAGE` | `clickhouse/clickhouse-server:24.3-alpine` | ClickHouse server image used by the compose files. 26.8 LTS (`…:26.8.33.10-alpine`) is tested too; switching is a one-way data upgrade, see [Upgrading ClickHouse](#upgrading-clickhouse-243--268-lts) |
 | `COLLECTOR_LISTEN_NETFLOW` | `:2055` | NetFlow / IPFIX UDP listen address |
 | `COLLECTOR_LISTEN_SFLOW` | `:6343` | sFlow UDP listen address |
 | `COLLECTOR_BATCH_SIZE` | `50000` | Burst ceiling per batch INSERT (flush on size or timer, whichever fires first) |

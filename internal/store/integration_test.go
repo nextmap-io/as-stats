@@ -395,3 +395,14 @@ func TestIntegrationReadPathSmoke(t *testing.T) {
 		t.Errorf("AnomalyExplain: %v", err)
 	}
 }
+
+// TestIntegrationInsertsAreSynchronous pins the connection-level
+// async_insert = 0: ClickHouse 26.2+ defaults to async inserts, which would
+// route the collector's batches through the server-side buffer.
+func TestIntegrationInsertsAreSynchronous(t *testing.T) {
+	s := itStore(t)
+	if v := itString(t, s, "SELECT toString(getSetting('async_insert'))"); v != "0" && v != "false" {
+		t.Fatalf("async_insert = %q on the store connection, want 0", v)
+	}
+	t.Logf("server %s: async_insert pinned to 0", itString(t, s, "SELECT version()"))
+}

@@ -39,6 +39,10 @@ func main() {
 			Username: envOr("CLICKHOUSE_USER", "asstats"),
 			Password: envOr("CLICKHOUSE_PASSWORD", "asstats"),
 		},
+		// Synchronous inserts on every server version (26.2+ defaults to
+		// async_insert = 1): schema_migrations events must be durable before
+		// the next DDL statement runs.
+		Settings:     clickhouse.Settings{"async_insert": 0},
 		DialTimeout:  10 * time.Second,
 		MaxOpenConns: 1,
 		MaxIdleConns: 1,

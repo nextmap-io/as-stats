@@ -29,7 +29,7 @@ docker run -d --name asdemo-ripe --network asdemo --network-alias stat.ripe.net 
 docker run -d --name asdemo-ch --network asdemo --network-alias clickhouse \
   --tmpfs /var/lib/clickhouse:size=4g --ulimit nofile=262144:262144 \
   -e CLICKHOUSE_DB=asstats -e CLICKHOUSE_USER=asstats -e CLICKHOUSE_PASSWORD=asstats \
-  -v "$DIR":/seed:ro clickhouse/clickhouse-server:24.3-alpine >/dev/null
+  -v "$DIR":/seed:ro "${CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:24.3-alpine}" >/dev/null
 # The image's entrypoint first runs a loopback-only server for its init step;
 # wait for the real one, reachable from the network.
 until docker exec asdemo-ch sh -c 'clickhouse-client --host "$(hostname -i)" -u asstats --password asstats -q "SELECT 1"' >/dev/null 2>&1; do sleep 1; done

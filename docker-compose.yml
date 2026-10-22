@@ -1,6 +1,9 @@
 services:
   clickhouse:
-    image: clickhouse/clickhouse-server:24.3-alpine
+    # Operator-controlled (CLICKHOUSE_IMAGE in .env). The default stays on 24.3
+    # until the operator switches: docs/upgrades/clickhouse-26.8.md is the
+    # runbook for 26.8 LTS (check the CPU has AVX2 first).
+    image: ${CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:24.3-alpine}
     ports:
       - "8123:8123"
       - "9000:9000"

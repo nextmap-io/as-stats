@@ -628,11 +628,12 @@ func (s *ClickHouseStore) reconcileTable(ctx context.Context, table string, p mo
 }
 
 // tablesWithActiveParts returns the tables of the current database that have
-// at least one active part.
+// at least one active, non-empty part (26.8 leaves an empty part behind each
+// TTLDropMerge until cleanup; an emptied legacy table must stay untouched).
 func (s *ClickHouseStore) tablesWithActiveParts(ctx context.Context) (map[string]bool, error) {
 	rows, err := s.conn.Query(ctx, `
 		SELECT DISTINCT table FROM system.parts
-		WHERE database = currentDatabase() AND active
+		WHERE database = currentDatabase() AND active AND rows > 0
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("list tables with parts: %w", err)
@@ -1126,8 +1127,11 @@ func (s *ClickHouseStore) StorageStats(ctx context.Context) (model.StorageStats,
 			sum(data_uncompressed_bytes) AS uncompressed,
 			count()                      AS parts,
 			sum(rows)                    AS row_count,
-			min(min_time)                AS oldest,
-			max(max_time)                AS newest
+			-- Empty parts carry min_time = max_time = 1970: ClickHouse 26.8
+			-- writes one per TTLDropMerge (an expired part replaced by an
+			-- empty one until cleanup), which would blank "oldest data".
+			minIf(min_time, rows > 0)    AS oldest,
+			maxIf(max_time, rows > 0)    AS newest
 		FROM system.parts
 		WHERE database = currentDatabase() AND active
 		GROUP BY table
