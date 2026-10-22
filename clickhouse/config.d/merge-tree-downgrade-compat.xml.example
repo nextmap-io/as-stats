@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<!--
+  ClickHouse 26.8 "soak period" settings — EXAMPLE, not loaded by default.
+
+  Upgrading 24.3 -> 26.8 is one-way by default: from 25.8 on, ClickHouse writes
+  new parts in formats 24.3 cannot read (marks for substreams in compact parts,
+  a new String serialization, versioned serialization infos, packed skip-index
+  files, column statistics). A 24.3 server started on such a volume refuses to
+  start or detaches the new parts as broken.
+
+  While this file is mounted, 26.8 keeps writing every NEW part in the 24.3
+  formats, so the data volume can still be handed back to 24.3 if the upgrade
+  has to be rolled back. It costs nothing measurable for AS-Stats (no JSON /
+  Dynamic / text-index columns). See docs/upgrades/clickhouse-26.8.md, which
+  also lists what else a rollback needs (the system.*_log tables 26.8 created
+  must be dropped first).
+
+  Only for 26.8: these setting names do not exist in 24.3 and would stop it
+  from starting. Mount it only on the 26.8 container:
+    - ./clickhouse/config.d/merge-tree-downgrade-compat.xml:/etc/clickhouse-server/config.d/merge-tree-downgrade-compat.xml:ro
+  and remove the mount (then restart) once the upgrade is accepted, so new
+  parts use the current formats. Parts written meanwhile stay readable.
+-->
+<clickhouse>
+    <merge_tree>
+        <write_marks_for_substreams_in_compact_parts>0</write_marks_for_substreams_in_compact_parts>
+        <serialization_info_version>basic</serialization_info_version>
+        <string_serialization_version>single_stream</string_serialization_version>
+        <propagate_types_serialization_versions_to_nested_types>0</propagate_types_serialization_versions_to_nested_types>
+        <packed_skip_index_max_bytes>0</packed_skip_index_max_bytes>
+        <auto_statistics_types></auto_statistics_types>
+        <escape_index_filenames>0</escape_index_filenames>
+    </merge_tree>
+</clickhouse>
