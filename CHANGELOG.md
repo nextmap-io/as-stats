@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.1] - 2026-10-26
+
+### Security
+- Development dependencies only (the production bundle was not affected —
+  `npm audit --omit=dev` was clean): undici 8.12.2+ through jsdom 30.1.3
+  (GHSA-4qv8-2p9j-2685, GHSA-f72v-6w45-q472, GHSA-xjj6-f33q-929c) and zod
+  4.6.7 (GHSA-mrhx-c7xc-m3w5). `npm audit` now reports nothing.
+- Frontend image: curl / libcurl 8.23 from Alpine (picked up by the
+  build-time `apk upgrade`).
+
+### Changed
+- Dependencies: chi 5.5.0; React 19.3.1, TanStack Query 5.104.4,
+  lucide-react 1.59, eslint 10.13, vitest 5.0.5, typescript-eslint 8.71.2.
+
 ## [3.6.0] - 2026-10-22
 
 ### Added
