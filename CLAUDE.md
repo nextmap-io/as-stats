@@ -342,7 +342,7 @@ disk", `clickhouse/config.d/storage-hot-cold.xml.example`) — its hot volume
 
 - TTL becomes `<expr> + INTERVAL c DAY TO VOLUME 'cold', <expr> + INTERVAL d DAY`
   (`buildModifyTTLStatement(table, d, c)`, still pinning
-  `materialize_ttl_after_modify = 0`). 24.3 normalises it in
+  `materialize_ttl_after_modify = 0`). 24.3 (and 26.8, byte for byte) normalises it in
   `create_table_query` to `ts + toIntervalDay(14) TO VOLUME 'cold', ts + toIntervalDay(180)`;
   `parseTableTTL` reads the clause between ` TTL ` (after ` ENGINE = `) and
   ` SETTINGS `, `tableTTL.matches(d, c)` compares both intervals and the move
@@ -753,7 +753,10 @@ alert rule use the same busier-direction definition.
   `…FreshInstall` build their own scratch databases with the real migration
   runner (`scratchSchema`); the former needs exactly one hot/cold storage
   policy on the server (see `retention_integration_test.go` for the
-  `docker run` line) and skips otherwise.
+  `docker run` line) and skips otherwise. CI's `go-integration` job runs
+  all of this on ClickHouse 24.3 and 26.8. Apply migrations by hand with
+  `clickhouse-client --database asstats`: the 000017 / 000018 guards use
+  `currentDatabase()`.
 - **Docker**: `FROM --platform=$BUILDPLATFORM` + `TARGETARCH` for
   cross-compilation.
 
@@ -925,6 +928,26 @@ frontend lint + typecheck + build).
 
 ## Operational notes — ClickHouse
 
+- **Two server versions are supported: 24.3 LTS (compose default, production
+  today) and 26.8 LTS.** `CLICKHOUSE_IMAGE` selects the image, and CI
+  (`go-integration`) runs the integration suite on both. Code must work on
+  both until 24.3 is dropped. Runbook and rehearsal results:
+  `docs/upgrades/clickhouse-26.8.md`. 26.8 differences that bit or could bite:
+  - `async_insert` defaults to 1 (26.2). The store and migrator connections
+    pin `async_insert = 0`; keep it on any new connection.
+  - A TTL-drop merge leaves an **empty part** (`rows = 0`,
+    `min_time = 1970`). Any `system.parts` read that infers "has data" or a
+    min/max time must filter `rows > 0` (StorageStats, `PortHistorySince`,
+    `tablesWithActiveParts`, the sweeps).
+  - `EXPLAIN` draws a tree (`│ ├──`) for multi-child steps; strip it before
+    matching step names.
+  - `create_table_query` TTL text is byte-identical to 24.3, so
+    `parseTableTTL` works unchanged.
+  - 26.8 writes part formats 24.3 cannot read: a rollback needs a snapshot or
+    `merge-tree-downgrade-compat.xml.example`, plus
+    `scripts/clickhouse/drop-system-logs.sh`.
+  - The amd64 build needs AVX2 (26.6+).
+
 - **Never `rm` ClickHouse's own log files** (`/var/log/clickhouse-server/*.log`).
   Doing so during an incident left the Poco file logger throwing on every write,
   and **TTL merges stopped running for six days** — every table silently blew
@@ -936,3 +959,7 @@ frontend lint + typecheck + build).
   never by `OPTIMIZE` or a TTL change.
 - `system.*_log` tables live on the same volume as flow data and are unbounded
   by default; they reached ~12 GiB here. They carry a 3-day TTL in production.
+  `clickhouse/config.d/system-logs-ttl.xml` also caps the logs that are on by
+  default from 24.8 (`text_log` at information level, `error_log`,
+  `query_metric_log`, `background_schedule_pool_log`). An idle 26.8 writes
+  ~1.3 M trace rows a day to `text_log` otherwise.

@@ -47,6 +47,51 @@ jobs:
           name: go-coverage
           path: coverage.out
 
+  # Every read / alert / retention / migration query against a real server,
+  # on the ClickHouse version production runs today and on the next LTS, so a
+  # change that only works on one of them fails here. The server gets the
+  # shipped hot/cold storage policy (cold disk on a tmpfs) so the cold-tier and
+  # flow-log migration tests run instead of skipping.
+  go-integration:
+    name: Go Integration (ClickHouse ${{ matrix.clickhouse }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        clickhouse: ["24.3-alpine", "26.8.33.10-alpine"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27"
+      - name: Start ClickHouse ${{ matrix.clickhouse }}
+        run: |
+          docker run -d --name ch -p 127.0.0.1:19000:9000 \
+            --ulimit nofile=262144:262144 \
+            --tmpfs /var/lib/clickhouse-cold:uid=101,gid=101 \
+            -v "$PWD/clickhouse/config.d/storage-hot-cold.xml.example:/etc/clickhouse-server/config.d/storage-hot-cold.xml:ro" \
+            -v "$PWD/clickhouse/config.d/system-logs-ttl.xml:/etc/clickhouse-server/config.d/system-logs-ttl.xml:ro" \
+            -e CLICKHOUSE_DB=asstats -e CLICKHOUSE_SKIP_USER_SETUP=1 \
+            clickhouse/clickhouse-server:${{ matrix.clickhouse }}
+          for i in $(seq 60); do
+            docker exec ch sh -c 'clickhouse-client --host "$(hostname -i)" -q "SELECT 1"' >/dev/null 2>&1 && break
+            sleep 1
+          done
+          docker exec ch clickhouse-client -q "SELECT version()"
+      - name: Apply migrations
+        # --database: the 000017 / 000018 guards look at currentDatabase().
+        run: |
+          for f in migrations/*.up.sql; do
+            docker exec -i ch clickhouse-client --database asstats --multiquery < "$f"
+          done
+      - name: Integration tests
+        env:
+          ASSTATS_IT_CLICKHOUSE: 127.0.0.1:19000
+        run: go test -count=1 ./internal/... -run Integration -v
+      - name: ClickHouse server errors
+        if: failure()
+        run: docker exec ch tail -n 200 /var/log/clickhouse-server/clickhouse-server.err.log
+
   go-build:
     name: Go Build
     runs-on: ubuntu-latest

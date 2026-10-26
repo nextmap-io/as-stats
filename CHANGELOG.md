@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-10-22
+
+### Added
+- **ClickHouse 26.8 LTS support.** The compose files take the server image
+  from `CLICKHOUSE_IMAGE`; the default stays 24.3 until the operator
+  switches. `docs/upgrades/clickhouse-26.8.md` is the tested runbook, covering
+  the AVX2 pre-check, the snapshot, a soak period with
+  `merge-tree-downgrade-compat.xml.example`, and rollback with
+  `scripts/clickhouse/drop-system-logs.sh`. CI runs the integration suite
+  on both versions.
+
+### Fixed
+- Inserts stay synchronous on ClickHouse 26.2+, which turned `async_insert`
+  on by default.
+- Admin › Storage "oldest data", the port-history notice and the retention
+  followers ignore the empty parts that 26.8 leaves behind after a TTL drop.
+- `text_log`, `error_log`, `query_metric_log` and
+  `background_schedule_pool_log` are capped at 7 days. ClickHouse enables
+  them by default from 24.8, and `text_log` logs at trace level.
+
 ## [3.5.1] - 2026-10-22
 
 ### Security
