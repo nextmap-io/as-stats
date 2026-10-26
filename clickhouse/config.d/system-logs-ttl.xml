@@ -40,9 +40,31 @@
         <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
     </processors_profile_log>
     <!--
+      Enabled by default from ClickHouse 24.8 on (26.8 LTS ships them all) with
+      no TTL. text_log is the big one: every server log line at trace level,
+      ~1.3 M rows a day on an idle 26.8 and far more under the collector's
+      insert/merge load. It is capped at 7 days and lowered to "information".
+      On 24.3, where text_log is off by default, this block switches it on at
+      that level (a few thousand rows a day); the other three tables do not
+      exist in 24.3 and their blocks are ignored.
+    -->
+    <text_log>
+        <level>information</level>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </text_log>
+    <error_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </error_log>
+    <query_metric_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </query_metric_log>
+    <background_schedule_pool_log>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </background_schedule_pool_log>
+    <!--
       Deliberately not listed: opentelemetry_span_log ships an explicit <engine>
       in the stock config and ClickHouse refuses <ttl> alongside it (BAD_ARGUMENTS
-      at startup); text_log and session_log are disabled by default and declaring
-      them here would switch them on.
+      at startup); session_log is disabled by default and declaring it here
+      would switch it on.
     -->
 </clickhouse>

@@ -185,12 +185,14 @@ func (s *ClickHouseStore) TopPorts(ctx context.Context, p QueryParams, protocol 
 func (s *ClickHouseStore) PortHistorySince(ctx context.Context) (time.Time, error) {
 	var legacyParts uint64
 	var since time.Time
+	// rows > 0: ClickHouse 26.8 replaces a part expired by TTL with an empty
+	// one (min_time = 1970) until cleanup; it holds no history.
 	err := s.conn.QueryRow(ctx, `
 		SELECT
 			(SELECT count() FROM system.parts
-			 WHERE database = currentDatabase() AND table = 'traffic_by_port_legacy' AND active) AS legacy_parts,
+			 WHERE database = currentDatabase() AND table = 'traffic_by_port_legacy' AND active AND rows > 0) AS legacy_parts,
 			(SELECT if(count() = 0, now(), min(min_time)) FROM system.parts
-			 WHERE database = currentDatabase() AND table = 'traffic_by_port' AND active) AS since
+			 WHERE database = currentDatabase() AND table = 'traffic_by_port' AND active AND rows > 0) AS since
 	`).Scan(&legacyParts, &since)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("port history start: %w", err)

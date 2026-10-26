@@ -11,7 +11,8 @@ scripts/demo/shoot.sh docs/screenshots scripts/demo/screenshots.json
 scripts/demo/down.sh              # removes the containers and the network
 ```
 
-Needs the images `clickhouse/clickhouse-server:24.3-alpine`,
+Needs the images `clickhouse/clickhouse-server:24.3-alpine` (or the one in
+`CLICKHOUSE_IMAGE`, e.g. `clickhouse/clickhouse-server:26.8.33.10-alpine`),
 `ghcr.io/nextmap-io/as-stats-{migrate,api,frontend}`, `golang:1.27` (to build
 the stub below), `alpine` and, for screenshots,
 `zenika/alpine-chrome:with-puppeteer`. Seeding takes a few minutes and about
