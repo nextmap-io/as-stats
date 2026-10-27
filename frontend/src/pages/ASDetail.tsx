@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useParams, useSearchParams } from "react-router-dom"
 import { useASDetail, useASTopIPs, useASRemoteIPs, useLinkColors } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { useFeatureFlags } from "@/hooks/useFeatures"
@@ -17,6 +17,8 @@ import { RatioBar, AsymmetryBadge } from "@/components/Asymmetry"
 import { countryFlag, countryName, hasCountry } from "@/lib/countries"
 import { ourView } from "@/lib/asn"
 import { stepSecondsOf } from "@/lib/rate"
+import { Segmented } from "@/components/ui/segmented"
+import { IP_FAMILY_OPTIONS, mergeLinkSeries, parseIPFamily, type IPFamily } from "@/lib/series"
 import { ErrorDisplay } from "@/components/ui/error"
 import { PageSkeleton } from "@/components/ui/skeleton"
 
@@ -45,6 +47,20 @@ export function ASDetail() {
     compare && prevDetail.data?.data?.time_series
       ? shiftSeries(prevDetail.data.data.time_series, windowMs)
       : undefined
+
+  // Address family of the by-link chart, in the URL like the dashboard's.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const family = parseIPFamily(searchParams.get("ipv"))
+  const setFamily = (v: IPFamily) =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (v === "both") next.delete("ipv")
+        else next.set("ipv", v)
+        return next
+      },
+      { replace: true },
+    )
 
   // Same loading / error vocabulary as every other page: a flat skeleton, and
   // an error that names what failed and offers a retry.
@@ -153,31 +169,50 @@ export function ASDetail() {
         </Card>
       )}
 
-      {/* IPv4 + IPv6 traffic charts side by side, split by link */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="overflow-visible">
-          <CardContent className="pt-3">
-            {detail.v4_series && detail.v4_series.length > 0 ? (
-              <ExpandableChart title={`AS${detail.as_number} — IPv4`} fetchType="as-detail-v4" fetchParams={{ asn: asnNum }} linkColors={linkColors} currentPeriod={filters.period}>
-                <LinkTrafficChart series={detail.v4_series} title="IPv4 by link" height={280} linkColors={linkColors} p95In={detail.p95_v4_in} p95Out={detail.p95_v4_out} timeBounds={timeBounds} stepSeconds={step} />
-              </ExpandableChart>
+      {/* By link: one chart on one scale, the address family a switch (Ledger:
+          filter, don't double the chart). p95 lines are drawn per family only —
+          the p95 of the sum is not the sum of the p95s. */}
+      <Card className="overflow-visible">
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle>By link</CardTitle>
+            <Segmented label="IP version" options={IP_FAMILY_OPTIONS} value={family} onChange={setFamily} />
+          </div>
+        </CardHeader>
+        <CardContent>
+          {(() => {
+            const series =
+              family === "4" ? (detail.v4_series ?? []) : family === "6" ? (detail.v6_series ?? []) : mergeLinkSeries(detail.v4_series, detail.v6_series)
+            if (!series.length) {
+              return <p className="py-8 text-center text-[13px] text-muted-foreground">No {family === "both" ? "" : `IPv${family} `}traffic with this network in the window.</p>
+            }
+            const chart = (
+              <LinkTrafficChart
+                series={series}
+                height={280}
+                linkColors={linkColors}
+                p95In={family === "4" ? detail.p95_v4_in : family === "6" ? detail.p95_v6_in : undefined}
+                p95Out={family === "4" ? detail.p95_v4_out : family === "6" ? detail.p95_v6_out : undefined}
+                timeBounds={timeBounds}
+                stepSeconds={step}
+              />
+            )
+            return family === "both" ? (
+              <ExpandableChart title={`AS${detail.as_number} by link`}>{chart}</ExpandableChart>
             ) : (
-              <p className="text-xs text-muted-foreground py-8 text-center">No IPv4 data</p>
-            )}
-          </CardContent>
-        </Card>
-        <Card className="overflow-visible">
-          <CardContent className="pt-3">
-            {detail.v6_series && detail.v6_series.length > 0 ? (
-              <ExpandableChart title={`AS${detail.as_number} — IPv6`} fetchType="as-detail-v6" fetchParams={{ asn: asnNum }} linkColors={linkColors} currentPeriod={filters.period}>
-                <LinkTrafficChart series={detail.v6_series} title="IPv6 by link" height={280} linkColors={linkColors} p95In={detail.p95_v6_in} p95Out={detail.p95_v6_out} timeBounds={timeBounds} stepSeconds={step} />
+              <ExpandableChart
+                title={`AS${detail.as_number} by link, IPv${family}`}
+                fetchType={family === "4" ? "as-detail-v4" : "as-detail-v6"}
+                fetchParams={{ asn: asnNum }}
+                linkColors={linkColors}
+                currentPeriod={filters.period}
+              >
+                {chart}
               </ExpandableChart>
-            ) : (
-              <p className="text-xs text-muted-foreground py-8 text-center">No IPv6 data</p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            )
+          })()}
+        </CardContent>
+      </Card>
 
       {/* Tables: Top IPs + Peers */}
       <div className="grid gap-5 lg:grid-cols-2">

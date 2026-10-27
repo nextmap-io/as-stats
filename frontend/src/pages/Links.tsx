@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useLinks, useLinksTraffic, useLinkColors } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
@@ -13,8 +13,10 @@ import { ExpandableChart } from "@/components/ExpandableChart"
 import { useUnit } from "@/hooks/useUnit"
 import { stepSecondsOf } from "@/lib/rate"
 import { seriesColor, useChartColors } from "@/hooks/useChartColors"
-import { Plus, Trash2, BarChart3 } from "lucide-react"
-import { EmptyState } from "@/components/ui/error"
+import { Plus, Trash2 } from "lucide-react"
+import { NoDataInWindow } from "@/components/ui/error"
+import { Segmented } from "@/components/ui/segmented"
+import { IP_FAMILY_OPTIONS, mergeLinkSeries, parseIPFamily, type IPFamily } from "@/lib/series"
 import type { LinkTraffic } from "@/lib/types"
 import { formatCapacity } from "@/lib/format"
 
@@ -26,6 +28,28 @@ export function Links() {
   const { data: ipv6Traffic } = useLinksTraffic(6, filters)
   const linkColors = useLinkColors()
   const step = stepSecondsOf(ipv4Traffic?.meta ?? ipv6Traffic?.meta, periodSeconds)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const family = parseIPFamily(searchParams.get("ipv"))
+  const setFamily = (v: IPFamily) =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (v === "both") next.delete("ipv")
+        else next.set("ipv", v)
+        return next
+      },
+      { replace: true },
+    )
+  const familySeries = useMemo(
+    () =>
+      family === "4"
+        ? (ipv4Traffic?.data ?? [])
+        : family === "6"
+          ? (ipv6Traffic?.data ?? [])
+          : mergeLinkSeries(ipv4Traffic?.data, ipv6Traffic?.data),
+    [family, ipv4Traffic, ipv6Traffic],
+  )
+  const familyLabel = family === "both" ? "" : `, IPv${family}`
 
   const linkRows = linksQuery.data?.data ?? []
 
@@ -100,31 +124,25 @@ export function Links() {
         <h1 className="text-2xl font-semibold">Links</h1>
       </div>
 
-      {/* Traffic charts */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="overflow-visible">
-          <CardContent className="pt-3">
-            {ipv4Traffic?.data && ipv4Traffic.data.length > 0 ? (
-              <ExpandableChart title="IPv4 Traffic by Link">
-                <LinkTrafficChart series={ipv4Traffic.data} title="IPv4 by link" linkColors={linkColors} timeBounds={timeBounds} stepSeconds={step} />
-              </ExpandableChart>
-            ) : (
-              <EmptyState message="No IPv4 link traffic" icon={<BarChart3 className="size-8" />} />
-            )}
-          </CardContent>
-        </Card>
-        <Card className="overflow-visible">
-          <CardContent className="pt-3">
-            {ipv6Traffic?.data && ipv6Traffic.data.length > 0 ? (
-              <ExpandableChart title="IPv6 Traffic by Link">
-                <LinkTrafficChart series={ipv6Traffic.data} title="IPv6 by link" linkColors={linkColors} timeBounds={timeBounds} stepSeconds={step} />
-              </ExpandableChart>
-            ) : (
-              <EmptyState message="No IPv6 link traffic" icon={<BarChart3 className="size-8" />} />
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      {/* One stacked chart; the address family is a switch, not a second chart
+          on its own scale (Ledger). */}
+      <Card className="overflow-visible">
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle>Traffic by link</CardTitle>
+            <Segmented label="IP version" options={IP_FAMILY_OPTIONS} value={family} onChange={setFamily} />
+          </div>
+        </CardHeader>
+        <CardContent>
+          {familySeries.length > 0 ? (
+            <ExpandableChart title={`Traffic by link${familyLabel}`}>
+              <LinkTrafficChart series={familySeries} linkColors={linkColors} timeBounds={timeBounds} stepSeconds={step} />
+            </ExpandableChart>
+          ) : (
+            <NoDataInWindow hint={`No ${familyLabel ? `${familyLabel.slice(2)} ` : ""}traffic was credited to a configured link in this window.`} />
+          )}
+        </CardContent>
+      </Card>
 
       {/* Links table */}
       <Card>
