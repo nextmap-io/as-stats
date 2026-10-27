@@ -66,24 +66,19 @@ type Notifier interface {
 	Notify(ctx context.Context, webhook model.WebhookConfig, alert model.Alert) error
 }
 
-// BlockerClient is the interface used by the engine to trigger BGP blackholes.
-// The collector passes a RemoteBlocker (HTTP to API) or NoopBlocker.
+// BlockerClient asks the API to blackhole the target of an auto_block rule
+// (bgp.Client in the collector). The API owns the daemon, bgp_blocks and
+// every safety rail (allow-list, max active, auto-blocks per hour); the
+// engine only asks.
 type BlockerClient interface {
-	Announce(ctx context.Context, target net.IP, duration time.Duration, reason string) error
-}
-
-// BlockStore is the subset of the store needed for block persistence.
-type BlockStore interface {
-	InsertBlock(ctx context.Context, b model.BGPBlock) error
-	FindActiveBlock(ctx context.Context, ip string) (string, error)
+	AutoBlock(ctx context.Context, req bgp.AutoBlockRequest) (created bool, err error)
 }
 
 // Engine evaluates alert rules against pre-aggregated hot tables.
 type Engine struct {
 	store         Store
 	notifier      Notifier
-	blocker       BlockerClient // BGP blocker (nil = no auto-blocking)
-	blockStore    BlockStore    // persists block records (nil = skip)
+	blocker       BlockerClient // BGP auto-block client (nil = no auto-blocking)
 	localPrefixes []string
 	evalInterval  time.Duration
 	staleAfter    time.Duration
@@ -105,11 +100,10 @@ func New(s Store, notifier Notifier, localPrefixes []string, evalInterval, stale
 	}
 }
 
-// SetBlocker configures the BGP blocker for auto-block rules. When set,
-// rules with action="auto_block" will call the blocker on violation.
-func (e *Engine) SetBlocker(b BlockerClient, bs BlockStore) {
+// SetBlocker configures the BGP client for auto-block rules. When set,
+// rules with action="auto_block" ask it to blackhole their target.
+func (e *Engine) SetBlocker(b BlockerClient) {
 	e.blocker = b
-	e.blockStore = bs
 }
 
 // Run blocks until ctx is cancelled, evaluating rules periodically.
@@ -507,12 +501,21 @@ func (e *Engine) handleViolation(ctx context.Context, rule model.AlertRule, v st
 	}
 
 	// Auto-block if rule action is "auto_block" and a blocker is configured.
-	// Label-targeted rules are excluded: their stored target is a synthetic
-	// address standing in for a link tag, and announcing a blackhole for it
-	// would be meaningless at best.
-	if rule.Action == "auto_block" && e.blocker != nil && v.TargetIP != nil {
+	// Only single-host targets: label-targeted rules store a synthetic
+	// address standing in for a link tag, and subnet_flood / disk_usage /
+	// link-level rules have no host to blackhole.
+	if rule.Action == "auto_block" && e.blocker != nil && v.TargetIP != nil && v.TargetLabel == "" && autoBlockableRule(rule.RuleType) {
 		go e.safeAutoBlock(rule, alert, v)
 	}
+}
+
+// autoBlockableRule reports whether a rule type's violations name one host.
+func autoBlockableRule(ruleType string) bool {
+	switch ruleType {
+	case "link_capacity", "anomaly", "disk_usage", "subnet_flood":
+		return false
+	}
+	return true
 }
 
 func (e *Engine) safeAutoBlock(rule model.AlertRule, alert model.Alert, v store.AlertViolation) {
@@ -521,22 +524,12 @@ func (e *Engine) safeAutoBlock(rule model.AlertRule, alert model.Alert, v store.
 			log.Printf("alert engine: auto-block panic: %v", r)
 		}
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	ip := net.ParseIP(alert.TargetIP)
-	if ip == nil {
+	if net.ParseIP(alert.TargetIP) == nil {
 		return
 	}
-
-	// Skip if already blocked
-	if e.blockStore != nil {
-		if existing, _ := e.blockStore.FindActiveBlock(ctx, alert.TargetIP); existing != "" {
-			return
-		}
-	}
-
-	// Auto-generate description with alert context
 	topSrc := ""
 	if len(v.TopSources) > 0 {
 		topSrc = fmt.Sprintf(" Top sources: %s", strings.Join(v.TopSources, ", "))
@@ -544,41 +537,25 @@ func (e *Engine) safeAutoBlock(rule model.AlertRule, alert model.Alert, v store.
 	description := fmt.Sprintf("Auto-blocked by rule '%s': %.2f %s exceeded threshold %.2f.%s",
 		rule.Name, alert.MetricValue, alert.MetricType, alert.Threshold, topSrc)
 
-	duration := time.Hour // 1h default for auto-blocks
-
-	if err := e.blocker.Announce(ctx, ip, duration, description); err != nil {
-		log.Printf("alert engine: auto-block FAILED for %s: %v", alert.TargetIP, err)
-		return
-	}
-
-	log.Printf("alert engine: AUTO-BLOCKED %s (rule=%s, duration=1h)", alert.TargetIP, rule.Name)
-
-	// Persist to ClickHouse
-	if e.blockStore != nil {
-		now := time.Now().UTC()
-		expiresAt := now.Add(duration)
-		prefixLen := bgp.HostPrefixLen(ip)
-		block := model.BGPBlock{
-			ID:              uuid.NewString(),
-			IP:              alert.TargetIP,
-			PrefixLen:       prefixLen,
-			Reason:          "auto_block",
-			Description:     description,
-			Status:          "active",
-			BlockedBy:       "engine",
-			BlockedAt:       now,
-			AlertID:         alert.ID,
-			RuleName:        rule.Name,
-			MetricValue:     alert.MetricValue,
-			MetricType:      alert.MetricType,
-			Threshold:       alert.Threshold,
-			TopSources:      v.TopSources,
-			DurationSeconds: uint32(duration.Seconds()),
-			ExpiresAt:       &expiresAt,
-		}
-		if err := e.blockStore.InsertBlock(ctx, block); err != nil {
-			log.Printf("alert engine: auto-block CH insert failed for %s: %v", alert.TargetIP, err)
-		}
+	// duration 0 = the API's BGP_DEFAULT_DURATION. Duplicates, rails and the
+	// allow-list are the API's call; a refusal is logged, never retried.
+	created, err := e.blocker.AutoBlock(ctx, bgp.AutoBlockRequest{
+		IP:          alert.TargetIP,
+		Description: description,
+		AlertID:     alert.ID,
+		RuleName:    rule.Name,
+		MetricValue: alert.MetricValue,
+		MetricType:  alert.MetricType,
+		Threshold:   alert.Threshold,
+		TopSources:  v.TopSources,
+	})
+	switch {
+	case err != nil:
+		log.Printf("alert engine: auto-block of %s NOT applied (rule=%s): %v", alert.TargetIP, rule.Name, err)
+	case created:
+		log.Printf("alert engine: AUTO-BLOCKED %s (rule=%s)", alert.TargetIP, rule.Name)
+	default:
+		log.Printf("alert engine: %s already blocked (rule=%s)", alert.TargetIP, rule.Name)
 	}
 }
 

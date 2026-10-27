@@ -195,10 +195,17 @@ func main() {
 				cfg.AlertEvalInterval,
 				cfg.AlertStaleThreshold,
 			)
-			// Connect the BGP blocker if BGP_API_URL is configured
+			// auto_block rules ask the API (which owns the BGP daemon and the
+			// safety rails) through an authenticated client. Without a valid
+			// BGP_API_URL + BGP_API_TOKEN they only alert.
 			if cfg.BGPAPIURL != "" {
-				log.Printf("BGP auto-block via RemoteBlocker → %s", cfg.BGPAPIURL)
-				engine.SetBlocker(bgp.NewRemote(cfg.BGPAPIURL), chStore)
+				client, err := bgp.NewClient(cfg.BGPAPIURL, cfg.BGPAPIToken)
+				if err != nil {
+					log.Printf("WARNING: BGP auto-block disabled: %v", err)
+				} else {
+					log.Printf("BGP auto-block via the API at %s", cfg.BGPAPIURL)
+					engine.SetBlocker(client)
+				}
 			}
 			go engine.Run(ctx)
 		}

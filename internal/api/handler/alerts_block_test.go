@@ -38,9 +38,8 @@ func TestIsHostTarget(t *testing.T) {
 
 func TestBlockAlertBGPConflictWhenBGPDisabled(t *testing.T) {
 	for name, h := range map[string]*Handler{
-		"feature off":   {FeatureAlerts: true, FeatureBGP: false, BGPBlocker: bgp.NewNoop()},
-		"noop fallback": {FeatureAlerts: true, FeatureBGP: true, BGPBlocker: bgp.NewNoop()},
-		"nil blocker":   {FeatureAlerts: true, FeatureBGP: true},
+		"feature off": {FeatureAlerts: true, FeatureBGP: false, BGP: bgp.NewService(bgp.Options{})},
+		"nil service": {FeatureAlerts: true, FeatureBGP: true},
 	} {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/alerts/x/block", strings.NewReader("{}"))

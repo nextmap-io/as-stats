@@ -364,6 +364,8 @@ type BGPBlock struct {
 	TopSources      []string   `json:"top_sources,omitempty"`
 	DurationSeconds uint32     `json:"duration_seconds,omitempty"`
 	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
+	// DryRun blocks were recorded with BGP_DRY_RUN=true: no command ran.
+	DryRun bool `json:"dry_run"`
 }
 
 // Live Threats (GET /threats/live): a snapshot of the hot 1-minute tables,

@@ -449,8 +449,8 @@ func TestIntegrationPortStatsMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, err := mstore.DetectBaseline(ctx); err != nil || v != 18 {
-		t.Errorf("DetectBaseline after 000018 = %d, %v; want 18", v, err)
+	if v, err := mstore.DetectBaseline(ctx); err != nil || v != 19 {
+		t.Errorf("DetectBaseline after 000018 = %d, %v; want 19 (latest)", v, err)
 	}
 
 	// --- Readers see the new table only.
@@ -590,8 +590,8 @@ func TestIntegrationPortStatsFreshInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, err := mstore.DetectBaseline(ctx); err != nil || v != 18 {
-		t.Errorf("DetectBaseline = %d, %v; want 18", v, err)
+	if v, err := mstore.DetectBaseline(ctx); err != nil || v != 19 {
+		t.Errorf("DetectBaseline = %d, %v; want 19 (latest)", v, err)
 	}
 	err = s.conn.Exec(ctx, "SELECT throwIf(count() > 0, 'already applied') FROM system.tables WHERE database = currentDatabase() AND name IN ('traffic_by_port_legacy', 'traffic_by_port_mv')")
 	if err == nil || !strings.Contains(err.Error(), "already applied") {

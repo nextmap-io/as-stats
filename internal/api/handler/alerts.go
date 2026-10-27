@@ -1,21 +1,16 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"log"
-	"net"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/nextmap-io/as-stats/internal/api/middleware"
-	"github.com/nextmap-io/as-stats/internal/bgp"
 	"github.com/nextmap-io/as-stats/internal/model"
 )
 
@@ -106,152 +101,6 @@ func (h *Handler) ResolveAlert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, Response{Data: map[string]string{"status": "resolved"}})
-}
-
-// BlockAlertBGP handles POST /api/v1/alerts/{id}/block
-// Uses the BGP blocker to announce a blackhole for the alert's target IP.
-//
-// The answers are deliberately honest: 409 when no real BGP backend is wired
-// (the NoopBlocker only logs, and used to answer "blackholed" for an
-// announcement that never happened), 422 when the alert has no single host to
-// blackhole (link / disk / subnet alerts and their synthetic 0100::/64 ids).
-func (h *Handler) BlockAlertBGP(w http.ResponseWriter, r *http.Request) {
-	if !h.FeatureAlerts {
-		writeError(w, http.StatusNotFound, "alerts feature disabled")
-		return
-	}
-	if !h.bgpBlockingEnabled() {
-		writeError(w, http.StatusConflict, "BGP blackholing is not enabled")
-		return
-	}
-
-	id := chi.URLParam(r, "id")
-	// alerts.id is a UUID column; reject anything else before it reaches SQL so
-	// a malformed path segment is a 400 rather than a ClickHouse-level 500.
-	if _, err := uuid.Parse(id); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid alert id")
-		return
-	}
-
-	var body struct {
-		DurationMinutes int    `json:"duration_minutes"`
-		Reason          string `json:"reason"`
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, 4*1024)
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	if body.DurationMinutes <= 0 {
-		body.DurationMinutes = 60
-	}
-	if body.DurationMinutes > 24*60 {
-		body.DurationMinutes = 24 * 60 // cap at 24h
-	}
-	if len(body.Reason) > 500 {
-		body.Reason = body.Reason[:500]
-	}
-
-	// Load the alert's target IP by id.
-	target, found, err := h.alertTarget(r.Context(), id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if !found {
-		writeError(w, http.StatusNotFound, "alert not found")
-		return
-	}
-
-	ip := net.ParseIP(target.ip)
-	if !isHostTarget(ip, target.ruleType) {
-		writeError(w, http.StatusUnprocessableEntity, "this alert does not target a single IP")
-		return
-	}
-
-	duration := time.Duration(body.DurationMinutes) * time.Minute
-	if err := h.BGPBlocker.Announce(r.Context(), ip, duration, body.Reason); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusOK, Response{Data: map[string]any{
-		"status":           "blackholed",
-		"target":           ip.String(),
-		"duration_minutes": body.DurationMinutes,
-	}})
-}
-
-// bgpBlockingEnabled reports whether a block request can actually reach a
-// router: BGP must be enabled and the blocker must be a real backend, not the
-// log-only NoopBlocker the router falls back to when BGP init fails.
-func (h *Handler) bgpBlockingEnabled() bool {
-	if !h.FeatureBGP || h.BGPBlocker == nil {
-		return false
-	}
-	_, noop := h.BGPBlocker.(*bgp.NoopBlocker)
-	return !noop
-}
-
-// labelTargetPrefix is 0100::/64 (RFC 6666 discard-only), where the alert
-// engine maps non-IP targets (link tags) onto synthetic target_ip values.
-var labelTargetPrefix = &net.IPNet{IP: net.ParseIP("100::"), Mask: net.CIDRMask(64, 128)}
-
-// nonHostRuleTypes are the rule types whose target_ip is not a single host:
-// link-level rules (synthetic 0100::/64 ids), disk usage (the zero address)
-// and subnet_flood (the network address of an aggregate — blackholing its
-// first address would protect nothing).
-var nonHostRuleTypes = map[string]bool{
-	"link_capacity": true,
-	"anomaly":       true,
-	"disk_usage":    true,
-	"subnet_flood":  true,
-}
-
-// isHostTarget reports whether an alert's stored target is a real host
-// address that a /32 or /128 blackhole would protect.
-func isHostTarget(ip net.IP, ruleType string) bool {
-	if ip == nil || ip.IsUnspecified() || nonHostRuleTypes[ruleType] {
-		return false
-	}
-	return !labelTargetPrefix.Contains(ip)
-}
-
-// alertTargetRow is what the block action needs to know about one alert.
-type alertTargetRow struct {
-	ip       string // IPv4 as dotted quad, IPv6 as-is
-	ruleType string // "" when the rule has since been deleted
-}
-
-// alertTarget resolves a single alert's blackhole target by id.
-//
-// This used to page the 1000 most recent alerts and scan them in memory, so
-// blocking anything older than that page 404'd even though the row was right
-// there. Aggregating means the query always yields exactly one row, so "not
-// found" is a count of zero rather than a driver-specific no-rows error.
-func (h *Handler) alertTarget(ctx context.Context, id string) (alertTargetRow, bool, error) {
-	var count uint64
-	var target alertTargetRow
-	var ruleID string
-	err := h.Store.QueryRow(ctx, `
-		SELECT count(), toString(argMax(a.target_ip, a.triggered_at)), toString(argMax(a.rule_id, a.triggered_at))
-		FROM alerts a
-		WHERE a.id = @id
-	`, clickhouse.Named("id", id)).Scan(&count, &target.ip, &ruleID)
-	if err != nil {
-		return target, false, err
-	}
-	if count == 0 {
-		return target, false, nil
-	}
-	target.ip = strings.TrimPrefix(target.ip, "::ffff:")
-	// The rule type tells link/disk/subnet alerts apart from host alerts. A
-	// deleted rule just leaves it empty; the address checks still apply.
-	// (An aggregate without GROUP BY always yields one row: '' when absent.)
-	if err := h.Store.QueryRow(ctx, `
-		SELECT toString(any(r.rule_type)) FROM alert_rules AS r FINAL
-		WHERE r.id = toUUIDOrZero(@rule_id)
-	`, clickhouse.Named("rule_id", ruleID)).Scan(&target.ruleType); err != nil {
-		return target, false, err
-	}
-	return target, true, nil
 }
 
 // =============================================================================
@@ -524,7 +373,3 @@ func (h *Handler) ListAuditLog(w http.ResponseWriter, r *http.Request) {
 		Meta: &ResponseMeta{From: from, To: to, Limit: limit},
 	})
 }
-
-// BGPBlocker is populated at router wiring time.
-// Defined as interface field on Handler for dependency injection.
-var _ = bgp.Blocker(nil) // reference the type so Go doesn't complain about unused import

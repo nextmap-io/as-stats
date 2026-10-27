@@ -235,6 +235,7 @@ func (s *ClickHouseStore) DetectBaseline(ctx context.Context) (uint64, error) {
 		{17, "flow log sort key", objects("flows_log_legacy", "flows_log_all")},
 		// 000018 is not replayable either (it EXCHANGEs traffic_by_port).
 		{18, "port statistics per service port", objects("traffic_by_port_legacy", "traffic_by_port_mv")},
+		{19, "BGP blocks dry-run marker", columns("bgp_blocks", "dry_run")},
 	}
 
 	var baseline uint64

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nextmap-io/as-stats/internal/bgp"
 	"github.com/nextmap-io/as-stats/internal/model"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
@@ -512,43 +513,23 @@ func (n *mockNotifier) Notify(ctx context.Context, _ model.WebhookConfig, a mode
 // Mock types for auto-block tests
 // ---------------------------------------------------------------------------
 
-// mockBlocker records Announce calls.
+// mockBlocker records AutoBlock requests.
 type mockBlocker struct {
-	mu        sync.Mutex
-	announced []mockAnnounceCall
+	mu       sync.Mutex
+	requests []bgp.AutoBlockRequest
 }
 
-type mockAnnounceCall struct {
-	Target   net.IP
-	Duration time.Duration
-	Reason   string
-}
-
-func (m *mockBlocker) Announce(ctx context.Context, target net.IP, duration time.Duration, reason string) error {
+func (m *mockBlocker) AutoBlock(ctx context.Context, req bgp.AutoBlockRequest) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.announced = append(m.announced, mockAnnounceCall{Target: target, Duration: duration, Reason: reason})
-	return nil
+	m.requests = append(m.requests, req)
+	return true, nil
 }
 
-// mockBlockStore records InsertBlock calls and can fake FindActiveBlock results.
-type mockBlockStore struct {
-	mu             sync.Mutex
-	insertedBlocks []model.BGPBlock
-	activeBlockID  string // returned by FindActiveBlock when non-empty
-}
-
-func (m *mockBlockStore) InsertBlock(ctx context.Context, b model.BGPBlock) error {
+func (m *mockBlocker) count() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.insertedBlocks = append(m.insertedBlocks, b)
-	return nil
-}
-
-func (m *mockBlockStore) FindActiveBlock(ctx context.Context, ip string) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.activeBlockID, nil
+	return len(m.requests)
 }
 
 // ---------------------------------------------------------------------------
@@ -581,49 +562,48 @@ func TestEngineAutoBlock(t *testing.T) {
 	}
 
 	blocker := &mockBlocker{}
-	blockStore := &mockBlockStore{}
 
 	e := New(ms, nil, nil, 100*time.Millisecond, 5*time.Minute)
-	e.SetBlocker(blocker, blockStore)
+	e.SetBlocker(blocker)
 
 	e.evaluateOnce(context.Background())
 
 	// safeAutoBlock runs in a goroutine, give it a moment to complete.
-	time.Sleep(200 * time.Millisecond)
+	deadline := time.Now().Add(2 * time.Second)
+	for blocker.count() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	blocker.mu.Lock()
 	defer blocker.mu.Unlock()
-	if len(blocker.announced) != 1 {
-		t.Fatalf("expected 1 Announce call, got %d", len(blocker.announced))
+	if len(blocker.requests) != 1 {
+		t.Fatalf("expected 1 AutoBlock call, got %d", len(blocker.requests))
 	}
-	if blocker.announced[0].Target.String() != "192.0.2.10" {
-		t.Errorf("expected target 192.0.2.10, got %s", blocker.announced[0].Target)
+	req := blocker.requests[0]
+	if req.IP != "192.0.2.10" {
+		t.Errorf("expected target 192.0.2.10, got %s", req.IP)
 	}
-
-	blockStore.mu.Lock()
-	defer blockStore.mu.Unlock()
-	if len(blockStore.insertedBlocks) != 1 {
-		t.Fatalf("expected 1 InsertBlock call, got %d", len(blockStore.insertedBlocks))
+	if req.RuleName != "Auto block rule" || req.AlertID == "" {
+		t.Errorf("request lacks the alert context: %+v", req)
 	}
-	b := blockStore.insertedBlocks[0]
-	if b.IP != "192.0.2.10" {
-		t.Errorf("expected block IP 192.0.2.10, got %s", b.IP)
+	if req.DurationMinutes != 0 {
+		t.Errorf("duration = %d, want 0 (the API's BGP_DEFAULT_DURATION)", req.DurationMinutes)
 	}
-	if b.Reason != "auto_block" {
-		t.Errorf("expected reason %q, got %q", "auto_block", b.Reason)
-	}
-	if !strings.Contains(b.Description, "Auto block rule") {
-		t.Errorf("expected description to contain rule name, got %q", b.Description)
+	if !strings.Contains(req.Description, "Auto block rule") || len(req.TopSources) != 2 {
+		t.Errorf("description / top sources not carried: %+v", req)
 	}
 }
 
-func TestEngineAutoBlockSkipsDuplicate(t *testing.T) {
+// TestEngineAutoBlockSkipsNonHostRules: a subnet_flood violation names the
+// network address of an aggregate; blackholing that single address would
+// protect nothing, so the engine never asks.
+func TestEngineAutoBlockSkipsNonHostRules(t *testing.T) {
 	ms := &mockStore{
 		rules: []model.AlertRule{
 			{
-				ID:            "rule-dup",
-				Name:          "Dup block rule",
-				RuleType:      "volume_in",
+				ID:            "rule-subnet",
+				Name:          "Subnet flood",
+				RuleType:      "subnet_flood",
 				Enabled:       true,
 				ThresholdBps:  1_000_000_000,
 				WindowSeconds: 60,
@@ -632,9 +612,9 @@ func TestEngineAutoBlockSkipsDuplicate(t *testing.T) {
 			},
 		},
 		violations: map[string][]alertViolation{
-			"volume_in": {
+			"subnet_flood": {
 				{
-					TargetIP:    net.ParseIP("192.0.2.20"),
+					TargetIP:    net.ParseIP("192.0.2.0"),
 					MetricValue: 5_000_000_000,
 				},
 			},
@@ -642,20 +622,12 @@ func TestEngineAutoBlockSkipsDuplicate(t *testing.T) {
 	}
 
 	blocker := &mockBlocker{}
-	blockStore := &mockBlockStore{activeBlockID: "existing-block-id"}
-
 	e := New(ms, nil, nil, 100*time.Millisecond, 5*time.Minute)
-	e.SetBlocker(blocker, blockStore)
-
+	e.SetBlocker(blocker)
 	e.evaluateOnce(context.Background())
-
-	// Give the goroutine time to run.
 	time.Sleep(200 * time.Millisecond)
-
-	blocker.mu.Lock()
-	defer blocker.mu.Unlock()
-	if len(blocker.announced) != 0 {
-		t.Errorf("expected 0 Announce calls (duplicate skipped), got %d", len(blocker.announced))
+	if n := blocker.count(); n != 0 {
+		t.Errorf("expected no AutoBlock call for subnet_flood, got %d", n)
 	}
 }
 
@@ -684,7 +656,7 @@ func TestEngineAutoBlockNilBlocker(t *testing.T) {
 	}
 
 	e := New(ms, nil, nil, 100*time.Millisecond, 5*time.Minute)
-	e.SetBlocker(nil, nil) // explicitly nil — should not panic
+	e.SetBlocker(nil) // explicitly nil — should not panic
 
 	// This must not panic.
 	e.evaluateOnce(context.Background())
