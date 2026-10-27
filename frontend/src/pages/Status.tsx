@@ -12,6 +12,7 @@ import { PageSkeleton } from "@/components/ui/skeleton"
 import { formatBytes, formatNumber } from "@/lib/utils"
 import { Activity, ShieldAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { formatDateTime } from "@/lib/format"
 import type { DiskStats } from "@/lib/types"
 import { diskLevel } from "@/lib/home"
 import { StateBadge } from "@/components/ui/state-badge"
@@ -27,7 +28,7 @@ function diskBarClass(pct: number): string {
 function fmtTime(s?: string): string {
   if (!s) return "—"
   const d = new Date(s)
-  return isNaN(d.getTime()) ? s : d.toLocaleString()
+  return isNaN(d.getTime()) ? s : formatDateTime(d)
 }
 
 // Status is an admin-only health overview aggregating the system (routers /

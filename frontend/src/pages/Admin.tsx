@@ -20,7 +20,7 @@ import {
 } from "@/hooks/useApi"
 import { Trash2, Plus, FileText, Pencil, HardDrive, Check, X, Mail, Send, KeyRound, Copy } from "lucide-react"
 import { cn, formatBytes, formatNumber, formatPercent } from "@/lib/utils"
-import { formatCapacity } from "@/lib/format"
+import { formatCapacity, formatDateTime } from "@/lib/format"
 import { diskLevel, levelTextClass } from "@/lib/home"
 import { StateBadge } from "@/components/ui/state-badge"
 import type {
@@ -465,7 +465,7 @@ function StorageRow({ table }: { table: TableStorageStats }) {
       <td className="py-1.5 text-right tabular-nums text-muted-foreground">{formatNumber(table.rows)}</td>
       <td className="py-1.5 text-right tabular-nums text-muted-foreground">{formatNumber(table.parts)}</td>
       <td className="py-1.5 pl-6 text-[13px] text-muted-foreground hidden md:table-cell whitespace-nowrap">
-        {table.oldest_data ? new Date(table.oldest_data).toLocaleString() : "—"}
+        {table.oldest_data ? formatDateTime(table.oldest_data) : "—"}
       </td>
       {follows ? (
         <>
@@ -755,13 +755,13 @@ function TokenRow({ token, onRevoke, revoking }: { token: APIToken; onRevoke: (i
       <td className="py-1.5 font-mono text-xs text-muted-foreground">{token.token_prefix}…</td>
       <td className="py-1.5 text-xs text-muted-foreground hidden md:table-cell truncate max-w-[14rem]">{token.owner || "—"}</td>
       <td className="py-1.5 text-xs text-muted-foreground hidden lg:table-cell whitespace-nowrap">
-        {new Date(token.created_at).toLocaleString()}
+        {formatDateTime(token.created_at)}
       </td>
       <td className="py-1.5 text-xs text-muted-foreground hidden lg:table-cell whitespace-nowrap">
-        {isUnsetTime(token.last_used_at) ? "never" : new Date(token.last_used_at).toLocaleString()}
+        {isUnsetTime(token.last_used_at) ? "never" : formatDateTime(token.last_used_at)}
       </td>
       <td className="py-1.5 text-xs text-muted-foreground whitespace-nowrap">
-        {isUnsetTime(token.expires_at) ? "never" : new Date(token.expires_at).toLocaleString()}
+        {isUnsetTime(token.expires_at) ? "never" : formatDateTime(token.expires_at)}
       </td>
       <td className="py-1.5">
         <span
@@ -1784,7 +1784,7 @@ function AuditTab() {
                 {entries.map((e) => (
                   <tr key={`${e.ts}-${e.action}-${e.resource}-${e.client_ip}`} className="border-b border-border-soft last:border-0 hover:bg-accent/50">
                     <td className="py-1 text-xs text-muted-foreground whitespace-nowrap">
-                      {new Date(e.ts).toLocaleString()}
+                      {formatDateTime(e.ts)}
                     </td>
                     <td className="py-1">{e.user_email || <span className="text-muted-foreground">anonymous</span>}</td>
                     <td className="py-1 text-xs">{e.action}</td>
