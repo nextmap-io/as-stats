@@ -1095,7 +1095,7 @@ function RulesTab() {
                         onClick={() => toggleMutation.mutate(r)}
                         className={cn(
                           "px-1.5 py-0.5 text-xs rounded border font-medium",
-                          r.enabled ? "border-success/40 bg-success/10 text-success" : "border-input bg-background text-muted-foreground"
+                          r.enabled ? "border-success/40 text-success" : "border-input bg-background text-muted-foreground"
                         )}
                       >
                         {r.enabled ? "ON" : "OFF"}
@@ -1110,9 +1110,9 @@ function RulesTab() {
                       <span
                         className={cn(
                           "px-1.5 py-0.5 text-xs font-medium rounded border ",
-                          r.severity === "critical" && "border-destructive/40 bg-destructive/10 text-destructive",
-                          r.severity === "warning" && "border-warning/40 bg-warning/10 text-warning",
-                          r.severity === "info" && "border-primary/40 bg-primary/10 text-primary"
+                          r.severity === "critical" && "border-destructive/40 text-destructive",
+                          r.severity === "warning" && "border-warning/40 text-warning",
+                          r.severity === "info" && "border-primary/40 text-primary"
                         )}
                       >
                         {r.severity}
