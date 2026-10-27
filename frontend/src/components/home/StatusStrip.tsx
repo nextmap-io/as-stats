@@ -121,14 +121,17 @@ function AlertsFact() {
       {total > 0 && (
         <>
           {" "}
-          {others > 0 && <>{formatCount(others)} more. </>}
-          <Link to="/alerts" className="underline underline-offset-2">
-            Open Alerts
-          </Link>
-          {" · "}
-          <Link to="/live" className="underline underline-offset-2">
-            Live threats
-          </Link>
+          {others > 0 && <>{formatCount(others)}&nbsp;more. </>}
+          {/* Kept together so the separator never starts a line. */}
+          <span className="whitespace-nowrap">
+            <Link to="/alerts" className="underline underline-offset-2">
+              Open Alerts
+            </Link>
+            {" · "}
+            <Link to="/live" className="underline underline-offset-2">
+              Live threats
+            </Link>
+          </span>
         </>
       )}
     </Fact>

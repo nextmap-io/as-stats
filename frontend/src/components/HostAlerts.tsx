@@ -37,14 +37,17 @@ export function HostAlerts({ ip, enabled }: { ip: string; enabled: boolean }) {
               {formatAlertMetric(a.metric_value, a.metric_type)} against a threshold of{" "}
               {formatAlertMetric(a.threshold, a.metric_type)}, since {formatClock(Date.parse(a.triggered_at))}
               {a.status === "acknowledged" ? ", acknowledged" : ""}.{" "}
-              <Link to="/alerts" className="underline underline-offset-2">
-                Open Alerts
-              </Link>
-              {" · "}
-              {/* Live threats explains the attack (sources, ports, usual level). */}
-              <Link to="/live" className="underline underline-offset-2">
-                Live threats
-              </Link>
+              {/* Live threats explains the attack (sources, ports, usual level).
+                  The pair stays on one line so "·" never starts a line. */}
+              <span className="whitespace-nowrap">
+                <Link to="/alerts" className="underline underline-offset-2">
+                  Open Alerts
+                </Link>
+                {" · "}
+                <Link to="/live" className="underline underline-offset-2">
+                  Live threats
+                </Link>
+              </span>
             </span>
           </li>
         )

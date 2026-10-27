@@ -459,8 +459,14 @@ function StorageRow({ table }: { table: TableStorageStats }) {
       <td className="py-1.5 text-right tabular-nums">{formatBytes(table.compressed_bytes)}</td>
       <td className="py-1.5 text-right tabular-nums text-muted-foreground hidden lg:table-cell whitespace-nowrap" title={diskBreakdown}>
         {formatBytes(table.hot_bytes)}
-        <span className="mx-1">/</span>
-        {table.has_cold_volume || table.cold_bytes > 0 ? formatBytes(table.cold_bytes) : "—"}
+        {/* Without a cold volume there is no second figure to show (a column of
+            "/ —" said nothing; the caption under the table explains why). */}
+        {(table.has_cold_volume || table.cold_bytes > 0) && (
+          <>
+            <span className="mx-1">/</span>
+            {formatBytes(table.cold_bytes)}
+          </>
+        )}
       </td>
       <td className="py-1.5 text-right tabular-nums text-muted-foreground">{formatNumber(table.rows)}</td>
       <td className="py-1.5 text-right tabular-nums text-muted-foreground">{formatNumber(table.parts)}</td>

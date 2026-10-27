@@ -313,7 +313,7 @@ function LinkManager() {
             <tbody>
               {data.data.map((l, i) => (
                 <tr key={l.tag} className="border-b border-border-soft last:border-0 hover:bg-accent/60">
-                  <td className="py-1.5">
+                  <td className="py-1.5 pr-2">
                     <input
                       type="color"
                       defaultValue={l.color || seriesColor(chartColors, i)}
@@ -334,8 +334,8 @@ function LinkManager() {
                   <td className="py-1.5 font-medium">{l.tag}</td>
                   <td className="py-1.5 font-ip text-muted-foreground">{l.router_ip}</td>
                   <td className="py-1.5 text-right">{l.snmp_index}</td>
-                  <td className="py-1.5 pl-6 text-muted-foreground truncate max-w-48">{l.description || "-"}</td>
-                  <td className="py-1.5 text-right">{l.capacity_mbps ? formatCapacity(l.capacity_mbps * 1e6) : "-"}</td>
+                  <td className="py-1.5 pl-6 text-muted-foreground truncate max-w-48">{l.description || "—"}</td>
+                  <td className="py-1.5 text-right">{l.capacity_mbps ? formatCapacity(l.capacity_mbps * 1e6) : "—"}</td>
                   <td className="py-1.5 text-right">
                     <button
                       onClick={() => {
