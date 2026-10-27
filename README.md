@@ -428,9 +428,12 @@ tables (the migrations create them either way).
 | `PROMETHEUS_ALLOW_CIDR` | *(open)* | Comma-separated IPs / CIDRs allowed to scrape `/metrics` (both binaries) |
 | `PROMETHEUS_USER` / `PROMETHEUS_PASS` | | Optional basic auth for `/metrics`; both must be set |
 
-BGP blackholing has its own variables (`BGP_ENABLED`, `BGP_ROUTER_ID`,
-`BGP_LOCAL_AS`, `BGP_PEER_ADDRESS`, `BGP_PEER_AS`, `BGP_NEXT_HOP`,
-`BGP_COMMUNITY`, `BGP_*_CMD`, and `BGP_API_URL` on the collector) — see
+BGP blackholing has its own variables (`BGP_ENABLED`, `BGP_PEER_ADDRESS`,
+`BGP_PEER_AS`, `BGP_LOCAL_AS`, `BGP_NEXT_HOP` / `BGP_NEXT_HOP_V6`,
+`BGP_COMMUNITY`, `BGP_*_CMD`, the safety rails `BGP_ALLOWED_PREFIXES`,
+`BGP_PROTECTED_PREFIXES`, `BGP_MAX_ACTIVE_BLOCKS`,
+`BGP_AUTO_BLOCK_MAX_PER_HOUR`, `BGP_DRY_RUN`…, and `BGP_API_URL` +
+`BGP_API_TOKEN` shared with the collector) — see
 [docs/bgp-blackhole.md](docs/bgp-blackhole.md).
 
 ## Alert engine
@@ -495,15 +498,21 @@ Window 1 min / 5 min / 15 min / 1 h, refreshed every 30 s. API:
 
 ### BGP blackhole hook
 
-The `/alerts/{id}/block` endpoint calls a `Blocker` interface defined in
-`internal/bgp/`. With `BGP_ENABLED=true` the API runs a `ScriptBlocker` that
-executes your announce / withdraw / status commands (gobgp CLI by default,
-or BIRD / FRR via `BGP_ANNOUNCE_CMD` & co.) to push RFC 7999 blackhole
-communities to your edge; the collector's `auto_block` rules reach it through
-`BGP_API_URL`. Without it the endpoint answers **409** instead of pretending
-to block, and alerts that have no single host target (link capacity,
-anomaly, disk usage, subnet flood) answer **422**. Details and daemon
-examples: [docs/bgp-blackhole.md](docs/bgp-blackhole.md).
+With `BGP_ENABLED=true` the API announces RFC 7999 blackholes (`65535:666`
+plus NO_EXPORT) through your own BGP daemon — gobgp by default, BIRD / FRR /
+ExaBGP through command templates run without a shell — from the BGP page,
+the Block button on an alert or Live Threats, or automatically from rules
+with action `auto_block` (the collector asks the API with `BGP_API_TOKEN`).
+Every block passes the same safety rails: only addresses inside the
+allow-list (`BGP_ALLOWED_PREFIXES`, else your LOCAL_AS prefixes; none = every
+block refused), never the BGP peer / next hops / `BGP_PROTECTED_PREFIXES`,
+host routes by default, at most 50 active and 10 automatic per hour, every
+block expires (1 h default, 24 h max). Blocks survive restarts (expired ones
+are withdrawn, the others re-announced) and are reconciled with the daemon's
+RIB every minute. `BGP_DRY_RUN=true` rehearses without announcing anything.
+`/alerts/{id}/block` answers **409** when BGP is off and **422** for alerts
+without a single host target or a target the rules refuse. Setup, daemon and
+router examples, metrics: [docs/bgp-blackhole.md](docs/bgp-blackhole.md).
 
 ## Hardware sizing
 

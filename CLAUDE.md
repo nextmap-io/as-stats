@@ -176,11 +176,13 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 | `internal/reports/` | v2: scheduled-report engine — HTML/CSV generation, `net/smtp` sender, scheduler loop (`isDue`). |
 | `internal/alerts/engine.go` | Alert engine goroutine — rule loop, cooldown map, top-source enrichment, auto-resolution, default-rule seeding. |
 | `internal/alerts/webhook.go` | Slack / Teams / Discord / generic webhook notifier. |
-| `internal/bgp/` | `Blocker` interface: `ScriptBlocker` (API side, `BGP_ENABLED=true`, runs gobgp/BIRD/FRR commands), `RemoteBlocker` (collector side, `BGP_API_URL`, proxies to the API), `NoopBlocker` (log-only fallback). |
+| `internal/bgp/` | RTBH: `Service` (API side — rails, `bgp_blocks`, expiry / reconcile loop, audit), `Policy` (allow-list, protected, prefix length), `CommandDaemon` (templates → argv, no shell) / `DryRunDaemon`, `Settings` (BGP_* validation), `Client` (collector → `/internal/bgp/blocks`). See "BGP integration". |
+| `internal/store/bgp_blocks.go` | `bgp_blocks` CRUD: `InsertBlock`, `SetBlockStatus` (by id, sync mutation), `ListActiveBlocks`, `ListBlocksSince`, `ListBlockHistory`. |
+| `scripts/bgp/` | `bird-rtbh.sh`, `frr-rtbh.sh`: daemon helpers for `BGP_*_CMD` (tested in `internal/bgp/scripts_test.go` against stub CLIs). |
 | `internal/services/wellknown.go` | IANA protocol + well-known port name resolution (used by Flow Search and Top Ports). |
 | `internal/model/` | Shared types: `FlowRecord`, `ASTraffic`, `IPTraffic`, `LiveThreats` / `ThreatRow`, `AlertRule`, etc. |
 | `internal/config/` | Env-var config loading. `LoadCollector` and `LoadAPI`. |
-| `migrations/` | ClickHouse DDL, numbered 000001–000018 (000007–000013 include feature-gated tables; 000012 `retention_policies`, 000013 `report_schedules`, 000014 `api_tokens`, 000015 hot-table `SimpleAggregateFunction` fix, 000016 `retention_policies.cold_after_days`, 000017 `flows_log` sort key + `flows_log_legacy` + `flows_log_all`, 000018 `traffic_by_port` one row per flow + `traffic_by_port_legacy` + `traffic_by_port_mv`). Every released schema level has a `DetectBaseline` probe in `internal/migrate/clickhouse.go` — add one with each migration. Embedded in and applied by `cmd/migrate` (the `migrate` service runs before collector/api), which records each file's SHA-256 — **never edit a released migration**, add a new one. |
+| `migrations/` | ClickHouse DDL, numbered 000001–000019 (000007–000013 include feature-gated tables; 000012 `retention_policies`, 000013 `report_schedules`, 000014 `api_tokens`, 000015 hot-table `SimpleAggregateFunction` fix, 000016 `retention_policies.cold_after_days`, 000017 `flows_log` sort key + `flows_log_legacy` + `flows_log_all`, 000018 `traffic_by_port` one row per flow + `traffic_by_port_legacy` + `traffic_by_port_mv`, 000019 `bgp_blocks.dry_run`). Every released schema level has a `DetectBaseline` probe in `internal/migrate/clickhouse.go` — add one with each migration. Embedded in and applied by `cmd/migrate` (the `migrate` service runs before collector/api), which records each file's SHA-256 — **never edit a released migration**, add a new one. |
 | `frontend/src/pages/` | One React page per route in `App.tsx`. |
 | `frontend/src/hooks/` | TanStack Query hooks (`useApi.ts`), URL-synced filters (`useFilters.ts`), unit toggle (`useUnit.ts`), chart theme (`useChartColors.ts`), DNS (`useDns.ts`), feature flags (`useFeatures.ts`). |
 | `frontend/src/components/charts/` | `TrafficChart` (single in/out), `LinkTrafficChart` (stacked by link), `ASTrafficChart` (stacked by AS) — all Recharts `AreaChart` with `stepAfter`. |
@@ -456,6 +458,11 @@ Registered only when the corresponding `FEATURE_*` env var is set.
 | `GET` | `/admin/audit` | `ALERTS` | admin only |
 | `GET` | `/anomaly/explain` | `ALERTS` | anomaly contributor breakdown for a target+window |
 | `GET`/`POST`/`PUT`/`DELETE` | `/admin/reports[/{id}]` | `REPORTS` | CSRF + admin; `POST /admin/reports/{id}/test` sends now |
+| `GET` | `/bgp/status` | `BGP_ENABLED` | session, rails, last RIB reconciliation; `?refresh=1` runs the status command |
+| `GET` | `/bgp/blocks`, `/bgp/blocks/history` | `BGP_ENABLED` | active rows / last N (any status) |
+| `POST` | `/bgp/blocks` | `BGP_ENABLED` | CSRF, admin; 201 created / 200 already blocked; 400/422/429/502/503 (see BGP integration) |
+| `DELETE` | `/bgp/blocks/{ip}?prefix_len=` | `BGP_ENABLED` | CSRF, admin; 404 when nothing active (unless a daemon orphan) |
+| `POST` | `/internal/bgp/blocks` (not under `/api/v1`) | `BGP_ENABLED` + `BGP_API_TOKEN` | collector auto-block, bearer token only |
 
 ## Auth
 
@@ -581,23 +588,50 @@ The full list with thresholds lives in `EnsureDefaultRules` in
 
 ### BGP integration
 
-`internal/bgp/Blocker` interface with `Announce` / `Withdraw` / `List` /
-`Status`. Three implementations:
+RTBH (RFC 7999). **The API owns everything**: `bgp.Service` (built in
+`api.NewRouter` when `BGP_ENABLED=true`, loop bound to the server ctx) is the
+only writer of `bgp_blocks` and the only caller of the daemon. User docs:
+`docs/bgp-blackhole.md`; review: `docs/design-review/bgp-review-2026-10.md`.
 
-- `ScriptBlocker` — API server, `BGP_ENABLED=true`: runs configurable
-  commands (`BGP_ANNOUNCE_CMD` / `BGP_WITHDRAW_CMD` / `BGP_STATUS_CMD`,
-  gobgp CLI by default) with the RFC 7999 community, persists blocks in
-  `bgp_blocks`, auto-withdraws on expiry. Backs `/bgp/*` and
-  `/alerts/{id}/block`.
-- `RemoteBlocker` — collector, `BGP_API_URL`: the alert engine's
-  `auto_block` action proxies to the API's `/bgp/blocks`.
-- `NoopBlocker` — log-only fallback when BGP is off or `ScriptBlocker`
-  init fails (the router then also clears `FeatureBGP`).
-
-`/alerts/{id}/block` answers 409 rather than pretending when only the
-noop blocker is wired, and 422 for alerts without a single host target.
-Label-targeted alerts (link tags) are stored under synthetic `0100::/64`
-addresses (`labelTargetIP` in the engine) — never blackhole those.
+- **Entry points**, all → `Service.Block(BlockRequest)`: `POST /bgp/blocks`
+  (source `manual`), `POST /alerts/{id}/block` (`alert`, with alert id / rule /
+  metrics; handler in `handler/bgp.go`, 409 BGP off, 422 non-host target),
+  `POST /internal/bgp/blocks` (`auto_block`, by `engine`): the collector's
+  `bgp.Client`, `Authorization: Bearer $BGP_API_TOKEN` (≥ 32 chars, constant
+  time), registered outside `/api/v1` only when the token is set, so no
+  session / CSRF; nginx does not proxy it. The alert engine never writes
+  `bgp_blocks` and only asks for host rule types (`autoBlockableRule`).
+- **Rails** (`Policy.Check` + `Limits`, every source): allow-list
+  (`BGP_ALLOWED_PREFIXES`, else LOCAL_AS prefixes, else refuse all), protected
+  (peer, next hops, router id, `BGP_PROTECTED_PREFIXES`), reserved ranges,
+  min prefix length (32/128 default, floors 24/48), max active (50), auto per
+  hour (10, seeded from `ListBlocksSince` so restarts don't reset it),
+  duration 1 min–`BGP_MAX_DURATION`. Errors: `ErrInvalidRequest` 400,
+  `*PolicyError` 422, `*LimitError` 429, `ErrNotFound` 404, `ErrNotReady` 503,
+  `*CommandError` 502 (`writeBGPError`; command output never sent to clients).
+- **Commands**: `ParseTemplate` splits once (POSIX quoting), refuses unquoted
+  shell operators and unknown `{placeholders}`; `runCommand` = exec, no shell,
+  env `PATH`/`LANG=C`/`ASSTATS_BGP_*` only, timeout + `WaitDelay`, 64 KiB
+  output. Never reintroduce `sh -c` or pass `os.Environ()`.
+- **State machine**: insert row (`active`) → announce → on error mark `failed`.
+  Withdraw: daemon first, then `SetBlockStatus` (by id, all legacy duplicate
+  ids); a store failure keeps the entry as `withdrawn` and retries (never
+  re-announced). `Reconcile` (every 15 s): load until ClickHouse answers
+  (blocks refused meanwhile), expire, retry pending; every
+  `BGP_RECONCILE_INTERVAL`: status + RIB (`BGP_ROUTES_CMD`) — missing
+  re-announced, orphans reported / withdrawable, never auto-withdrawn; a
+  session back to established re-pushes all. Dry-run rows (`dry_run=1`) go to
+  `DryRunDaemon` forever, even after dry run is switched off.
+- **Single API instance assumed** (like the in-memory sessions): two API
+  replicas with BGP enabled would both reconcile.
+- `bgp_blocks` stays a MergeTree + synchronous `ALTER UPDATE` keyed by id
+  (single serialised writer, a few rows a day): no FINAL needed.
+- Label-targeted alerts (link tags) are stored under synthetic `0100::/64`
+  addresses (`labelTargetIP` in the engine) — never blackhole those (reserved
+  in `Policy` too).
+- Tests: `internal/bgp/*_test.go` (fake daemon / store / clock),
+  `TestIntegrationBGPBlackholing` in `internal/api` (real router, fake daemon
+  script, own scratch DB, restart + dry run) on 24.3 and 26.8.
 
 ## Live Threats
 
@@ -925,6 +959,16 @@ frontend lint + typecheck + build).
     "Traffic by AS" (and AS peers, the anomaly explanation) listed 64512,
     65001, 4200000001… one by one, nameless, while every other view showed one
     "Private / Internal" row. Group on `groupedAS` (code conventions above).
+
+23. **A machine-to-machine call routed through the browser API.** The
+    collector's auto-block posted to `/api/v1/bgp/blocks` without session or
+    CSRF token: every request was a 403 and auto-block never worked (failures
+    were only logged). Collector → API calls
+    use a dedicated route outside `/api/v1` with a shared bearer token
+    (`/internal/bgp/blocks`, `BGP_API_TOKEN`) and a metric for refusals.
+    Relatedly, every BGP block path must go through `bgp.Service` (rails +
+    `bgp_blocks` row before the route): `/alerts/{id}/block` once announced
+    without a row, and a restart then left the route announced forever.
 
 ## Operational notes — ClickHouse
 

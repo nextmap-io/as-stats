@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- BGP blackholing: every block (manual, from an alert, automatic) now passes
+  safety rails — an allow-list (`BGP_ALLOWED_PREFIXES`, else the LOCAL_AS
+  prefixes; nothing = every block refused), protected addresses (BGP peer,
+  next hops, router id, `BGP_PROTECTED_PREFIXES`), reserved ranges, host
+  routes only by default (`BGP_MIN_PREFIX_LEN_V4/_V6`, floors /24 and /48),
+  `BGP_MAX_ACTIVE_BLOCKS` (50) and `BGP_AUTO_BLOCK_MAX_PER_HOUR` (10). Before,
+  any address — the default route's `0.0.0.0`, the BGP peer itself — could be
+  announced.
+- BGP command templates are parsed into arguments and run without a shell,
+  with a minimal environment (the API's ClickHouse password, OIDC secret and
+  token are no longer inherited), a hard timeout that also stops children,
+  and bounded output.
+- Collector → API auto-block is authenticated: `POST /internal/bgp/blocks`
+  with `Authorization: Bearer $BGP_API_TOKEN` (outside `/api/v1`, not proxied
+  by nginx). Every block, withdrawal, refusal and expiry is in the audit log.
+
+### Fixed
+- Auto-block (`auto_block` rule action) never worked: the collector's
+  requests were rejected by the API's CSRF check.
+- Blocking from an alert did not record the block: it was missing from the BGP
+  page and, after an API restart, its route stayed announced forever.
+- Blocks survive restarts: the API reloads them (retrying until ClickHouse
+  answers), withdraws the ones that expired meanwhile and re-announces the
+  others with their original expiry. A failed announce marks the block
+  `failed` instead of leaving an untracked route.
+- Withdrawing an address that is not blocked answers 404 instead of
+  "unblocked"; a withdrawal the daemon refuses is reported (502) and retried.
+- IPv6 blackholes: a separate `BGP_NEXT_HOP_V6`; refused clearly without it.
+- The default gobgp status command now runs (the BGP page always said
+  "unknown"); the BIRD and FRR examples in the docs were wrong (no
+  `birdc route add`; `{peer_as}` placeholder unsupported).
+
+### Added
+- `BGP_DRY_RUN`, reconciliation with the daemon's RIB (`BGP_ROUTES_CMD`,
+  default for gobgp; missing routes re-announced, unknown ones listed and
+  withdrawable), NO_EXPORT by default (`BGP_EXTRA_COMMUNITIES`),
+  `BGP_DEFAULT_DURATION`, `BGP_MAX_DURATION`, `BGP_COMMAND_TIMEOUT`,
+  `BGP_RECONCILE_INTERVAL`, `{prefix}` / `{communities}` / `{local_as}` /
+  `{peer_as}` placeholders, `ASSTATS_BGP_*` variables for wrapper scripts.
+- `scripts/bgp/bird-rtbh.sh` and `scripts/bgp/frr-rtbh.sh`.
+- Prometheus: `asstats_bgp_blocks_active`, `asstats_bgp_block_requests_total`,
+  `asstats_bgp_withdrawals_total`, `asstats_bgp_commands_total`,
+  `asstats_bgp_command_duration_seconds`, `asstats_bgp_daemon_up`,
+  `asstats_bgp_rib_missing`, `asstats_bgp_rib_orphans`,
+  `asstats_bgp_reannounced_total`, `asstats_bgp_auto_block_requests_total`.
+- BGP page rebuilt: daemon state, limits in use, active blocks with their
+  alert and expiry, withdraw with confirmation, unknown routes, the rules in
+  force, history with outcome. One block dialog (BGP page, Alerts, Live
+  Threats) states the impact and lets you choose the duration.
+- Migration 000019: `bgp_blocks.dry_run`.
+
+### Changed
+- **Upgrade notes (BGP):** auto-block needs `BGP_API_TOKEN` on the API and
+  the collector; set `BGP_ALLOWED_PREFIXES` (or `LOCAL_AS`) or every block is
+  refused; templates using shell syntax (`|`, `;`, `>`…) are refused at
+  startup — move them to a script; IPv6 needs `BGP_NEXT_HOP_V6`; NO_EXPORT is
+  added to gobgp announces (`BGP_EXTRA_COMMUNITIES=` to drop it);
+  `BGP_ROUTER_ID` is optional; an invalid BGP setting stops the API at
+  startup instead of silently falling back to a log-only blocker. Durations
+  outside 1 min – `BGP_MAX_DURATION` are refused (400) instead of clamped.
+- `POST /bgp/blocks` and `POST /alerts/{id}/block` answer 201 with the block,
+  200 with the existing block when the target is already blocked (was 409 /
+  a bare status).
+
+
 ## [3.6.1] - 2026-10-26
 
 ### Security
