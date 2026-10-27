@@ -33,10 +33,10 @@ export function SearchPage() {
               ) : (
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-border">
-                      <th className="pb-2 text-left font-medium text-muted-foreground">ASN</th>
-                      <th className="pb-2 text-left font-medium text-muted-foreground">Name</th>
-                      <th className="pb-2 text-left font-medium text-muted-foreground">Country</th>
+                    <tr className="border-b border-foreground">
+                      <th className="pb-2 text-left text-[13px] font-normal text-muted-foreground">ASN</th>
+                      <th className="pb-2 text-left text-[13px] font-normal text-muted-foreground">Name</th>
+                      <th className="pb-2 text-left text-[13px] font-normal text-muted-foreground">Country</th>
                     </tr>
                   </thead>
                   <tbody>

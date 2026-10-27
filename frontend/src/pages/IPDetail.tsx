@@ -90,10 +90,10 @@ export function IPDetail() {
             <CardContent>
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border">
-                    <th className="pb-1.5 text-left font-medium text-muted-foreground">IP</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Traffic</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground hidden sm:table-cell">Flows</th>
+                  <tr className="border-b border-foreground">
+                    <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">IP</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Traffic</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground hidden sm:table-cell">Flows</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -123,11 +123,11 @@ export function IPDetail() {
             <CardContent>
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border">
-                    <th className="pb-1.5 text-left font-medium text-muted-foreground">ASN</th>
-                    <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Traffic</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground hidden sm:table-cell">Flows</th>
+                  <tr className="border-b border-foreground">
+                    <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">ASN</th>
+                    <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Name</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Traffic</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground hidden sm:table-cell">Flows</th>
                   </tr>
                 </thead>
                 <tbody>

@@ -282,14 +282,14 @@ function LinkManager() {
         {data?.data && data.data.length > 0 ? (
           <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-sm">
             <thead>
-              <tr className="border-b border-border">
+              <tr className="border-b border-foreground">
                 <th className="pb-2 w-6"></th>
-                <th className="pb-2 text-left font-medium text-muted-foreground">Tag</th>
-                <th className="pb-2 text-left font-medium text-muted-foreground">Router IP</th>
-                <th className="pb-2 text-right font-medium text-muted-foreground">SNMP index</th>
-                <th className="pb-2 pl-6 text-left font-medium text-muted-foreground">Description</th>
-                <th className="pb-2 text-right font-medium text-muted-foreground">Capacity</th>
-                <th className="pb-2 text-right font-medium text-muted-foreground"></th>
+                <th className="pb-2 text-left text-[13px] font-normal text-muted-foreground">Tag</th>
+                <th className="pb-2 text-left text-[13px] font-normal text-muted-foreground">Router IP</th>
+                <th className="pb-2 text-right text-[13px] font-normal text-muted-foreground">SNMP index</th>
+                <th className="pb-2 pl-6 text-left text-[13px] font-normal text-muted-foreground">Description</th>
+                <th className="pb-2 text-right text-[13px] font-normal text-muted-foreground">Capacity</th>
+                <th className="pb-2 text-right text-[13px] font-normal text-muted-foreground"></th>
               </tr>
             </thead>
             <tbody>

@@ -288,14 +288,14 @@ export function FlowSearch() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-border">
-                      <th className="pb-1.5 text-left font-medium text-muted-foreground">Source</th>
-                      <th className="pb-1.5 text-left font-medium text-muted-foreground">→</th>
-                      <th className="pb-1.5 text-left font-medium text-muted-foreground">Destination</th>
-                      <th className="pb-1.5 text-left font-medium text-muted-foreground">Protocol</th>
-                      <th className="pb-1.5 text-right font-medium text-muted-foreground">Bytes</th>
-                      <th className="pb-1.5 text-right font-medium text-muted-foreground hidden sm:table-cell">Packets</th>
-                      <th className="pb-1.5 text-right font-medium text-muted-foreground hidden sm:table-cell">Flows</th>
+                    <tr className="border-b border-foreground">
+                      <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Source</th>
+                      <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">→</th>
+                      <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Destination</th>
+                      <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Protocol</th>
+                      <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Bytes</th>
+                      <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground hidden sm:table-cell">Packets</th>
+                      <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground hidden sm:table-cell">Flows</th>
                     </tr>
                   </thead>
                   <tbody>

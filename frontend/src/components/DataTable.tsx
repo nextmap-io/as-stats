@@ -173,7 +173,10 @@ export function DataTable<T>({
                       type="button"
                       onClick={() => toggleSort(col)}
                       className={cn(
-                        "inline-flex items-center gap-1 rounded-sm select-none transition-colors hover:text-foreground",
+                        // Baseline-aligned, so a right-aligned header (icon first)
+                        // sits on the same line as a left-aligned one; 3px of
+                        // padding makes the target 24px tall without moving it.
+                        "-my-[3px] inline-flex items-baseline gap-1 rounded-sm py-[3px] select-none transition-colors hover:text-foreground",
                         col.align === "right" && "flex-row-reverse",
                         active && "text-foreground",
                       )}
@@ -181,12 +184,12 @@ export function DataTable<T>({
                       {col.header}
                       {active ? (
                         sortDir === "asc" ? (
-                          <ArrowUp className="size-3 shrink-0" aria-hidden />
+                          <ArrowUp className="size-3 shrink-0 self-center" aria-hidden />
                         ) : (
-                          <ArrowDown className="size-3 shrink-0" aria-hidden />
+                          <ArrowDown className="size-3 shrink-0 self-center" aria-hidden />
                         )
                       ) : (
-                        <ChevronsUpDown className="size-3 shrink-0 opacity-40" aria-hidden />
+                        <ChevronsUpDown className="size-3 shrink-0 self-center opacity-40" aria-hidden />
                       )}
                     </button>
                   ) : (
