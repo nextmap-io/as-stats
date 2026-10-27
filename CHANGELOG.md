@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.7.0] - 2026-10-27
+
 ### Security
 - BGP blackholing: every block (manual, from an alert, automatic) now passes
   safety rails — an allow-list (`BGP_ALLOWED_PREFIXES`, else the LOCAL_AS
@@ -39,40 +41,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The default gobgp status command now runs (the BGP page always said
   "unknown"); the BIRD and FRR examples in the docs were wrong (no
   `birdc route add`; `{peer_as}` placeholder unsupported).
-
-### Added
-- `BGP_DRY_RUN`, reconciliation with the daemon's RIB (`BGP_ROUTES_CMD`,
-  default for gobgp; missing routes re-announced, unknown ones listed and
-  withdrawable), NO_EXPORT by default (`BGP_EXTRA_COMMUNITIES`),
-  `BGP_DEFAULT_DURATION`, `BGP_MAX_DURATION`, `BGP_COMMAND_TIMEOUT`,
-  `BGP_RECONCILE_INTERVAL`, `{prefix}` / `{communities}` / `{local_as}` /
-  `{peer_as}` placeholders, `ASSTATS_BGP_*` variables for wrapper scripts.
-- `scripts/bgp/bird-rtbh.sh` and `scripts/bgp/frr-rtbh.sh`.
-- Prometheus: `asstats_bgp_blocks_active`, `asstats_bgp_block_requests_total`,
-  `asstats_bgp_withdrawals_total`, `asstats_bgp_commands_total`,
-  `asstats_bgp_command_duration_seconds`, `asstats_bgp_daemon_up`,
-  `asstats_bgp_rib_missing`, `asstats_bgp_rib_orphans`,
-  `asstats_bgp_reannounced_total`, `asstats_bgp_auto_block_requests_total`.
-- BGP page rebuilt: daemon state, limits in use, active blocks with their
-  alert and expiry, withdraw with confirmation, unknown routes, the rules in
-  force, history with outcome. One block dialog (BGP page, Alerts, Live
-  Threats) states the impact and lets you choose the duration.
-- Migration 000019: `bgp_blocks.dry_run`.
-
-### Changed
-- **Upgrade notes (BGP):** auto-block needs `BGP_API_TOKEN` on the API and
-  the collector; set `BGP_ALLOWED_PREFIXES` (or `LOCAL_AS`) or every block is
-  refused; templates using shell syntax (`|`, `;`, `>`…) are refused at
-  startup — move them to a script; IPv6 needs `BGP_NEXT_HOP_V6`; NO_EXPORT is
-  added to gobgp announces (`BGP_EXTRA_COMMUNITIES=` to drop it);
-  `BGP_ROUTER_ID` is optional; an invalid BGP setting stops the API at
-  startup instead of silently falling back to a log-only blocker. Durations
-  outside 1 min – `BGP_MAX_DURATION` are refused (400) instead of clamped.
-- `POST /bgp/blocks` and `POST /alerts/{id}/block` answer 201 with the block,
-  200 with the existing block when the target is already blocked (was 409 /
-  a bare status).
-
-### Fixed
 - **Alert false positives** (production: ~5,150 alerts in 10 days, none
   acknowledged, mostly busy servers at their usual level):
   - `port_scan` counted every distinct destination port of a local source,
@@ -94,6 +62,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `system.errors`, ~16k a day).
 
 ### Added
+- `BGP_DRY_RUN`, reconciliation with the daemon's RIB (`BGP_ROUTES_CMD`,
+  default for gobgp; missing routes re-announced, unknown ones listed and
+  withdrawable), NO_EXPORT by default (`BGP_EXTRA_COMMUNITIES`),
+  `BGP_DEFAULT_DURATION`, `BGP_MAX_DURATION`, `BGP_COMMAND_TIMEOUT`,
+  `BGP_RECONCILE_INTERVAL`, `{prefix}` / `{communities}` / `{local_as}` /
+  `{peer_as}` placeholders, `ASSTATS_BGP_*` variables for wrapper scripts.
+- `scripts/bgp/bird-rtbh.sh` and `scripts/bgp/frr-rtbh.sh`.
+- Prometheus: `asstats_bgp_blocks_active`, `asstats_bgp_block_requests_total`,
+  `asstats_bgp_withdrawals_total`, `asstats_bgp_commands_total`,
+  `asstats_bgp_command_duration_seconds`, `asstats_bgp_daemon_up`,
+  `asstats_bgp_rib_missing`, `asstats_bgp_rib_orphans`,
+  `asstats_bgp_reannounced_total`, `asstats_bgp_auto_block_requests_total`.
+- BGP page rebuilt: daemon state, limits in use, active blocks with their
+  alert and expiry, withdraw with confirmation, unknown routes, the rules in
+  force, history with outcome. One block dialog (BGP page, Alerts, Live
+  Threats) states the impact and lets you choose the duration.
+- Migration 000019: `bgp_blocks.dry_run`.
 - `baseline_factor` on `volume_in` / `volume_out` rules (migration 000020):
   fire only when the host is also N× its usual level (per-minute p99 at the
   same time of day over 7 days). Hosts without history are judged on the
@@ -107,6 +92,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `asstats_alerts_reopened_total`, `asstats_alerts_baseline_suppressed_total`.
 - Alert replay test (`TestIntegrationAlertReplay`): the 3.6 and current
   engines over a synthetic day of benign busy hosts and attacks.
+
+### Changed
+- **Upgrade notes (BGP):** auto-block needs `BGP_API_TOKEN` on the API and
+  the collector; set `BGP_ALLOWED_PREFIXES` (or `LOCAL_AS`) or every block is
+  refused; templates using shell syntax (`|`, `;`, `>`…) are refused at
+  startup — move them to a script; IPv6 needs `BGP_NEXT_HOP_V6`; NO_EXPORT is
+  added to gobgp announces (`BGP_EXTRA_COMMUNITIES=` to drop it);
+  `BGP_ROUTER_ID` is optional; an invalid BGP setting stops the API at
+  startup instead of silently falling back to a log-only blocker. Durations
+  outside 1 min – `BGP_MAX_DURATION` are refused (400) instead of clamped.
+- `POST /bgp/blocks` and `POST /alerts/{id}/block` answer 201 with the block,
+  200 with the existing block when the target is already blocked (was 409 /
+  a bare status).
+- **Second design review with impeccable** (`docs/design-review/impeccable-2026-10-b.md`):
+  one by-link chart with an IP-version switch on Links and AS detail; the
+  global time bar hidden on pages with their own clock; round axis values and
+  clock-aligned time ticks; one table header style; every state colour carries
+  its word (disks, settings no longer green); Live threats on the incident
+  path from the home; flow rows say when a flow happened; AA contrast on the
+  rule badges; values keep their unit on phones.
 
 ## [3.6.1] - 2026-10-26
 
