@@ -2,7 +2,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState, type ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { api } from "@/lib/api"
-import { blockErrorMessage } from "@/lib/block"
+import { blockTarget } from "@/lib/block"
+import { BlockDialog } from "@/components/BlockDialog"
 import { useFeatureFlags } from "@/hooks/useFeatures"
 import { hostTarget } from "@/lib/home"
 import { isPrivateASGroup } from "@/lib/asn"
@@ -68,14 +69,19 @@ export function Alerts() {
   // alert (also label-targeted) does not.
   const { data: linkCfg } = useQuery({ queryKey: ["admin-links"], queryFn: () => api.adminLinks(), staleTime: 30_000 })
   const linkTags = new Set((linkCfg?.data ?? []).map((l) => l.tag))
+  // Block confirmation: which alert's host is being blackholed.
+  const [blocking, setBlocking] = useState<{ id: string; host: string; rule: string } | null>(null)
   const blockMutation = useMutation({
     mutationFn: ({ id, duration, reason }: { id: string; duration: number; reason: string }) =>
       api.blockAlert(id, duration, reason),
     onSuccess: () => {
+      setBlocking(null)
       queryClient.invalidateQueries({ queryKey: ["alerts"] })
+      queryClient.invalidateQueries({ queryKey: ["bgp-blocks"] })
+      queryClient.invalidateQueries({ queryKey: ["bgp-status"] })
     },
   })
-  const blockError = blockMutation.error ? blockErrorMessage(blockMutation.error) : null
+  const blocked = blockMutation.isSuccess ? blockMutation.data?.data : undefined
 
   if (error) return <ErrorDisplay error={error as Error} onRetry={() => refetch()} />
 
@@ -106,11 +112,24 @@ export function Alerts() {
         </p>
       )}
 
-      {blockError && (
-        <div role="alert" className="border-l-2 border-destructive py-1 pl-3 text-sm">
-          <span className="font-semibold">Not blocked.</span> {blockError}
-        </div>
+      {blocked && (
+        <p role="status" className="text-sm text-foreground-secondary">
+          Blackhole {blocked.dry_run ? "recorded (dry run) " : "announced "}for <span className="font-ip">{blockTarget(blocked)}</span>
+          {blocked.expires_at ? `, withdrawn at ${new Date(blocked.expires_at).toLocaleTimeString()}` : ""}. See{" "}
+          <Link to="/bgp" className="underline underline-offset-2">BGP blocks</Link>.
+        </p>
       )}
+      <BlockDialog
+        target={blocking?.host ?? null}
+        defaultReason={blocking ? `Alert: ${blocking.rule}` : ""}
+        pending={blockMutation.isPending}
+        error={blockMutation.error}
+        onConfirm={(duration, reason) => blocking && blockMutation.mutate({ id: blocking.id, duration, reason })}
+        onClose={() => {
+          setBlocking(null)
+          blockMutation.reset()
+        }}
+      />
 
       {/* Status filter tabs */}
       <div className="flex gap-1 border-b border-border">
@@ -168,8 +187,9 @@ export function Alerts() {
                       linkTags={linkTags}
                       onBlock={() => {
                         const host = hostTarget(a)
-                        if (host && confirm(`Blackhole ${host} through BGP for 60 minutes?`)) {
-                          blockMutation.mutate({ id: a.id, duration: 60, reason: a.rule_name })
+                        if (host) {
+                          blockMutation.reset()
+                          setBlocking({ id: a.id, host, rule: a.rule_name })
                         }
                       }}
                       ackPending={ackMutation.isPending}

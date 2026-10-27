@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { api } from "@/lib/api"
-import { blockErrorMessage } from "@/lib/block"
+import { blockTarget } from "@/lib/block"
+import { BlockDialog } from "@/components/BlockDialog"
 import { useFeatureFlags, useFeatures } from "@/hooks/useFeatures"
 import { useCurrentUser } from "@/hooks/useAuth"
 import { ErrorDisplay } from "@/components/ui/error"
@@ -34,7 +36,6 @@ const WINDOWS: { value: number; label: string }[] = [
 ]
 const DEFAULT_WINDOW = 300
 const REFRESH_MS = 30_000
-const BLOCK_MINUTES = 60
 
 /**
  * Live Threats ranks hosts by how far they sit from their own usual level, not
@@ -75,12 +76,17 @@ export function LiveThreats() {
   const canBlock = features.bgp && dir === "in" && isAdmin
 
   const queryClient = useQueryClient()
+  // Block confirmation: which host, with the sentence that flagged it.
+  const [blocking, setBlocking] = useState<{ ip: string; reason: string } | null>(null)
   const blockMutation = useMutation({
-    mutationFn: ({ ip, reason }: { ip: string; reason: string }) => api.bgpBlock(ip, BLOCK_MINUTES, reason),
+    mutationFn: ({ ip, duration, reason }: { ip: string; duration: number; reason: string }) => api.bgpBlock(ip, duration, reason),
     onSuccess: () => {
+      setBlocking(null)
       queryClient.invalidateQueries({ queryKey: ["bgp-blocks"] })
+      queryClient.invalidateQueries({ queryKey: ["bgp-status"] })
     },
   })
+  const blocked = blockMutation.isSuccess ? blockMutation.data?.data : undefined
 
   const view = data ? normalizeThreats(data.data, { direction: dir, windowSeconds: windowSec, all: showAll }) : null
   const rows = view?.data.rows ?? []
@@ -158,20 +164,28 @@ export function LiveThreats() {
               </p>
             )}
 
-            {blockMutation.error && (
-              <div role="alert" className="mt-3 border-l-2 border-destructive py-1 pl-3 text-sm">
-                <span className="font-semibold">Not blocked.</span> {blockErrorMessage(blockMutation.error, "This host")}
-              </div>
-            )}
-            {blockMutation.isSuccess && (
+            {blocked && (
               <p role="status" className="mt-3 text-sm text-foreground-secondary">
-                Blackhole announced for {blockMutation.variables?.ip} for {BLOCK_MINUTES} minutes. See{" "}
+                Blackhole {blocked.dry_run ? "recorded (dry run) " : "announced "}for <span className="font-ip">{blockTarget(blocked)}</span>
+                {blocked.expires_at ? `, withdrawn at ${new Date(blocked.expires_at).toLocaleTimeString()}` : ""}. See{" "}
                 <Link to="/bgp" className="underline underline-offset-2">
-                  BGP
+                  BGP blocks
                 </Link>
                 .
               </p>
             )}
+            <BlockDialog
+              target={blocking?.ip ?? null}
+              defaultReason={blocking?.reason}
+              subject="This host"
+              pending={blockMutation.isPending}
+              error={blockMutation.error}
+              onConfirm={(duration, reason) => blocking && blockMutation.mutate({ ip: blocking.ip, duration, reason })}
+              onClose={() => {
+                setBlocking(null)
+                blockMutation.reset()
+              }}
+            />
 
             {rows.length > 0 && (
               <ul className="mt-4 border-t border-border">
@@ -186,9 +200,8 @@ export function LiveThreats() {
                     canBlock={canBlock && r.level !== "normal"}
                     blockPending={blockMutation.isPending}
                     onBlock={(reason) => {
-                      if (confirm(`Blackhole ${r.ip} through BGP for ${BLOCK_MINUTES} minutes?`)) {
-                        blockMutation.mutate({ ip: r.ip, reason })
-                      }
+                      blockMutation.reset()
+                      setBlocking({ ip: r.ip, reason })
                     }}
                   />
                 ))}

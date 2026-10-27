@@ -898,9 +898,11 @@ export interface BGPBlock {
   prefix_len: number
   community: string
   next_hop?: string
-  reason: "auto_block" | "manual"
+  /** manual = BGP page, alert = Block on an alert, auto_block = alert engine. */
+  reason: "auto_block" | "manual" | "alert"
   description: string
-  status: "active" | "withdrawn"
+  /** failed = the announce command failed, nothing was blackholed. */
+  status: "active" | "withdrawn" | "failed"
   blocked_by: string
   blocked_at: string
   unblocked_by?: string
@@ -914,14 +916,57 @@ export interface BGPBlock {
   top_sources?: string[]
   duration_seconds?: number
   expires_at?: string
+  /** Recorded with BGP_DRY_RUN=true: no command ran. */
+  dry_run: boolean
 }
 
+/** Comparison of bgp_blocks with what the daemon actually originates. */
+export interface BGPRIBReport {
+  /** false when no routes command is configured (BGP_ROUTES_CMD). */
+  supported: boolean
+  checked_at?: string
+  error?: string
+  routes: number
+  /** Active blocks the daemon does not carry and could not be re-announced. */
+  missing?: string[]
+  /** Routes in the daemon with no active block. Never withdrawn automatically. */
+  orphans?: string[]
+}
+
+/** GET /bgp/status: the session, the safety rails and the last reconciliation. */
 export interface BGPSessionStatus {
   enabled: boolean
+  dry_run: boolean
+  /** false until the active blocks are loaded from ClickHouse (blocking refused). */
+  ready: boolean
+  load_error?: string
+  /** established, idle, active, connect…, unknown (no status command), error, dry-run, disabled */
+  state: string
+  state_error?: string
+  checked_at?: string
+  uptime: number
   peer_address?: string
   peer_as?: number
   local_as?: number
-  state: string
-  uptime: number
+  next_hop_v4?: string
+  next_hop_v6?: string
+  communities: string[]
   routes_announced: number
+  active_blocks: number
+  max_active_blocks: number
+  auto_blocks_last_hour: number
+  auto_blocks_per_hour: number
+  default_duration_minutes: number
+  max_duration_minutes: number
+  min_prefix_len_v4: number
+  min_prefix_len_v6: number
+  allowed_prefixes?: string[]
+  allowed_prefix_count: number
+  allowed_source: string
+  protected_prefixes?: string[]
+  ipv6_enabled: boolean
+  rib: BGPRIBReport
+  last_reconcile_at?: string
+  last_reconcile_ok_at?: string
+  rib_check_interval_seconds: number
 }
