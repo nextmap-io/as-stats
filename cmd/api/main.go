@@ -58,7 +58,7 @@ func main() {
 		}
 	}
 
-	router := api.NewRouter(chStore, cfg, localIPFilter, localPrefixStrs)
+	router := api.NewRouter(ctx, chStore, cfg, localIPFilter, localPrefixStrs)
 
 	srv := &http.Server{
 		Addr:           cfg.ListenAddr,

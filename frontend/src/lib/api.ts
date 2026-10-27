@@ -226,7 +226,7 @@ export const api = {
   resolveAlert: (id: string) =>
     fetchAPI<unknown>(`/alerts/${id}/resolve`, undefined, { method: "POST" }),
   blockAlert: (id: string, durationMinutes: number, reason: string) =>
-    fetchAPI<unknown>(`/alerts/${id}/block`, undefined, {
+    fetchAPI<BGPBlock>(`/alerts/${id}/block`, undefined, {
       method: "POST",
       body: { duration_minutes: durationMinutes, reason },
     }),
@@ -291,18 +291,25 @@ export const api = {
     fetchAPI<AuditLogEntry[]>("/admin/audit", filters as QueryFilters),
 
   // ─── BGP blackhole management ───────────────────────────
-  bgpStatus: () => fetchAPI<BGPSessionStatus>("/bgp/status"),
+  bgpStatus: (refresh = false) =>
+    fetchAPI<BGPSessionStatus>("/bgp/status", refresh ? ({ refresh: "1" } as QueryFilters) : undefined),
   bgpBlocks: () => fetchAPI<BGPBlock[]>("/bgp/blocks"),
   bgpBlockHistory: (limit?: number) =>
     fetchAPI<BGPBlock[]>("/bgp/blocks/history", { ...(limit && { limit }) } as QueryFilters),
+  /** 201 = created, 200 = the target was already blocked (the existing block). */
   bgpBlock: (ip: string, durationMinutes: number, description: string) =>
     fetchAPI<BGPBlock>("/bgp/blocks", undefined, {
       method: "POST",
       body: { ip, duration_minutes: durationMinutes, description },
     }),
-  bgpUnblock: (ip: string, description?: string) =>
-    fetchAPI<unknown>(`/bgp/blocks/${encodeURIComponent(ip)}`, undefined, {
-      method: "DELETE",
-      ...(description ? { body: { description } } : {}),
-    }),
+  /** prefixLen only for a non-host block (e.g. 28 for 198.51.100.16/28). */
+  bgpUnblock: (ip: string, description?: string, prefixLen?: number) =>
+    fetchAPI<unknown>(
+      `/bgp/blocks/${encodeURIComponent(ip)}`,
+      prefixLen ? ({ prefix_len: prefixLen } as QueryFilters) : undefined,
+      {
+        method: "DELETE",
+        ...(description ? { body: { description } } : {}),
+      },
+    ),
 }

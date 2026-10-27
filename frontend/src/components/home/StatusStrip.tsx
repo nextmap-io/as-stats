@@ -112,9 +112,28 @@ function AlertsFact() {
   const value =
     total === 0 ? "No active alerts" : `${formatCount(total)} active, ${critical > 0 ? `${critical} critical` : "none critical"}`
 
+  // The line names the worst alert; say how many others there are, and point
+  // to Live threats, the page that explains an attack, not only to the list.
+  const others = Math.max(0, total - (top ? 1 : 0))
   return (
     <Fact label="Alerts" level={level} value={value}>
       {top ? <AlertLine alert={top} /> : total === 0 ? "Nothing needs a person right now." : null}
+      {total > 0 && (
+        <>
+          {" "}
+          {others > 0 && <>{formatCount(others)}&nbsp;more. </>}
+          {/* Kept together so the separator never starts a line. */}
+          <span className="whitespace-nowrap">
+            <Link to="/alerts" className="underline underline-offset-2">
+              Open Alerts
+            </Link>
+            {" · "}
+            <Link to="/live" className="underline underline-offset-2">
+              Live threats
+            </Link>
+          </span>
+        </>
+      )}
     </Fact>
   )
 }

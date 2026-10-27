@@ -8,6 +8,7 @@ import { stepSecondsOf } from "@/lib/rate"
 import { ExpandableChart } from "@/components/ExpandableChart"
 import { formatNumber } from "@/lib/utils"
 import { ASRef } from "@/components/ASRef"
+import { asDisplayName } from "@/lib/asn"
 import { useUnit } from "@/hooks/useUnit"
 import { IPWithPTR } from "@/components/PTR"
 import { Search } from "lucide-react"
@@ -89,10 +90,10 @@ export function IPDetail() {
             <CardContent>
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border">
-                    <th className="pb-1.5 text-left font-medium text-muted-foreground">IP</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Traffic</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground hidden sm:table-cell">Flows</th>
+                  <tr className="border-b border-foreground">
+                    <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">IP</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Traffic</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground hidden sm:table-cell">Flows</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -122,11 +123,11 @@ export function IPDetail() {
             <CardContent>
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border">
-                    <th className="pb-1.5 text-left font-medium text-muted-foreground">ASN</th>
-                    <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Traffic</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground hidden sm:table-cell">Flows</th>
+                  <tr className="border-b border-foreground">
+                    <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">ASN</th>
+                    <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Name</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Traffic</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground hidden sm:table-cell">Flows</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -140,7 +141,7 @@ export function IPDetail() {
                           className="text-primary hover:underline"
                         />
                       </td>
-                      <td className="py-1 text-muted-foreground truncate max-w-40">{as.as_name || "-"}</td>
+                      <td className="py-1 text-muted-foreground truncate max-w-40">{asDisplayName(as.as_number, as.as_name)}</td>
                       <td className="py-1 text-right">{formatTraffic(as.bytes, periodSeconds, as.packets)}</td>
                       <td className="py-1 text-right text-muted-foreground hidden sm:table-cell">{formatNumber(as.flows)}</td>
                     </tr>

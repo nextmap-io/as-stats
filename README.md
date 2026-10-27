@@ -412,6 +412,7 @@ tables (the migrations create them either way).
 | `FEATURE_ALERTS` | `false` | Alert engine + Alerts + Live Threats + webhooks + audit log + rule admin |
 | `ALERT_EVAL_INTERVAL` | `30s` | How often the alert engine evaluates rules |
 | `ALERT_STALE_THRESHOLD` | `5m` | Active alerts auto-resolve after this gap of silence |
+| `ALERT_REARM_WINDOW` | `1h` | If a rule fires again on the same target within this long after its alert was last seen, that alert is re-opened (no new notification) instead of a new one being created. A rule's `cooldown_seconds` raises it for that rule; `0` leaves only the cooldowns |
 | `FEATURE_REPORTS` | `false` | Scheduled HTML + CSV email reports (Admin › Reports) |
 | `SMTP_HOST`, `SMTP_FROM` | | Required with `FEATURE_REPORTS` |
 | `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_STARTTLS` | `587` / – / – / `true` | Mail submission settings |
@@ -428,17 +429,21 @@ tables (the migrations create them either way).
 | `PROMETHEUS_ALLOW_CIDR` | *(open)* | Comma-separated IPs / CIDRs allowed to scrape `/metrics` (both binaries) |
 | `PROMETHEUS_USER` / `PROMETHEUS_PASS` | | Optional basic auth for `/metrics`; both must be set |
 
-BGP blackholing has its own variables (`BGP_ENABLED`, `BGP_ROUTER_ID`,
-`BGP_LOCAL_AS`, `BGP_PEER_ADDRESS`, `BGP_PEER_AS`, `BGP_NEXT_HOP`,
-`BGP_COMMUNITY`, `BGP_*_CMD`, and `BGP_API_URL` on the collector) — see
+BGP blackholing has its own variables (`BGP_ENABLED`, `BGP_PEER_ADDRESS`,
+`BGP_PEER_AS`, `BGP_LOCAL_AS`, `BGP_NEXT_HOP` / `BGP_NEXT_HOP_V6`,
+`BGP_COMMUNITY`, `BGP_*_CMD`, the safety rails `BGP_ALLOWED_PREFIXES`,
+`BGP_PROTECTED_PREFIXES`, `BGP_MAX_ACTIVE_BLOCKS`,
+`BGP_AUTO_BLOCK_MAX_PER_HOUR`, `BGP_DRY_RUN`…, and `BGP_API_URL` +
+`BGP_API_TOKEN` shared with the collector) — see
 [docs/bgp-blackhole.md](docs/bgp-blackhole.md).
 
 ## Alert engine
 
 When `FEATURE_ALERTS=true`, the collector spawns a goroutine that evaluates
 configurable rules every 30 seconds against pre-aggregated 1-minute hot
-tables, over complete minutes only. Detection does not scan `flows_raw`, so
-its cost does not grow with the raw flow volume.
+tables, over complete minutes only. Detection reads `flows_raw` only to
+confirm a few candidates (port scans, SMTP abuse) and to enrich new alerts,
+so its cost hardly grows with the raw flow volume.
 
 ### Rule types
 
@@ -448,7 +453,7 @@ its cost does not grow with the raw flow volume.
 | `volume_out` | bps / pps sent from a single source (compromised host) |
 | `syn_flood` | TCP SYN-only packet rate to a destination — TCP state-table abuse |
 | `amplification` | Many unique source IPs hitting one destination, with optional sustained-bps floor to filter scanners |
-| `port_scan` | An internal source touching many distinct destination ports |
+| `port_scan` | An internal source sending connection probes to many distinct destination ports: TCP SYN without ACK, or UDP / flagless TCP from a port ≥ 1024 to a port < 1024. Replies of a busy server to its clients' ephemeral ports do not count |
 | `icmp_flood` | ICMP packet rate to a destination — almost never legitimate at high rates |
 | `udp_flood` | UDP packet rate to a destination — DNS / NTP query flood signature |
 | `connection_flood` | High distinct flow count per destination — Slowloris / half-open scan |
@@ -461,6 +466,24 @@ its cost does not grow with the raw flow volume.
 The 17 rules seeded on first startup (only when `alert_rules` is empty) cover
 all of these; the anomaly example is disabled until tuned. Edit them in
 Admin › Alert Rules.
+
+### Fewer false positives: usual level and re-arm
+
+- **Relative to the host's usual level** (`volume_in` / `volume_out`): a rule
+  with a *baseline factor* N fires only when the host is above the threshold
+  **and** at least N times its usual level — its per-minute 99th percentile at
+  the same time of day over the last 7 days. A busy server at its normal level
+  stays quiet; a host without that history is judged on the threshold alone,
+  so a flood on a new host still fires. The seeded "High inbound / outbound
+  volume" rules use 2×, "Sustained outbound exfiltration" 3×; the 2 Gb/s
+  critical rule stays absolute. Existing installs: the collector applies these
+  factors at startup only to the seeded rules you never edited.
+- **Re-arm instead of re-fire**: when a rule fires again on the same target
+  within the re-arm window (`max(cooldown, ALERT_REARM_WINDOW)`, 1 h by
+  default) after its alert resolved, that alert is re-opened ("re-opened ×N" on
+  the Alerts page), without a new notification — unless the value is at least
+  twice the alert's peak, which is a new incident. An acknowledged alert that
+  is still firing is kept up to date instead of being duplicated.
 
 Every rule is bound to a **target filter** — by default the local AS
 prefixes loaded from RIPEstat — so alerts only fire on IPs you actually
@@ -495,15 +518,21 @@ Window 1 min / 5 min / 15 min / 1 h, refreshed every 30 s. API:
 
 ### BGP blackhole hook
 
-The `/alerts/{id}/block` endpoint calls a `Blocker` interface defined in
-`internal/bgp/`. With `BGP_ENABLED=true` the API runs a `ScriptBlocker` that
-executes your announce / withdraw / status commands (gobgp CLI by default,
-or BIRD / FRR via `BGP_ANNOUNCE_CMD` & co.) to push RFC 7999 blackhole
-communities to your edge; the collector's `auto_block` rules reach it through
-`BGP_API_URL`. Without it the endpoint answers **409** instead of pretending
-to block, and alerts that have no single host target (link capacity,
-anomaly, disk usage, subnet flood) answer **422**. Details and daemon
-examples: [docs/bgp-blackhole.md](docs/bgp-blackhole.md).
+With `BGP_ENABLED=true` the API announces RFC 7999 blackholes (`65535:666`
+plus NO_EXPORT) through your own BGP daemon — gobgp by default, BIRD / FRR /
+ExaBGP through command templates run without a shell — from the BGP page,
+the Block button on an alert or Live Threats, or automatically from rules
+with action `auto_block` (the collector asks the API with `BGP_API_TOKEN`).
+Every block passes the same safety rails: only addresses inside the
+allow-list (`BGP_ALLOWED_PREFIXES`, else your LOCAL_AS prefixes; none = every
+block refused), never the BGP peer / next hops / `BGP_PROTECTED_PREFIXES`,
+host routes by default, at most 50 active and 10 automatic per hour, every
+block expires (1 h default, 24 h max). Blocks survive restarts (expired ones
+are withdrawn, the others re-announced) and are reconciled with the daemon's
+RIB every minute. `BGP_DRY_RUN=true` rehearses without announcing anything.
+`/alerts/{id}/block` answers **409** when BGP is off and **422** for alerts
+without a single host target or a target the rules refuse. Setup, daemon and
+router examples, metrics: [docs/bgp-blackhole.md](docs/bgp-blackhole.md).
 
 ## Hardware sizing
 

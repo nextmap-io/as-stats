@@ -45,6 +45,16 @@ const (
 	threatBaselineMinutes = 60
 )
 
+// Per-host baseline constants shared by Live Threats and the alert engine's
+// baseline mode (rule baseline_factor): the usual level is the
+// ThreatBaselines p95, never below the floors, and a host with fewer than
+// BaselineMinSamples minutes of history at that time of day counts as new.
+const (
+	BaselineFloorBPS   = 1_000_000 // 1 Mb/s
+	BaselineFloorPPS   = 1_000
+	BaselineMinSamples = 30
+)
+
 // threatSQL holds the whitelisted identifiers for one direction. Inbound
 // looks at local destinations, outbound at local sources.
 type threatSQL struct {
@@ -102,6 +112,11 @@ type ThreatHistory struct {
 	BytesP95   uint64
 	PacketsP50 uint64
 	PacketsP95 uint64
+	// p99: the alert engine's baseline mode compares with it (a host that
+	// bursts to X a few minutes a day is usually capable of X); Live
+	// Threats uses the p95.
+	BytesP99   uint64
+	PacketsP99 uint64
 }
 
 // ThreatPortStat is one (protocol, remote port) of a host in the lookup.
@@ -254,8 +269,8 @@ func ipsInList(col string) string {
 }
 
 // ThreatBaselines returns, per candidate IP (display form), the per-minute
-// p50 / p95 of bytes and packets over the same time of day on the previous
-// 7 days. Minutes without traffic are not samples: the percentiles describe
+// p50 / p95 / p99 of bytes and packets over the same time of day on the
+// previous 7 days. Minutes without traffic are not samples: the percentiles describe
 // the host when it is active. Hosts without history are absent from the map.
 //
 // It deliberately does not read the HLL peer columns: they dominate the
@@ -274,8 +289,8 @@ func (s *ClickHouseStore) ThreatBaselines(ctx context.Context, direction string,
 		SELECT
 			toString(x.ip)                  AS ip_s,
 			count()                         AS samples,
-			quantilesExact(0.5, 0.95)(x.mb) AS qb,
-			quantilesExact(0.5, 0.95)(x.mp) AS qp
+			quantilesExact(0.5, 0.95, 0.99)(x.mb) AS qb,
+			quantilesExact(0.5, 0.95, 0.99)(x.mp) AS qp
 		FROM (
 			SELECT
 				h.%[1]s        AS ip,
@@ -306,9 +321,9 @@ func (s *ClickHouseStore) ThreatBaselines(ctx context.Context, direction string,
 		if err := rows.Scan(&ip, &h.Samples, &qb, &qp); err != nil {
 			return nil, err
 		}
-		if len(qb) == 2 && len(qp) == 2 {
-			h.BytesP50, h.BytesP95 = qb[0], qb[1]
-			h.PacketsP50, h.PacketsP95 = qp[0], qp[1]
+		if len(qb) == 3 && len(qp) == 3 {
+			h.BytesP50, h.BytesP95, h.BytesP99 = qb[0], qb[1], qb[2]
+			h.PacketsP50, h.PacketsP95, h.PacketsP99 = qp[0], qp[1], qp[2]
 		}
 		out[cleanIPv4Mapped(ip)] = h
 	}

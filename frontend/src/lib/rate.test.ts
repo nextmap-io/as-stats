@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatBitRate, formatRate, legacyBucketSeconds, stepSecondsOf } from "./rate"
+import { formatBitRate, formatRate, formatRateAxis, legacyBucketSeconds, niceStep, rateAxisTicks, stepSecondsOf } from "./rate"
 import { ourView } from "./asn"
 
 describe("stepSecondsOf", () => {
@@ -23,6 +23,26 @@ describe("formatRate", () => {
     expect(formatRate(3000, 60, "pps", "packets")).toBe("50.0 p/s")
     // A byte count in pps mode stays a bit rate instead of being mislabelled.
     expect(formatRate(7_500_000, 60, "pps", "bytes")).toBe("1.00 Mb/s")
+  })
+})
+
+describe("rateAxisTicks", () => {
+  const label = (t: number, secs: number) => (t < 0 ? "-" : "") + formatRateAxis(Math.abs(t), secs, "bps", "bytes")
+  it("puts ticks on round rates, not round byte counts", () => {
+    // 5-min buckets, peak 920 Mb/s
+    const { ticks, domain } = rateAxisTicks(0, (920e6 / 8) * 300, 300, "bps", "bytes")
+    expect(ticks.map((t) => label(t, 300))).toEqual(["0", "250M", "500M", "750M", "1G"])
+    expect(domain[1]).toBe(ticks[ticks.length - 1])
+  })
+  it("uses one step on both sides of a mirrored chart", () => {
+    const { ticks } = rateAxisTicks(-(300e6 / 8) * 60, (900e6 / 8) * 60, 60, "bps", "bytes")
+    expect(ticks.map((t) => label(t, 60))).toEqual(["-500M", "0", "500M", "1G"])
+  })
+  it("survives an empty series", () => {
+    expect(rateAxisTicks(0, 0, 60, "bps", "bytes")).toEqual({ ticks: [0], domain: [0, 1] })
+  })
+  it("rounds steps to 1, 2, 2.5 or 5", () => {
+    expect([0.7, 1.4, 2.2, 3, 7].map(niceStep)).toEqual([1, 2, 2.5, 5, 10])
   })
 })
 

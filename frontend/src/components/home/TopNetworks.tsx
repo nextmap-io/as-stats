@@ -3,7 +3,7 @@ import { useTopAS } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
 import { useFeatureFlags } from "@/hooks/useFeatures"
 import { useUnit } from "@/hooks/useUnit"
-import { asPath, isPrivateASGroup, ourView } from "@/lib/asn"
+import { asPath, isPrivateASGroup, ourView, PRIVATE_AS_GROUP_NOTE } from "@/lib/asn"
 import { formatRate } from "@/lib/rate"
 import { ErrorDisplay } from "@/components/ui/error"
 import { TableSkeleton } from "@/components/ui/skeleton"
@@ -72,7 +72,7 @@ export function TopNetworks({ ownIn, ownOut }: { ownIn: number; ownOut: number }
                   {grouped ? (
                     <>
                       <span className="font-semibold">Private / internal</span>{" "}
-                      <span className="text-[13px] text-muted-foreground">private ASNs, grouped</span>
+                      <span className="text-[13px] text-muted-foreground">{PRIVATE_AS_GROUP_NOTE}</span>
                     </>
                   ) : (
                     <>

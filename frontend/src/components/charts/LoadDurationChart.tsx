@@ -11,6 +11,7 @@ import {
 import type { LoadCurve } from "@/lib/types"
 import { axisTick, tooltipBoxStyle, useChartColors, annotationLabel, X_TICK_MARGIN } from "@/hooks/useChartColors"
 import { formatBitsPerSec } from "@/lib/utils"
+import { rateAxisTicks } from "@/lib/rate"
 
 interface LoadDurationChartProps {
   curve: LoadCurve
@@ -36,14 +37,16 @@ export function LoadDurationChart({ curve, capacityBps, height = 300, title }: L
   }))
 
   const maxData = n > 0 ? curve.points[0] : 0
+  // Drawn against capacity when there is one (a full chart means a full pipe),
+  // on round bit rates: the top used to be capacity × 1.05, labelled "1.05 Gb/s".
   const domainMax = capacityBps && capacityBps > maxData ? capacityBps : maxData
-  const yMax = domainMax > 0 ? domainMax * 1.05 : 1
+  const y = rateAxisTicks(0, domainMax, 1, "bytes", "bytes")
 
   return (
     <div className="overflow-hidden">
       {title && <h3 className="mb-1 text-[13px] text-foreground-secondary">{title}</h3>}
       <ResponsiveContainer width="100%" height={height}>
-        <AreaChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
+        <AreaChart data={data} margin={{ top: 8, right: 2, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke={chartColors.grid} />
           <XAxis
             tickMargin={X_TICK_MARGIN}
@@ -58,7 +61,9 @@ export function LoadDurationChart({ curve, capacityBps, height = 300, title }: L
           />
           <YAxis
             type="number"
-            domain={[0, yMax]}
+            domain={y.domain}
+            ticks={y.ticks}
+            interval={0}
             tick={axisTick(chartColors)}
             tickLine={false}
             axisLine={false}
@@ -85,9 +90,10 @@ export function LoadDurationChart({ curve, capacityBps, height = 300, title }: L
           <Area
             type="stepAfter"
             dataKey="bps"
-            stroke={chartColors.outbound}
-            fill={chartColors.outbound}
-            fillOpacity={0.35}
+            // The busier direction, either way: neutral ink, not the outbound cobalt.
+            stroke={chartColors.ink}
+            fill={chartColors.text}
+            fillOpacity={0.3}
             strokeWidth={1}
             dot={false}
             isAnimationActive={false}

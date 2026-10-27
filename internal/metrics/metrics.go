@@ -145,8 +145,18 @@ var AlertEngineCycleDuration = promauto.NewHistogram(prometheus.HistogramOpts{
 
 var CooldownMapSize = promauto.NewGauge(prometheus.GaugeOpts{
 	Name: "asstats_cooldown_map_size",
-	Help: "Current number of entries in the alert engine cooldown map.",
+	Help: "Current number of entries in the alert engine's recent-alert map (rule|target → alert stored or re-opened by this process).",
 })
+
+var AlertsReopened = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "asstats_alerts_reopened_total",
+	Help: "Alerts re-opened instead of re-created: the condition came back within the re-arm window after an auto-resolution (no new notification).",
+}, []string{"severity"})
+
+var AlertsBaselineSuppressed = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "asstats_alerts_baseline_suppressed_total",
+	Help: "Violations of a rule with a baseline_factor dropped because the target was not that far above its usual level.",
+}, []string{"rule_type"})
 
 // ── API: HTTP ───────────────────────────────────────────────────────────────
 
@@ -160,3 +170,63 @@ var HTTPRequestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Help:    "HTTP request latency by method and route pattern.",
 	Buckets: prometheus.DefBuckets,
 }, []string{"method", "route"})
+
+// ── API: BGP blackholing ────────────────────────────────────────────────────
+//
+// Alert on asstats_bgp_daemon_up == 0 while asstats_bgp_blocks_active > 0
+// (protection is not where the table says it is), on
+// increase(asstats_bgp_commands_total{result="error"}[10m]) > 0, and on
+// asstats_bgp_rib_missing > 0 (a block the daemon lost and could not re-push).
+
+var BGPBlocksActive = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Name: "asstats_bgp_blocks_active",
+	Help: "Active blackhole blocks held by the API, by mode (live / dry_run).",
+}, []string{"mode"})
+
+var BGPBlockRequests = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "asstats_bgp_block_requests_total",
+	Help: "Block requests by source (manual / alert / auto_block) and result (created / existing / rejected / limited / error).",
+}, []string{"source", "result"})
+
+var BGPWithdrawals = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "asstats_bgp_withdrawals_total",
+	Help: "Blackhole withdrawals by trigger (manual / expired / orphan / dry_run_discard) and result (ok / error).",
+}, []string{"trigger", "result"})
+
+var BGPCommands = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "asstats_bgp_commands_total",
+	Help: "BGP daemon commands run, by action (announce / withdraw / status / routes) and result (ok / error).",
+}, []string{"action", "result"})
+
+var BGPCommandDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	Name:    "asstats_bgp_command_duration_seconds",
+	Help:    "Duration of BGP daemon commands by action.",
+	Buckets: prometheus.ExponentialBuckets(0.01, 2, 11), // 10ms → 10s
+}, []string{"action"})
+
+var BGPDaemonUp = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "asstats_bgp_daemon_up",
+	Help: "1 when the last status command reported an established session, 0 otherwise, -1 when no status command is configured.",
+})
+
+var BGPReannounced = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "asstats_bgp_reannounced_total",
+	Help: "Active blocks re-pushed to the daemon (startup restore, or found missing from its RIB).",
+})
+
+var BGPRIBMissing = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "asstats_bgp_rib_missing",
+	Help: "Active live blocks absent from the daemon's RIB after the last reconciliation (re-announce failed).",
+})
+
+var BGPRIBOrphans = promauto.NewGauge(prometheus.GaugeOpts{
+	Name: "asstats_bgp_rib_orphans",
+	Help: "Routes the daemon originates that as-stats has no active block for.",
+})
+
+// ── Collector: auto-block client ────────────────────────────────────────────
+
+var BGPAutoBlockRequests = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "asstats_bgp_auto_block_requests_total",
+	Help: "Auto-block requests sent by the alert engine to the API, by result (created / existing / refused / error).",
+}, []string{"result"})

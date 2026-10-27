@@ -2,15 +2,18 @@
 //
 // The engine runs as a goroutine inside the collector. Every
 // AlertEvalInterval (default 30s), it:
-//  1. Loads enabled rules from alert_rules
-//  2. For each rule, runs the corresponding pre-aggregated query
-//     against traffic_by_dst_1min or traffic_by_src_1min
-//  3. For each violation: creates a new Alert (or heartbeats existing one)
-//  4. Resolves stale active alerts (last_seen older than threshold)
-//  5. Sends notifications via configured webhooks
+//  1. Resolves stale active alerts (last_seen older than ALERT_STALE_THRESHOLD)
+//  2. Loads enabled rules from alert_rules
+//  3. For each rule, runs the corresponding pre-aggregated query against
+//     traffic_by_dst_1min or traffic_by_src_1min (port_scan then confirms its
+//     candidates on flows_raw), and drops the violations of baseline rules
+//     whose target is at its usual level (baseline.go)
+//  4. For each violation: heartbeats the alert of that rule+target, re-opens
+//     it when it resolved within the re-arm window, or creates a new one
+//  5. Sends notifications via configured webhooks (new alerts only)
 //
-// The engine only queries HOT pre-aggregated tables, not flows_raw or
-// flows_log, so it scales to very high flow volumes.
+// The engine queries the HOT pre-aggregated tables, plus bounded flows_raw
+// lookups for candidates only, so it scales to very high flow volumes.
 package alerts
 
 import (
@@ -50,13 +53,17 @@ type Store interface {
 	EvalDiskUsage(ctx context.Context, thresholdPct uint64) ([]store.AlertViolation, error)
 	EvalLinkCapacity(ctx context.Context, thresholdPct uint64, window uint32) ([]store.AlertViolation, error)
 	EvalAnomaly(ctx context.Context, k float64, linkFilter string) ([]store.AlertViolation, error)
+	// ThreatBaselines is the Live Threats per-host history, reused by the
+	// baseline mode of the volume rules (baseline.go).
+	ThreatBaselines(ctx context.Context, direction string, anchor time.Time, probes []string) (map[string]store.ThreatHistory, error)
 
 	ListHostgroups(ctx context.Context) ([]model.Hostgroup, error)
 	TopSourcesForTarget(ctx context.Context, targetIP net.IP, window uint32, limit int) ([]string, error)
 	AnomalyExplain(ctx context.Context, target string, from, to time.Time) (model.AnomalyExplanation, error)
 
-	FindActiveAlert(ctx context.Context, ruleID string, targetIP net.IP) (string, time.Time, error)
+	LatestAlert(ctx context.Context, ruleID string, targetIP net.IP) (store.AlertState, error)
 	InsertAlert(ctx context.Context, a model.Alert) error
+	ReopenAlert(ctx context.Context, id string, ts time.Time, value float64) error
 	UpdateAlertLastSeen(ctx context.Context, id string, ts time.Time) error
 	AutoResolveStaleAlerts(ctx context.Context, olderThan time.Duration) error
 }
@@ -66,31 +73,42 @@ type Notifier interface {
 	Notify(ctx context.Context, webhook model.WebhookConfig, alert model.Alert) error
 }
 
-// BlockerClient is the interface used by the engine to trigger BGP blackholes.
-// The collector passes a RemoteBlocker (HTTP to API) or NoopBlocker.
+// BlockerClient asks the API to blackhole the target of an auto_block rule
+// (bgp.Client in the collector). The API owns the daemon, bgp_blocks and
+// every safety rail (allow-list, max active, auto-blocks per hour); the
+// engine only asks.
 type BlockerClient interface {
-	Announce(ctx context.Context, target net.IP, duration time.Duration, reason string) error
+	AutoBlock(ctx context.Context, req bgp.AutoBlockRequest) (created bool, err error)
 }
 
-// BlockStore is the subset of the store needed for block persistence.
-type BlockStore interface {
-	InsertBlock(ctx context.Context, b model.BGPBlock) error
-	FindActiveBlock(ctx context.Context, ip string) (string, error)
+// DefaultRearmWindow is the default ALERT_REARM_WINDOW: a violation of the
+// same rule on the same target within this long after its last alert was
+// last seen re-opens that alert instead of creating a new one.
+const DefaultRearmWindow = time.Hour
+
+// recentAlert is an alert this process inserted or re-opened, kept so the
+// next cycles heartbeat it by id while the INSERT / mutation may not be
+// visible to a read yet.
+type recentAlert struct {
+	id string
+	at time.Time
 }
 
 // Engine evaluates alert rules against pre-aggregated hot tables.
 type Engine struct {
 	store         Store
 	notifier      Notifier
-	blocker       BlockerClient // BGP blocker (nil = no auto-blocking)
-	blockStore    BlockStore    // persists block records (nil = skip)
+	blocker       BlockerClient // BGP auto-block client (nil = no auto-blocking)
 	localPrefixes []string
 	evalInterval  time.Duration
 	staleAfter    time.Duration
+	rearmWindow   time.Duration
+	now           func() time.Time
 
-	// In-memory cooldown tracker: rule_id|target_ip -> last trigger time
-	mu       sync.Mutex
-	cooldown map[string]time.Time
+	// rule_id|target_ip -> the alert this process last stored or re-opened.
+	// Pruned by cooldownCleanupLoop (CLAUDE.md bug #3: never unbounded).
+	mu     sync.Mutex
+	recent map[string]recentAlert
 }
 
 // New creates a new alert engine.
@@ -101,23 +119,48 @@ func New(s Store, notifier Notifier, localPrefixes []string, evalInterval, stale
 		localPrefixes: localPrefixes,
 		evalInterval:  evalInterval,
 		staleAfter:    staleAfter,
-		cooldown:      make(map[string]time.Time),
+		rearmWindow:   DefaultRearmWindow,
+		now:           func() time.Time { return time.Now().UTC() },
+		recent:        make(map[string]recentAlert),
 	}
 }
 
-// SetBlocker configures the BGP blocker for auto-block rules. When set,
-// rules with action="auto_block" will call the blocker on violation.
-func (e *Engine) SetBlocker(b BlockerClient, bs BlockStore) {
+// SetBlocker configures the BGP client for auto-block rules. When set,
+// rules with action="auto_block" ask it to blackhole their target.
+func (e *Engine) SetBlocker(b BlockerClient) {
 	e.blocker = b
-	e.blockStore = bs
+}
+
+// SetRearmWindow sets the minimum re-arm window (ALERT_REARM_WINDOW); a
+// rule's cooldown_seconds raises it for that rule. 0 leaves only the rules'
+// cooldowns.
+func (e *Engine) SetRearmWindow(d time.Duration) {
+	if d >= 0 {
+		e.rearmWindow = d
+	}
+}
+
+// SetClock replaces the engine's clock (tests and the replay harness).
+func (e *Engine) SetClock(now func() time.Time) { e.now = now }
+
+// rearmFor is the re-arm window of a rule: the longer of its cooldown and
+// the engine-wide minimum.
+func (e *Engine) rearmFor(rule model.AlertRule) time.Duration {
+	return max(time.Duration(rule.CooldownSeconds)*time.Second, e.rearmWindow)
+}
+
+// recentTrust is how long an alert this process just inserted or re-opened
+// is heartbeated by id without reading it back.
+func (e *Engine) recentTrust() time.Duration {
+	return max(2*e.evalInterval, time.Minute)
 }
 
 // Run blocks until ctx is cancelled, evaluating rules periodically.
 func (e *Engine) Run(ctx context.Context) {
-	log.Printf("alert engine: starting (eval=%s, stale=%s, prefixes=%d)",
-		e.evalInterval, e.staleAfter, len(e.localPrefixes))
+	log.Printf("alert engine: starting (eval=%s, stale=%s, rearm=%s, prefixes=%d)",
+		e.evalInterval, e.staleAfter, e.rearmWindow, len(e.localPrefixes))
 
-	// Background cleanup of the cooldown map. Without this, the map grows
+	// Background cleanup of the recent-alert map. Without this, the map grows
 	// unboundedly: every (rule_id, target_ip) pair that ever fires keeps an
 	// entry forever. Triggering thousands of unique attacker IPs over weeks
 	// would slowly leak memory.
@@ -145,8 +188,8 @@ func (e *Engine) Run(ctx context.Context) {
 	}
 }
 
-// cooldownCleanupLoop periodically drops cooldown entries that are well past
-// their expiration so the in-memory map cannot grow unbounded.
+// cooldownCleanupLoop periodically drops recent-alert entries that are well
+// past any use so the in-memory map cannot grow unbounded.
 func (e *Engine) cooldownCleanupLoop(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
@@ -155,27 +198,26 @@ func (e *Engine) cooldownCleanupLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// 1h is intentionally generous: even the longest-cooldown default
-			// rule (10 min) is comfortably below this floor, so an entry that
-			// hasn't been refreshed in 1h cannot still be in cooldown.
+			// An entry is only trusted for recentTrust (≥ 1 min); the DB is
+			// the source of truth after that, so 1h is generous.
 			e.cleanupCooldown(time.Hour)
 		}
 	}
 }
 
 func (e *Engine) cleanupCooldown(maxAge time.Duration) int {
-	cutoff := time.Now().Add(-maxAge)
+	cutoff := e.now().Add(-maxAge)
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	removed := 0
-	for k, t := range e.cooldown {
-		if t.Before(cutoff) {
-			delete(e.cooldown, k)
+	for k, r := range e.recent {
+		if r.at.Before(cutoff) {
+			delete(e.recent, k)
 			removed++
 		}
 	}
 	if removed > 0 {
-		log.Printf("alert engine: cooldown cleanup removed %d stale entries (remaining=%d)", removed, len(e.cooldown))
+		log.Printf("alert engine: recent-alert cleanup removed %d stale entries (remaining=%d)", removed, len(e.recent))
 	}
 	return removed
 }
@@ -185,7 +227,10 @@ func (e *Engine) evaluateOnce(ctx context.Context) {
 	defer func() {
 		d := time.Since(start)
 		metrics.AlertEngineCycleDuration.Observe(d.Seconds())
-		metrics.CooldownMapSize.Set(float64(len(e.cooldown)))
+		e.mu.Lock()
+		n := len(e.recent)
+		e.mu.Unlock()
+		metrics.CooldownMapSize.Set(float64(n))
 		if d > 5*time.Second {
 			log.Printf("alert engine: evaluation took %s (slow!)", d)
 		}
@@ -239,11 +284,23 @@ func (e *Engine) evaluateOnce(ctx context.Context) {
 }
 
 func (e *Engine) evaluateRule(ctx context.Context, rule model.AlertRule, webhooks map[string]model.WebhookConfig, hostgroups map[string]model.Hostgroup) {
+	violations, metricType, ok := e.ruleViolations(ctx, rule, hostgroups)
+	if !ok {
+		return
+	}
+	violations = e.applyBaseline(ctx, rule, violations)
+	for i := range violations {
+		e.handleViolation(ctx, rule, violations[i], metricType, webhooks)
+	}
+}
+
+// ruleViolations runs a rule's evaluation query and returns its violations
+// (before the baseline gate) and metric type; ok is false on error or for a
+// rule type the engine does not evaluate.
+func (e *Engine) ruleViolations(ctx context.Context, rule model.AlertRule, hostgroups map[string]model.Hostgroup) (violations []store.AlertViolation, metricType string, ok bool) {
 	metrics.AlertEvaluations.WithLabelValues(rule.RuleType).Inc()
 
-	var violations []store.AlertViolation
 	var err error
-	var metricType string
 
 	// Resolve target filter: hostgroup → rule-specific → global LOCAL_AS prefixes
 	prefixes := e.localPrefixes
@@ -312,17 +369,14 @@ func (e *Engine) evaluateRule(ctx context.Context, rule model.AlertRule, webhook
 		violations, err = e.store.EvalAnomaly(ctx, k, rule.TargetFilter)
 	default:
 		// 'custom' not implemented in phase 1
-		return
+		return nil, "", false
 	}
 
 	if err != nil {
 		log.Printf("alert engine: rule %s (%s) error: %v", rule.Name, rule.RuleType, err)
-		return
+		return nil, "", false
 	}
-
-	for i := range violations {
-		e.handleViolation(ctx, rule, violations[i], metricType, webhooks)
-	}
+	return violations, metricType, true
 }
 
 // enrichViolation attaches best-effort triage context to a violation.
@@ -382,11 +436,29 @@ func labelTargetIP(label string) net.IP {
 	return ip
 }
 
+// handleViolation turns one violation into a heartbeat, a re-opened alert or
+// a new alert.
+//
+// Lifecycle (CLAUDE.md "Alert engine", bug #24): an alert auto-resolves after
+// ALERT_STALE_THRESHOLD without a violation. A target hovering around a
+// threshold used to resolve and re-fire — one new alert and one notification
+// every ~20 minutes all day. Now the most recent alert of the rule for the
+// target decides, if it was last seen within the re-arm window
+// (max(cooldown_seconds, ALERT_REARM_WINDOW)):
+//
+//   - active / acknowledged / muted: heartbeat it (an acknowledged incident
+//     no longer spawns a duplicate alert while it is still going on);
+//   - resolved: re-open it (status active, peak metric, reopen_count + 1),
+//     without a new notification; auto_block rules re-announce, since the
+//     previous block may have expired — unless the value is at least
+//     RearmEscalation times the alert's peak, which is a new incident.
+//
+// Otherwise a new alert is stored, enriched and notified.
 func (e *Engine) handleViolation(ctx context.Context, rule model.AlertRule, v store.AlertViolation, metricType string, webhooks map[string]model.WebhookConfig) {
-	now := time.Now().UTC()
+	now := e.now()
 	// Identity of this violation. Non-IP targets (link_capacity, anomaly) carry
 	// theirs in TargetLabel and get a synthetic address (see labelTargetIP) so
-	// that the cooldown key, the DB dedup lookup, the heartbeat and the stored
+	// that the recent-alert key, the DB lookup, the heartbeat and the stored
 	// row all agree on one identity per label.
 	targetIP := v.TargetIP
 	if targetIP == nil && v.TargetLabel != "" {
@@ -398,39 +470,8 @@ func (e *Engine) handleViolation(ctx context.Context, rule model.AlertRule, v st
 	if v.TargetLabel != "" {
 		display = v.TargetLabel
 	}
-	cooldownKey := rule.ID + "|" + target
+	key := rule.ID + "|" + target
 
-	// Check in-memory cooldown (fast path)
-	e.mu.Lock()
-	lastTrig, inCooldown := e.cooldown[cooldownKey]
-	if inCooldown && now.Sub(lastTrig) < time.Duration(rule.CooldownSeconds)*time.Second {
-		// Still in cooldown — update last_seen of existing alert and exit
-		e.mu.Unlock()
-		e.heartbeat(ctx, rule, targetIP, now)
-		return
-	}
-	e.mu.Unlock()
-
-	// Check for existing active alert (DB-level dedup)
-	existingID, _, err := e.store.FindActiveAlert(ctx, rule.ID, targetIP)
-	if err != nil {
-		log.Printf("alert engine: find active alert error: %v", err)
-		return
-	}
-
-	if existingID != "" {
-		// Active alert exists — just heartbeat
-		if err := e.store.UpdateAlertLastSeen(ctx, existingID, now); err != nil {
-			log.Printf("alert engine: heartbeat error: %v", err)
-		}
-		return
-	}
-
-	// A new alert is going to be stored — only now is the enrichment worth its
-	// flows_raw scans.
-	e.enrichViolation(ctx, rule, &v)
-
-	// Create new alert
 	threshold := float64(rule.ThresholdBps)
 	switch metricType {
 	case "pps":
@@ -441,6 +482,75 @@ func (e *Engine) handleViolation(ctx context.Context, rule model.AlertRule, v st
 		threshold = float64(rule.ThresholdCount)
 	}
 
+	// Fast path: this process stored or re-opened the alert moments ago and
+	// the INSERT / mutation may not be visible to a read yet.
+	e.mu.Lock()
+	r, ok := e.recent[key]
+	e.mu.Unlock()
+	if ok && now.Sub(r.at) < e.recentTrust() {
+		e.touch(ctx, r.id, now)
+		return
+	}
+
+	last, err := e.store.LatestAlert(ctx, rule.ID, targetIP)
+	if err != nil {
+		log.Printf("alert engine: latest alert lookup error: %v", err)
+		return
+	}
+	if last.ID != "" && now.Sub(last.LastSeenAt) < e.rearmFor(rule) {
+		if last.Status != "resolved" {
+			e.touch(ctx, last.ID, now)
+			return
+		}
+		if v.MetricValue >= RearmEscalation*last.MetricValue && last.MetricValue > 0 {
+			// Much worse than the incident it would re-open: a new incident,
+			// stored and notified as such (below).
+			log.Printf("alert engine: %s [%s] %s escalated to %.2f %s (previous peak %.2f): new alert instead of a re-open",
+				rule.Severity, rule.Name, display, v.MetricValue, metricType, last.MetricValue)
+		} else {
+			e.reopen(ctx, rule, v, last, key, target, display, metricType, threshold, now)
+			return
+		}
+	}
+
+	// A new alert is going to be stored — only now is the enrichment worth its
+	// flows_raw scans.
+	e.enrichViolation(ctx, rule, &v)
+
+	// Create new alert
+	e.insertNew(ctx, rule, v, key, target, display, metricType, threshold, now, webhooks)
+}
+
+// RearmEscalation: a violation at least this many times the peak of the
+// resolved alert it would re-open is a new incident (new alert, notified),
+// not a re-open — the re-arm window must not hide an attack that resumes ten
+// times stronger.
+const RearmEscalation = 2.0
+
+// reopen re-arms a resolved alert of the same rule and target (see
+// handleViolation).
+func (e *Engine) reopen(ctx context.Context, rule model.AlertRule, v store.AlertViolation, last store.AlertState, key, target, display, metricType string, threshold float64, now time.Time) {
+	if err := e.store.ReopenAlert(ctx, last.ID, now, v.MetricValue); err != nil {
+		log.Printf("alert engine: re-open alert error: %v", err)
+		return
+	}
+	metrics.AlertsReopened.WithLabelValues(rule.Severity).Inc()
+	e.remember(key, last.ID, now)
+	log.Printf("alert engine: re-armed %s [%s] %s — %.2f %s (threshold %.2f), resolved %s ago",
+		rule.Severity, rule.Name, display, v.MetricValue, metricType, threshold, now.Sub(last.LastSeenAt).Round(time.Second))
+	// The previous block may have expired: auto_block rules announce again
+	// (safeAutoBlock skips a target that is still blocked).
+	if rule.Action == "auto_block" && e.blocker != nil && v.TargetIP != nil {
+		go e.safeAutoBlock(rule, model.Alert{
+			ID: last.ID, RuleID: rule.ID, RuleName: rule.Name, Severity: rule.Severity,
+			TargetIP: target, MetricValue: v.MetricValue, Threshold: threshold, MetricType: metricType,
+		}, v)
+	}
+}
+
+// insertNew stores, notifies and (auto_block) blocks a new alert. v has
+// already been enriched.
+func (e *Engine) insertNew(ctx context.Context, rule model.AlertRule, v store.AlertViolation, key, target, display, metricType string, threshold float64, now time.Time, webhooks map[string]model.WebhookConfig) {
 	details := store.AlertDetails{
 		UniqueCount:  v.UniqueCount,
 		WindowSecond: rule.WindowSeconds,
@@ -482,10 +592,7 @@ func (e *Engine) handleViolation(ctx context.Context, rule model.AlertRule, v st
 
 	metrics.AlertsFired.WithLabelValues(rule.Severity).Inc()
 
-	// Track cooldown
-	e.mu.Lock()
-	e.cooldown[cooldownKey] = now
-	e.mu.Unlock()
+	e.remember(key, alert.ID, now)
 
 	log.Printf("alert engine: 🚨 %s [%s] %s — %.2f %s (threshold %.2f)",
 		rule.Severity, rule.Name, display, v.MetricValue, metricType, threshold)
@@ -507,12 +614,21 @@ func (e *Engine) handleViolation(ctx context.Context, rule model.AlertRule, v st
 	}
 
 	// Auto-block if rule action is "auto_block" and a blocker is configured.
-	// Label-targeted rules are excluded: their stored target is a synthetic
-	// address standing in for a link tag, and announcing a blackhole for it
-	// would be meaningless at best.
-	if rule.Action == "auto_block" && e.blocker != nil && v.TargetIP != nil {
+	// Only single-host targets: label-targeted rules store a synthetic
+	// address standing in for a link tag, and subnet_flood / disk_usage /
+	// link-level rules have no host to blackhole.
+	if rule.Action == "auto_block" && e.blocker != nil && v.TargetIP != nil && v.TargetLabel == "" && autoBlockableRule(rule.RuleType) {
 		go e.safeAutoBlock(rule, alert, v)
 	}
+}
+
+// autoBlockableRule reports whether a rule type's violations name one host.
+func autoBlockableRule(ruleType string) bool {
+	switch ruleType {
+	case "link_capacity", "anomaly", "disk_usage", "subnet_flood":
+		return false
+	}
+	return true
 }
 
 func (e *Engine) safeAutoBlock(rule model.AlertRule, alert model.Alert, v store.AlertViolation) {
@@ -521,22 +637,12 @@ func (e *Engine) safeAutoBlock(rule model.AlertRule, alert model.Alert, v store.
 			log.Printf("alert engine: auto-block panic: %v", r)
 		}
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	ip := net.ParseIP(alert.TargetIP)
-	if ip == nil {
+	if net.ParseIP(alert.TargetIP) == nil {
 		return
 	}
-
-	// Skip if already blocked
-	if e.blockStore != nil {
-		if existing, _ := e.blockStore.FindActiveBlock(ctx, alert.TargetIP); existing != "" {
-			return
-		}
-	}
-
-	// Auto-generate description with alert context
 	topSrc := ""
 	if len(v.TopSources) > 0 {
 		topSrc = fmt.Sprintf(" Top sources: %s", strings.Join(v.TopSources, ", "))
@@ -544,52 +650,40 @@ func (e *Engine) safeAutoBlock(rule model.AlertRule, alert model.Alert, v store.
 	description := fmt.Sprintf("Auto-blocked by rule '%s': %.2f %s exceeded threshold %.2f.%s",
 		rule.Name, alert.MetricValue, alert.MetricType, alert.Threshold, topSrc)
 
-	duration := time.Hour // 1h default for auto-blocks
-
-	if err := e.blocker.Announce(ctx, ip, duration, description); err != nil {
-		log.Printf("alert engine: auto-block FAILED for %s: %v", alert.TargetIP, err)
-		return
-	}
-
-	log.Printf("alert engine: AUTO-BLOCKED %s (rule=%s, duration=1h)", alert.TargetIP, rule.Name)
-
-	// Persist to ClickHouse
-	if e.blockStore != nil {
-		now := time.Now().UTC()
-		expiresAt := now.Add(duration)
-		prefixLen := bgp.HostPrefixLen(ip)
-		block := model.BGPBlock{
-			ID:              uuid.NewString(),
-			IP:              alert.TargetIP,
-			PrefixLen:       prefixLen,
-			Reason:          "auto_block",
-			Description:     description,
-			Status:          "active",
-			BlockedBy:       "engine",
-			BlockedAt:       now,
-			AlertID:         alert.ID,
-			RuleName:        rule.Name,
-			MetricValue:     alert.MetricValue,
-			MetricType:      alert.MetricType,
-			Threshold:       alert.Threshold,
-			TopSources:      v.TopSources,
-			DurationSeconds: uint32(duration.Seconds()),
-			ExpiresAt:       &expiresAt,
-		}
-		if err := e.blockStore.InsertBlock(ctx, block); err != nil {
-			log.Printf("alert engine: auto-block CH insert failed for %s: %v", alert.TargetIP, err)
-		}
+	// duration 0 = the API's BGP_DEFAULT_DURATION. Duplicates, rails and the
+	// allow-list are the API's call; a refusal is logged, never retried.
+	created, err := e.blocker.AutoBlock(ctx, bgp.AutoBlockRequest{
+		IP:          alert.TargetIP,
+		Description: description,
+		AlertID:     alert.ID,
+		RuleName:    rule.Name,
+		MetricValue: alert.MetricValue,
+		MetricType:  alert.MetricType,
+		Threshold:   alert.Threshold,
+		TopSources:  v.TopSources,
+	})
+	switch {
+	case err != nil:
+		log.Printf("alert engine: auto-block of %s NOT applied (rule=%s): %v", alert.TargetIP, rule.Name, err)
+	case created:
+		log.Printf("alert engine: AUTO-BLOCKED %s (rule=%s)", alert.TargetIP, rule.Name)
+	default:
+		log.Printf("alert engine: %s already blocked (rule=%s)", alert.TargetIP, rule.Name)
 	}
 }
 
-func (e *Engine) heartbeat(ctx context.Context, rule model.AlertRule, targetIP net.IP, now time.Time) {
-	id, _, err := e.store.FindActiveAlert(ctx, rule.ID, targetIP)
-	if err != nil || id == "" {
-		return
-	}
+// touch heartbeats an alert (UpdateAlertLastSeen throttles the writes).
+func (e *Engine) touch(ctx context.Context, id string, now time.Time) {
 	if err := e.store.UpdateAlertLastSeen(ctx, id, now); err != nil {
 		log.Printf("alert engine: heartbeat error: %v", err)
 	}
+}
+
+// remember records an alert this process just inserted or re-opened.
+func (e *Engine) remember(key, id string, now time.Time) {
+	e.mu.Lock()
+	e.recent[key] = recentAlert{id: id, at: now}
+	e.mu.Unlock()
 }
 
 func (e *Engine) safeNotify(wh model.WebhookConfig, alert model.Alert) {
@@ -611,13 +705,14 @@ func severityMeets(alertSev, minSev string) bool {
 	return order[alertSev] >= order[minSev]
 }
 
-// CooldownSnapshot returns a copy of the current cooldown map (for debugging).
+// CooldownSnapshot returns rule_id|target → when this process last stored or
+// re-opened an alert for it (for debugging and tests).
 func (e *Engine) CooldownSnapshot() map[string]time.Time {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	out := make(map[string]time.Time, len(e.cooldown))
-	for k, v := range e.cooldown {
-		out[k] = v
+	out := make(map[string]time.Time, len(e.recent))
+	for k, r := range e.recent {
+		out[k] = r.at
 	}
 	return out
 }
@@ -662,10 +757,11 @@ func EnsureDefaultRules(ctx context.Context, s interface {
 		{
 			ID:              uuid.NewString(),
 			Name:            "High inbound volume",
-			Description:     "Warning when a single IP receives > 500 Mbps of inbound traffic for 60s",
+			Description:     descHighInbound,
 			RuleType:        "volume_in",
 			Enabled:         true,
 			ThresholdBps:    500_000_000,
+			BaselineFactor:  factorHighVolume,
 			WindowSeconds:   60,
 			CooldownSeconds: 300,
 			Severity:        "warning",
@@ -769,7 +865,7 @@ func EnsureDefaultRules(ctx context.Context, s interface {
 		{
 			ID:              uuid.NewString(),
 			Name:            "Port scan from internal host",
-			Description:     "An internal host hit > 1000 unique destination ports in 60s (likely compromised)",
+			Description:     descPortScan,
 			RuleType:        "port_scan",
 			Enabled:         true,
 			ThresholdCount:  1_000,
@@ -783,10 +879,11 @@ func EnsureDefaultRules(ctx context.Context, s interface {
 		{
 			ID:              uuid.NewString(),
 			Name:            "High outbound volume (compromised host)",
-			Description:     "An internal host is sending > 500 Mbps outbound (DDoS source / data dump)",
+			Description:     descHighOutbound,
 			RuleType:        "volume_out",
 			Enabled:         true,
 			ThresholdBps:    500_000_000,
+			BaselineFactor:  factorHighVolume,
 			WindowSeconds:   60,
 			CooldownSeconds: 300,
 			Severity:        "warning",
@@ -797,10 +894,11 @@ func EnsureDefaultRules(ctx context.Context, s interface {
 		{
 			ID:              uuid.NewString(),
 			Name:            "Sustained outbound exfiltration",
-			Description:     "An internal host has been sending > 50 Mbps outbound for 5 minutes (slow exfil)",
+			Description:     descExfil,
 			RuleType:        "volume_out",
 			Enabled:         true,
 			ThresholdBps:    50_000_000,
+			BaselineFactor:  factorExfil,
 			WindowSeconds:   300,
 			CooldownSeconds: 1800,
 			Severity:        "info",

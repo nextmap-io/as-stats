@@ -26,6 +26,11 @@ type AlertViolation struct {
 	// the alert's details.Extra map (e.g. anomaly baseline/current/deviation and
 	// the top-contributor explanation). Nil for rule types that don't use it.
 	Extra map[string]any
+	// BPS / PPS are the target's rates over the window, set by the volume
+	// rules: the engine compares them with the host's usual level when the
+	// rule has a baseline_factor (MetricValue is always bps for those rules).
+	BPS float64
+	PPS float64
 }
 
 // The hot tables hold one row per (minute, key). The minute containing now()
@@ -39,7 +44,11 @@ type AlertViolation struct {
 //	AND ts < toStartOfMinute(now())
 //
 // with the window rounded down to whole minutes (at least one) so the
-// divisor matches exactly the buckets read.
+// divisor matches exactly the buckets read. The alert rules bind the end of
+// that range from the store's clock (evalMinutes / @eval_end) instead of the
+// server's now(), so the replay test (alert_replay_integration_test.go) can
+// evaluate any past minute with the production SQL; Live Threats keeps
+// completeMinutes.
 
 // alertWindow rounds an evaluation window down to whole minutes, minimum 60 s.
 // It is the value bound to @window, so the time filter and every
@@ -54,15 +63,38 @@ func completeMinutes(col string) string {
 	return fmt.Sprintf("%[1]s >= toStartOfMinute(now()) - INTERVAL @window SECOND AND %[1]s < toStartOfMinute(now())", col)
 }
 
+// evalMinutes is completeMinutes ending at @eval_end (see evalEndArg) rather
+// than at the server's current minute.
+func evalMinutes(col string) string {
+	return fmt.Sprintf("%[1]s >= toDateTime(@eval_end, 'UTC') - INTERVAL @window SECOND AND %[1]s < toDateTime(@eval_end, 'UTC')", col)
+}
+
+// SetClock replaces the clock the alert queries and the alert lifecycle use
+// (default time.Now). Only the alert replay test sets it, before any query.
+func (s *ClickHouseStore) SetClock(now func() time.Time) { s.clock = now }
+
+func (s *ClickHouseStore) now() time.Time {
+	if s.clock != nil {
+		return s.clock().UTC()
+	}
+	return time.Now().UTC()
+}
+
+// evalEndArg binds @eval_end: the start of the current, still filling
+// minute by the store clock — the end of the last complete minute.
+func (s *ClickHouseStore) evalEndArg() any {
+	return clickhouse.Named("eval_end", uint32(s.now().Truncate(time.Minute).Unix()))
+}
+
 // EvalVolumeInbound queries traffic_by_dst_1min for destinations exceeding a bps/pps threshold.
 // Window is the evaluation window in seconds (e.g. 60).
 // localPrefixes is the list of CIDRs to filter (only alert on our own IPs).
 func (s *ClickHouseStore) EvalVolumeInbound(ctx context.Context, thresholdBps, thresholdPps uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
 	// We express the threshold as bits/sec and packets/sec; the window
 	// aggregation gives us totals over `window` seconds, so divide.
-	where := []string{completeMinutes("ts")}
+	where := []string{evalMinutes("ts")}
 	args := []any{
-		clickhouse.Named("window", alertWindow(window)),
+		s.evalEndArg(), clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("th_bps", thresholdBps),
 		clickhouse.Named("th_pps", thresholdPps),
 	}
@@ -116,6 +148,8 @@ func (s *ClickHouseStore) EvalVolumeInbound(ctx context.Context, thresholdBps, t
 			TargetIP:    net.ParseIP(cleanIPv4Mapped(target)),
 			Protocol:    proto,
 			MetricValue: bps,
+			BPS:         bps,
+			PPS:         pps,
 		})
 	}
 	return results, nil
@@ -123,9 +157,9 @@ func (s *ClickHouseStore) EvalVolumeInbound(ctx context.Context, thresholdBps, t
 
 // EvalSynFlood finds destinations receiving too many TCP SYN packets.
 func (s *ClickHouseStore) EvalSynFlood(ctx context.Context, thresholdPps uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
-	where := []string{completeMinutes("ts"), "protocol = 6"}
+	where := []string{evalMinutes("ts"), "protocol = 6"}
 	args := []any{
-		clickhouse.Named("window", alertWindow(window)),
+		s.evalEndArg(), clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("th_pps", thresholdPps),
 	}
 	if len(localPrefixes) > 0 {
@@ -176,9 +210,9 @@ func (s *ClickHouseStore) EvalSynFlood(ctx context.Context, thresholdPps uint64,
 // IPs from many sources at trivial volume, which would otherwise generate
 // constant amplification false positives. Pass 0 to disable the floor.
 func (s *ClickHouseStore) EvalAmplification(ctx context.Context, thresholdCount, minBps uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
-	where := []string{completeMinutes("ts")}
+	where := []string{evalMinutes("ts")}
 	args := []any{
-		clickhouse.Named("window", alertWindow(window)),
+		s.evalEndArg(), clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("th_count", thresholdCount),
 		clickhouse.Named("min_bps", minBps),
 	}
@@ -238,11 +272,11 @@ func (s *ClickHouseStore) EvalAmplification(ctx context.Context, thresholdCount,
 // the hot table without per-port aggregates.
 func (s *ClickHouseStore) EvalProtocolFlood(ctx context.Context, protocol uint8, thresholdPps uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
 	where := []string{
-		completeMinutes("ts"),
+		evalMinutes("ts"),
 		"protocol = @proto",
 	}
 	args := []any{
-		clickhouse.Named("window", alertWindow(window)),
+		s.evalEndArg(), clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("th_pps", thresholdPps),
 		clickhouse.Named("proto", protocol),
 	}
@@ -291,9 +325,9 @@ func (s *ClickHouseStore) EvalProtocolFlood(ctx context.Context, protocol uint8,
 // patterns volume_in misses: Slowloris, half-open scans, churning short
 // connections that never reach SYN flood territory but still exhaust state.
 func (s *ClickHouseStore) EvalConnectionFlood(ctx context.Context, thresholdCount uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
-	where := []string{completeMinutes("ts")}
+	where := []string{evalMinutes("ts")}
 	args := []any{
-		clickhouse.Named("window", alertWindow(window)),
+		s.evalEndArg(), clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("th_count", thresholdCount),
 	}
 	if len(localPrefixes) > 0 {
@@ -367,17 +401,17 @@ func (s *ClickHouseStore) TopSourcesForTarget(ctx context.Context, targetIP net.
 		probe = "::ffff:" + v4.String()
 	}
 
-	query := `
-		SELECT toString(src_ip) AS src
-		FROM flows_raw
-		WHERE timestamp >= now() - INTERVAL @window SECOND
-		  AND dst_ip = toIPv6(@target)
-		GROUP BY src_ip
-		ORDER BY sum(bytes * sampling_rate) DESC
+	query := fmt.Sprintf(`
+		SELECT toString(f.src_ip) AS src
+		FROM flows_raw AS f
+		WHERE %s
+		  AND f.dst_ip = toIPv6(@target)
+		GROUP BY f.src_ip
+		ORDER BY sum(f.bytes * f.sampling_rate) DESC
 		LIMIT @limit
-	`
+	`, evalMinutes("f.timestamp"))
 	rows, err := s.conn.Query(ctx, query,
-		clickhouse.Named("window", alertWindow(window)),
+		s.evalEndArg(), clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("target", probe),
 		clickhouse.Named("limit", limit),
 	)
@@ -397,37 +431,78 @@ func (s *ClickHouseStore) TopSourcesForTarget(ctx context.Context, targetIP net.
 	return sources, nil
 }
 
-// EvalPortScan finds sources hitting too many unique destination ports.
-// This detects outbound scans from compromised hosts in our network.
-func (s *ClickHouseStore) EvalPortScan(ctx context.Context, thresholdCount uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
-	where := []string{completeMinutes("ts")}
+// Port scan detection (rule type port_scan). A local SOURCE is a scanner
+// when it sends connection probes to many distinct destination ports.
+//
+// The 3.6 rule counted every distinct destination port in the hot table
+// (traffic_by_src_1min.unique_dst_ports). A server answering clients sends
+// to their ephemeral ports, so every busy server "scanned" thousands of
+// ports a minute: 1,938 alerts on 33 servers in 10 days of production, none
+// a scan (CLAUDE.md bug #23). The hot table has no flags and no source port,
+// so the rule now runs in two steps:
+//
+//  1. PortScanCandidates — the old hot-table query, a cheap superset: a
+//     host's probe ports are a subset of all its destination ports, so the
+//     candidates are the hosts above the threshold (lowered by
+//     portScanHLLSlack for the HLL error), at most portScanMaxCandidates.
+//  2. flows_raw over the same complete minutes, candidates only: the
+//     distinct destination ports of PROBE flows (portScanProbeSQL).
+//
+// Step 2 reads one window of flows_raw and only runs when step 1 returned a
+// candidate.
+const (
+	portScanMaxCandidates = 200
+	portScanHLLSlack      = 0.9 // uniq() is approximate (~1-2 %); never miss a candidate for it
+)
+
+// portScanProbeSQL matches the flows of a local source that look like
+// connection probes rather than replies (f = flows_raw alias):
+//
+//   - TCP with SYN and without ACK: a connection attempt not acknowledged in
+//     this record — a SYN scan probe (nmap -sS, masscan, zmap) or an
+//     unanswered connect(). A reply from a local server always carries ACK
+//     (SYN-ACK, then ACK), so busy servers never match.
+//   - TCP without any flags (exporters that do not report them) and UDP:
+//     from an unprivileged local port (>= 1024) to a well-known remote port
+//     (< 1024). A local service answers from its own port to the client's
+//     ephemeral port, which this excludes. Without TCP flags the rule
+//     therefore only sees probes to ports below 1024.
+const portScanProbeSQL = `((f.protocol = 6 AND bitAnd(f.tcp_flags, 2) != 0 AND bitAnd(f.tcp_flags, 16) = 0)
+	OR (f.protocol IN (6, 17) AND f.tcp_flags = 0 AND f.src_port >= 1024 AND f.dst_port < 1024))`
+
+// PortScanCandidates returns the local sources whose distinct destination
+// ports (all flows, hot table) exceed thresholdCount over the window — the
+// 3.6 port_scan rule, now the first step of EvalPortScan.
+func (s *ClickHouseStore) PortScanCandidates(ctx context.Context, thresholdCount uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
+	where := []string{evalMinutes("h.ts")}
 	args := []any{
-		clickhouse.Named("window", alertWindow(window)),
+		s.evalEndArg(), clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("th_count", thresholdCount),
+		clickhouse.Named("max_cands", portScanMaxCandidates),
 	}
 	if len(localPrefixes) > 0 {
 		// For port scan, we look at SOURCES in our network (internal bots)
-		clause, cidrArgs := buildCIDRFilter("src_ip", "ps_", localPrefixes)
+		clause, cidrArgs := buildCIDRFilter("h.src_ip", "ps_", localPrefixes)
 		where = append(where, clause)
 		args = append(args, cidrArgs...)
 	}
 
 	query := fmt.Sprintf(`
 		SELECT
-			toString(src_ip) AS target,
-			any(protocol) AS protocol,
-			uniqMerge(unique_dst_ports) AS port_count
-		FROM traffic_by_src_1min
+			toString(h.src_ip) AS target,
+			any(h.protocol) AS protocol,
+			uniqMerge(h.unique_dst_ports) AS port_count
+		FROM traffic_by_src_1min AS h
 		WHERE %s
-		GROUP BY src_ip
+		GROUP BY h.src_ip
 		HAVING port_count > @th_count
 		ORDER BY port_count DESC
-		LIMIT 100
+		LIMIT @max_cands
 	`, strings.Join(where, " AND "))
 
 	rows, err := s.conn.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("eval port_scan: %w", err)
+		return nil, fmt.Errorf("eval port_scan candidates: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -446,14 +521,76 @@ func (s *ClickHouseStore) EvalPortScan(ctx context.Context, thresholdCount uint6
 			UniqueCount: cnt,
 		})
 	}
-	return results, nil
+	return results, rows.Err()
+}
+
+// EvalPortScan finds local sources sending connection probes to more than
+// thresholdCount distinct destination ports over the window (see the
+// comment above portScanMaxCandidates). The violation's metric is the probe
+// port count; details carry the probed hosts and the all-flows port count.
+func (s *ClickHouseStore) EvalPortScan(ctx context.Context, thresholdCount uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
+	cands, err := s.PortScanCandidates(ctx, uint64(float64(thresholdCount)*portScanHLLSlack), window, localPrefixes)
+	if err != nil || len(cands) == 0 {
+		return nil, err
+	}
+	probes := make([]string, 0, len(cands))
+	allPorts := make(map[string]uint64, len(cands))
+	for _, c := range cands {
+		probes = append(probes, ipv6Literal(ipToIPv6(c.TargetIP)))
+		allPorts[c.TargetIP.String()] = c.UniqueCount
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			toString(f.src_ip)             AS target,
+			uniqExactIf(f.dst_port, %[1]s) AS probe_ports,
+			uniqExactIf(f.dst_ip, %[1]s)   AS probe_hosts,
+			countIf(%[1]s)                 AS probe_flows,
+			count()                        AS flows
+		FROM flows_raw AS f
+		WHERE %[2]s AND %[3]s
+		GROUP BY f.src_ip
+		HAVING probe_ports > @th_count
+		ORDER BY probe_ports DESC
+	`, portScanProbeSQL, evalMinutes("f.timestamp"), ipsInList("f.src_ip"))
+	rows, err := s.conn.Query(ctx, query,
+		s.evalEndArg(), clickhouse.Named("window", alertWindow(window)),
+		clickhouse.Named("th_count", thresholdCount),
+		clickhouse.Named("ips", probes),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("eval port_scan probes: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []AlertViolation
+	for rows.Next() {
+		var target string
+		var ports, hosts, probeFlows, flows uint64
+		if err := rows.Scan(&target, &ports, &hosts, &probeFlows, &flows); err != nil {
+			return nil, err
+		}
+		ip := net.ParseIP(cleanIPv4Mapped(target))
+		results = append(results, AlertViolation{
+			TargetIP:    ip,
+			MetricValue: float64(ports),
+			UniqueCount: ports,
+			Extra: map[string]any{
+				"probe_hosts":   hosts,
+				"probe_flows":   probeFlows,
+				"flows":         flows,
+				"all_dst_ports": allPorts[ip.String()],
+			},
+		})
+	}
+	return results, rows.Err()
 }
 
 // EvalVolumeOutbound finds internal sources emitting too much traffic (bots).
 func (s *ClickHouseStore) EvalVolumeOutbound(ctx context.Context, thresholdBps, thresholdPps uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
-	where := []string{completeMinutes("ts")}
+	where := []string{evalMinutes("ts")}
 	args := []any{
-		clickhouse.Named("window", alertWindow(window)),
+		s.evalEndArg(), clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("th_bps", thresholdBps),
 		clickhouse.Named("th_pps", thresholdPps),
 	}
@@ -478,7 +615,8 @@ func (s *ClickHouseStore) EvalVolumeOutbound(ctx context.Context, thresholdBps, 
 		SELECT
 			toString(src_ip) AS target,
 			any(protocol) AS protocol,
-			sum(bytes) * 8 / @window AS bps
+			sum(bytes) * 8 / @window AS bps,
+			sum(packets) / @window AS pps
 		FROM traffic_by_src_1min
 		WHERE %s
 		GROUP BY src_ip
@@ -497,14 +635,16 @@ func (s *ClickHouseStore) EvalVolumeOutbound(ctx context.Context, thresholdBps, 
 	for rows.Next() {
 		var target string
 		var proto uint8
-		var val float64
-		if err := rows.Scan(&target, &proto, &val); err != nil {
+		var bps, pps float64
+		if err := rows.Scan(&target, &proto, &bps, &pps); err != nil {
 			return nil, err
 		}
 		results = append(results, AlertViolation{
 			TargetIP:    net.ParseIP(cleanIPv4Mapped(target)),
 			Protocol:    proto,
-			MetricValue: val,
+			MetricValue: bps,
+			BPS:         bps,
+			PPS:         pps,
 		})
 	}
 	return results, nil
@@ -667,9 +807,9 @@ func (s *ClickHouseStore) EvalSubnetFlood(ctx context.Context, thresholdBps, thr
 	// +96 for the IPv4-mapped IPv6 representation
 	v6Prefix := aggPrefix + 96
 
-	where := []string{completeMinutes("t.ts")}
+	where := []string{evalMinutes("t.ts")}
 	args := []any{
-		clickhouse.Named("window", alertWindow(window)),
+		s.evalEndArg(), clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("agg_prefix", uint8(v6Prefix)),
 		clickhouse.Named("th_bps", thresholdBps),
 		clickhouse.Named("th_pps", thresholdPps),
@@ -738,12 +878,12 @@ func (s *ClickHouseStore) EvalSubnetFlood(ctx context.Context, thresholdBps, thr
 // (ThresholdCount for distinct connections). Both are supported.
 func (s *ClickHouseStore) EvalSMTPAbuse(ctx context.Context, thresholdPps, thresholdCount uint64, window uint32, localPrefixes []string) ([]AlertViolation, error) {
 	where := []string{
-		completeMinutes("timestamp"),
+		evalMinutes("timestamp"),
 		"protocol = 6",
 		"dst_port IN (25, 465, 587)",
 	}
 	args := []any{
-		clickhouse.Named("window", alertWindow(window)),
+		s.evalEndArg(), clickhouse.Named("window", alertWindow(window)),
 		clickhouse.Named("th_pps", thresholdPps),
 		clickhouse.Named("th_count", thresholdCount),
 	}

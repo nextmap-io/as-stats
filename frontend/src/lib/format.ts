@@ -8,6 +8,18 @@ export function formatClock(ms: number): string {
   return TIME.format(ms)
 }
 
+const DATE_TIME = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+
+/**
+ * A point in time in tables and captions: "Oct 27, 2026, 08:33 PM", the same
+ * shape as the time bar. `toLocaleString()` gave "10/27/2026, 8:33:00 PM",
+ * seconds included, next to the rest of the app's "Oct 27, 08:30 PM".
+ */
+export function formatDateTime(value: string | number | Date): string {
+  const d = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(d.getTime()) ? String(value) : DATE_TIME.format(d)
+}
+
 export function formatCount(n: number): string {
   return NUMBER.format(Math.round(n))
 }

@@ -174,13 +174,18 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 | `internal/store/tokens.go` | v2: read-only API token CRUD + `LookupAPIToken`. |
 | `internal/store/reports.go` | v2: `report_schedules` CRUD. |
 | `internal/reports/` | v2: scheduled-report engine — HTML/CSV generation, `net/smtp` sender, scheduler loop (`isDue`). |
-| `internal/alerts/engine.go` | Alert engine goroutine — rule loop, cooldown map, top-source enrichment, auto-resolution, default-rule seeding. |
+| `internal/alerts/engine.go` | Alert engine goroutine — rule loop, alert lifecycle (heartbeat / re-arm / new), top-source enrichment, auto-resolution, default-rule seeding. |
+| `internal/alerts/baseline.go` | Baseline mode of the volume rules (`baseline_factor`, p99 of the Live Threats history, `UsualLevel`). |
+| `internal/alerts/reconcile.go` | `ReconcileSeededRules`: one-time upgrade of the 3.6 seeded rules still exactly as seeded. |
+| `internal/alerts/alert_replay_integration_test.go` | Replay harness: 3.6 vs current engine minute by minute over a synthetic day (benign busy hosts + attacks). |
 | `internal/alerts/webhook.go` | Slack / Teams / Discord / generic webhook notifier. |
-| `internal/bgp/` | `Blocker` interface: `ScriptBlocker` (API side, `BGP_ENABLED=true`, runs gobgp/BIRD/FRR commands), `RemoteBlocker` (collector side, `BGP_API_URL`, proxies to the API), `NoopBlocker` (log-only fallback). |
+| `internal/bgp/` | RTBH: `Service` (API side — rails, `bgp_blocks`, expiry / reconcile loop, audit), `Policy` (allow-list, protected, prefix length), `CommandDaemon` (templates → argv, no shell) / `DryRunDaemon`, `Settings` (BGP_* validation), `Client` (collector → `/internal/bgp/blocks`). See "BGP integration". |
+| `internal/store/bgp_blocks.go` | `bgp_blocks` CRUD: `InsertBlock`, `SetBlockStatus` (by id, sync mutation), `ListActiveBlocks`, `ListBlocksSince`, `ListBlockHistory`. |
+| `scripts/bgp/` | `bird-rtbh.sh`, `frr-rtbh.sh`: daemon helpers for `BGP_*_CMD` (tested in `internal/bgp/scripts_test.go` against stub CLIs). |
 | `internal/services/wellknown.go` | IANA protocol + well-known port name resolution (used by Flow Search and Top Ports). |
 | `internal/model/` | Shared types: `FlowRecord`, `ASTraffic`, `IPTraffic`, `LiveThreats` / `ThreatRow`, `AlertRule`, etc. |
 | `internal/config/` | Env-var config loading. `LoadCollector` and `LoadAPI`. |
-| `migrations/` | ClickHouse DDL, numbered 000001–000018 (000007–000013 include feature-gated tables; 000012 `retention_policies`, 000013 `report_schedules`, 000014 `api_tokens`, 000015 hot-table `SimpleAggregateFunction` fix, 000016 `retention_policies.cold_after_days`, 000017 `flows_log` sort key + `flows_log_legacy` + `flows_log_all`, 000018 `traffic_by_port` one row per flow + `traffic_by_port_legacy` + `traffic_by_port_mv`). Every released schema level has a `DetectBaseline` probe in `internal/migrate/clickhouse.go` — add one with each migration. Embedded in and applied by `cmd/migrate` (the `migrate` service runs before collector/api), which records each file's SHA-256 — **never edit a released migration**, add a new one. |
+| `migrations/` | ClickHouse DDL, numbered 000001–000020 (000007–000013 include feature-gated tables; 000012 `retention_policies`, 000013 `report_schedules`, 000014 `api_tokens`, 000015 hot-table `SimpleAggregateFunction` fix, 000016 `retention_policies.cold_after_days`, 000017 `flows_log` sort key + `flows_log_legacy` + `flows_log_all`, 000018 `traffic_by_port` one row per flow + `traffic_by_port_legacy` + `traffic_by_port_mv`, 000019 `bgp_blocks.dry_run`, 000020 `alert_rules.baseline_factor` + `alerts.reopen_count`). Every released schema level has a `DetectBaseline` probe in `internal/migrate/clickhouse.go` — add one with each migration. Embedded in and applied by `cmd/migrate` (the `migrate` service runs before collector/api), which records each file's SHA-256 — **never edit a released migration**, add a new one. |
 | `frontend/src/pages/` | One React page per route in `App.tsx`. |
 | `frontend/src/hooks/` | TanStack Query hooks (`useApi.ts`), URL-synced filters (`useFilters.ts`), unit toggle (`useUnit.ts`), chart theme (`useChartColors.ts`), DNS (`useDns.ts`), feature flags (`useFeatures.ts`). |
 | `frontend/src/components/charts/` | `TrafficChart` (single in/out), `LinkTrafficChart` (stacked by link), `ASTrafficChart` (stacked by AS) — all Recharts `AreaChart` with `stepAfter`. |
@@ -456,6 +461,11 @@ Registered only when the corresponding `FEATURE_*` env var is set.
 | `GET` | `/admin/audit` | `ALERTS` | admin only |
 | `GET` | `/anomaly/explain` | `ALERTS` | anomaly contributor breakdown for a target+window |
 | `GET`/`POST`/`PUT`/`DELETE` | `/admin/reports[/{id}]` | `REPORTS` | CSRF + admin; `POST /admin/reports/{id}/test` sends now |
+| `GET` | `/bgp/status` | `BGP_ENABLED` | session, rails, last RIB reconciliation; `?refresh=1` runs the status command |
+| `GET` | `/bgp/blocks`, `/bgp/blocks/history` | `BGP_ENABLED` | active rows / last N (any status) |
+| `POST` | `/bgp/blocks` | `BGP_ENABLED` | CSRF, admin; 201 created / 200 already blocked; 400/422/429/502/503 (see BGP integration) |
+| `DELETE` | `/bgp/blocks/{ip}?prefix_len=` | `BGP_ENABLED` | CSRF, admin; 404 when nothing active (unless a daemon orphan) |
+| `POST` | `/internal/bgp/blocks` (not under `/api/v1`) | `BGP_ENABLED` + `BGP_API_TOKEN` | collector auto-block, bearer token only |
 
 ## Auth
 
@@ -504,15 +514,61 @@ when `FEATURE_ALERTS=true`.
 2. Load enabled rules from `alert_rules`.
 3. Load webhooks once per cycle.
 4. For each rule, run the corresponding `Eval*` against the hot 1-min table,
-   over **complete minutes only** (`completeMinutes()` / `alertWindow()`:
-   `ts >= toStartOfMinute(now()) - window AND ts < toStartOfMinute(now())`,
-   window rounded down to whole minutes). The current minute is still being
-   flushed; including it and dividing by the full window under-reads rates.
-5. For each violation: enrich with the top 5 source IPs from `flows_raw`
-   (bounded query, runs only on actual violations), then either INSERT a
-   new alert or heartbeat the existing active one (DB-level dedup via
-   `FindActiveAlert`).
-6. Dispatch webhooks asynchronously, with per-webhook severity filter.
+   over **complete minutes only** (`evalMinutes()` / `alertWindow()`:
+   `ts >= @eval_end - window AND ts < @eval_end`, `@eval_end` = start of the
+   current minute by the store clock — `SetClock` lets the replay test
+   evaluate any past minute with the production SQL; window rounded down to
+   whole minutes). The current minute is still being flushed; including it
+   and dividing by the full window under-reads rates.
+5. Baseline gate (`baseline.go`): violations of a volume rule with a
+   `baseline_factor` are dropped when the target is not at least that many
+   times its usual level (below).
+6. For each violation, from the most recent alert of that rule + target
+   (`LatestAlert`, any status), if it was last seen within the **re-arm
+   window** `max(cooldown_seconds, ALERT_REARM_WINDOW)` (default 1 h):
+   active / acknowledged / muted → heartbeat; resolved → **re-open** it
+   (`ReopenAlert`: status active, `metric_value` = peak, `reopen_count + 1`,
+   no notification; `auto_block` re-announces) unless the value is ≥
+   `RearmEscalation` (2×) its peak, which is a new incident. Otherwise
+   enrich with the top 5 source IPs from `flows_raw` and INSERT a new alert.
+   An alert this process just inserted / re-opened is heartbeated by id for
+   `recentTrust` (2 eval intervals) while the INSERT / mutation lands.
+7. Dispatch webhooks asynchronously (new alerts only), with per-webhook
+   severity filter.
+
+Alert writes (`InsertAlert`, `UpsertAlertRule`, `UpsertWebhook`,
+`WriteAuditLog`) go through `insertRow` (PrepareBatch + Append): an
+`INSERT … VALUES` with named parameters renders `cast(5e+08, 'Float64')` /
+`toDateTime('…')`, which the fast VALUES parser rejects before falling back
+— ~16k `CANNOT_PARSE_INPUT_ASSERTION_FAILED` a day in production
+(`TestIntegrationAlertWritesAndLifecycle` checks the counter stays put).
+
+### Baseline mode (`alert_rules.baseline_factor`, migration 000020)
+
+`volume_in` / `volume_out` only (API 400 otherwise; 0 or 1–100). With f > 0
+a violation also needs `max(bps / usual_bps, pps / usual_pps) ≥ f` over the
+thresholds the rule sets, usual = **p99** of the per-minute history of
+`ThreatBaselines` (same time of day ±30 min, 7 days, minutes with traffic),
+floors 1 Mb/s / 1000 pps (`alerts.UsualLevel`). The p99, not the Live
+Threats p95: with bursts on ~5–8 % of minutes the p95 sometimes falls below
+the burst level, and the replay caught a burst firing at 2× the p95. A host
+with < `store.BaselineMinSamples` (30) minutes of history is judged on the
+threshold alone (a flood on a new host fires). The lookup fails open
+(absolute threshold). `details.extra.usual` records factor, samples,
+usual / p50 bps and the ratio. Live Threats' `closestRule` counts a
+baseline rule as *firing* only under the same condition (p99 ratio), so a
+busy host at its usual level is not an incident there either. Known limit:
+an attack lasting hours at the same time every day enters its own p99 after
+~1 day; keep an absolute rule (the 2 Gb/s critical) for floods.
+
+Seeded factors: "High inbound volume" / "High outbound volume" 2,
+"Sustained outbound exfiltration" 3; "Critical inbound volume" (2 Gb/s)
+absolute. **Existing installs**: `EnsureDefaultRules` only seeds an empty
+table, so the collector also runs `ReconcileSeededRules` at startup: it
+upgrades (factor + new description) only the 3.6 seeds still identical in
+name, type, thresholds, window, severity, description, scope and factor 0 —
+enabled / cooldown / action / webhooks are kept. Idempotent (the new
+description no longer matches); an operator-edited rule is never touched.
 
 ### Rule types
 
@@ -522,7 +578,7 @@ when `FEATURE_ALERTS=true`.
 | `volume_out` | `EvalVolumeOutbound` | `traffic_by_src_1min` |
 | `syn_flood` | `EvalSynFlood` | `traffic_by_dst_1min` (filter on `protocol = 6`) |
 | `amplification` | `EvalAmplification` | `traffic_by_dst_1min` (with optional `min_bps` floor reusing `ThresholdBps`) |
-| `port_scan` | `EvalPortScan` | `traffic_by_src_1min` (uses `unique_dst_ports` HLL) |
+| `port_scan` | `EvalPortScan` | `traffic_by_src_1min` `unique_dst_ports` HLL (`PortScanCandidates`, ≤ 200 candidates, threshold × 0.9) → `flows_raw` for those sources: distinct dst ports of **probe** flows (`portScanProbeSQL`: TCP SYN without ACK; flagless TCP / UDP from port ≥ 1024 to port < 1024). Bug #24 |
 | `icmp_flood` | `EvalProtocolFlood(proto=1)` | `traffic_by_dst_1min` |
 | `udp_flood` | `EvalProtocolFlood(proto=17)` | `traffic_by_dst_1min` |
 | `connection_flood` | `EvalConnectionFlood` | `traffic_by_dst_1min` (`flow_count` per dst) |
@@ -537,12 +593,14 @@ column, so these report the single worst link per cycle. `disk_usage` /
 `link_capacity` / `anomaly` reuse `ThresholdCount` as their numeric threshold
 (percent, percent, k×10 respectively) to avoid an `alert_rules` migration.
 
-### Cooldown & cleanup
+### Re-arm, cooldown & cleanup
 
-- Per-`(rule_id, target_ip)` cooldown tracked in an in-memory map; respects
-  `CooldownSeconds` per rule.
-- A separate goroutine `cooldownCleanupLoop` runs every 5 min and prunes
-  entries older than 1 hour so the map cannot grow unbounded.
+- The DB is the source of truth (`LatestAlert`); `cooldown_seconds` is the
+  rule's re-arm window (floored by `ALERT_REARM_WINDOW`, default 1 h; the
+  UI labels it "Re-arm"). Auto-resolution stays `ALERT_STALE_THRESHOLD`.
+- In-memory `recent` map (rule|target → alert id just inserted / re-opened)
+  only bridges the async write; `cooldownCleanupLoop` runs every 5 min and
+  prunes entries older than 1 hour so the map cannot grow unbounded.
 
 ### Top sources enrichment
 
@@ -566,38 +624,65 @@ alert evaluation; do not undo it.
 
 Seeded on first startup if `alert_rules` is empty. **10 rules** covering:
 
-- Inbound volume — warning at 500 Mbps, critical at 2 Gbps
+- Inbound volume — warning at 500 Mbps and 2× usual, critical at 2 Gbps (absolute)
 - TCP SYN flood (50k SYN/s)
 - Connection-rate flood (200k flows / 60s — Slowloris signature)
 - Reflection / amplification (10k unique srcs **AND** ≥100 Mbps sustained)
 - ICMP flood (20k pps)
 - UDP flood (100k pps)
-- Port scan from internal host (1k unique dst ports)
-- High outbound volume (500 Mbps)
-- Sustained outbound exfiltration (50 Mbps over 5 min, "info" severity)
+- Port scan from internal host (1k distinct probed dst ports)
+- High outbound volume (500 Mbps and 2× usual)
+- Sustained outbound exfiltration (50 Mbps over 5 min and 3× usual, "info" severity)
 
 The full list with thresholds lives in `EnsureDefaultRules` in
 `internal/alerts/engine.go`.
 
 ### BGP integration
 
-`internal/bgp/Blocker` interface with `Announce` / `Withdraw` / `List` /
-`Status`. Three implementations:
+RTBH (RFC 7999). **The API owns everything**: `bgp.Service` (built in
+`api.NewRouter` when `BGP_ENABLED=true`, loop bound to the server ctx) is the
+only writer of `bgp_blocks` and the only caller of the daemon. User docs:
+`docs/bgp-blackhole.md`; review: `docs/design-review/bgp-review-2026-10.md`.
 
-- `ScriptBlocker` — API server, `BGP_ENABLED=true`: runs configurable
-  commands (`BGP_ANNOUNCE_CMD` / `BGP_WITHDRAW_CMD` / `BGP_STATUS_CMD`,
-  gobgp CLI by default) with the RFC 7999 community, persists blocks in
-  `bgp_blocks`, auto-withdraws on expiry. Backs `/bgp/*` and
-  `/alerts/{id}/block`.
-- `RemoteBlocker` — collector, `BGP_API_URL`: the alert engine's
-  `auto_block` action proxies to the API's `/bgp/blocks`.
-- `NoopBlocker` — log-only fallback when BGP is off or `ScriptBlocker`
-  init fails (the router then also clears `FeatureBGP`).
-
-`/alerts/{id}/block` answers 409 rather than pretending when only the
-noop blocker is wired, and 422 for alerts without a single host target.
-Label-targeted alerts (link tags) are stored under synthetic `0100::/64`
-addresses (`labelTargetIP` in the engine) — never blackhole those.
+- **Entry points**, all → `Service.Block(BlockRequest)`: `POST /bgp/blocks`
+  (source `manual`), `POST /alerts/{id}/block` (`alert`, with alert id / rule /
+  metrics; handler in `handler/bgp.go`, 409 BGP off, 422 non-host target),
+  `POST /internal/bgp/blocks` (`auto_block`, by `engine`): the collector's
+  `bgp.Client`, `Authorization: Bearer $BGP_API_TOKEN` (≥ 32 chars, constant
+  time), registered outside `/api/v1` only when the token is set, so no
+  session / CSRF; nginx does not proxy it. The alert engine never writes
+  `bgp_blocks` and only asks for host rule types (`autoBlockableRule`).
+- **Rails** (`Policy.Check` + `Limits`, every source): allow-list
+  (`BGP_ALLOWED_PREFIXES`, else LOCAL_AS prefixes, else refuse all), protected
+  (peer, next hops, router id, `BGP_PROTECTED_PREFIXES`), reserved ranges,
+  min prefix length (32/128 default, floors 24/48), max active (50), auto per
+  hour (10, seeded from `ListBlocksSince` so restarts don't reset it),
+  duration 1 min–`BGP_MAX_DURATION`. Errors: `ErrInvalidRequest` 400,
+  `*PolicyError` 422, `*LimitError` 429, `ErrNotFound` 404, `ErrNotReady` 503,
+  `*CommandError` 502 (`writeBGPError`; command output never sent to clients).
+- **Commands**: `ParseTemplate` splits once (POSIX quoting), refuses unquoted
+  shell operators and unknown `{placeholders}`; `runCommand` = exec, no shell,
+  env `PATH`/`LANG=C`/`ASSTATS_BGP_*` only, timeout + `WaitDelay`, 64 KiB
+  output. Never reintroduce `sh -c` or pass `os.Environ()`.
+- **State machine**: insert row (`active`) → announce → on error mark `failed`.
+  Withdraw: daemon first, then `SetBlockStatus` (by id, all legacy duplicate
+  ids); a store failure keeps the entry as `withdrawn` and retries (never
+  re-announced). `Reconcile` (every 15 s): load until ClickHouse answers
+  (blocks refused meanwhile), expire, retry pending; every
+  `BGP_RECONCILE_INTERVAL`: status + RIB (`BGP_ROUTES_CMD`) — missing
+  re-announced, orphans reported / withdrawable, never auto-withdrawn; a
+  session back to established re-pushes all. Dry-run rows (`dry_run=1`) go to
+  `DryRunDaemon` forever, even after dry run is switched off.
+- **Single API instance assumed** (like the in-memory sessions): two API
+  replicas with BGP enabled would both reconcile.
+- `bgp_blocks` stays a MergeTree + synchronous `ALTER UPDATE` keyed by id
+  (single serialised writer, a few rows a day): no FINAL needed.
+- Label-targeted alerts (link tags) are stored under synthetic `0100::/64`
+  addresses (`labelTargetIP` in the engine) — never blackhole those (reserved
+  in `Policy` too).
+- Tests: `internal/bgp/*_test.go` (fake daemon / store / clock),
+  `TestIntegrationBGPBlackholing` in `internal/api` (real router, fake daemon
+  script, own scratch DB, restart + dry run) on 24.3 and 26.8.
 
 ## Live Threats
 
@@ -925,6 +1010,36 @@ frontend lint + typecheck + build).
     "Traffic by AS" (and AS peers, the anomaly explanation) listed 64512,
     65001, 4200000001… one by one, nameless, while every other view showed one
     "Private / Internal" row. Group on `groupedAS` (code conventions above).
+
+23. **A machine-to-machine call routed through the browser API.** The
+    collector's auto-block posted to `/api/v1/bgp/blocks` without session or
+    CSRF token: every request was a 403 and auto-block never worked (failures
+    were only logged). Collector → API calls
+    use a dedicated route outside `/api/v1` with a shared bearer token
+    (`/internal/bgp/blocks`, `BGP_API_TOKEN`) and a metric for refusals.
+    Relatedly, every BGP block path must go through `bgp.Service` (rails +
+    `bgp_blocks` row before the route): `/alerts/{id}/block` once announced
+    without a row, and a restart then left the route announced forever.
+24. **Counting every destination port of a local source as a port scan.** 3.6
+    `port_scan` read `traffic_by_src_1min.unique_dst_ports`: a server replying
+    to clients sends to their ephemeral ports, so busy servers "scanned" 1000+
+    ports a minute — 1,938 alerts on 33 servers in 10 days, none a scan. A
+    scan is *probes*: the rule now confirms its hot-table candidates on
+    `flows_raw` and counts only TCP SYN-without-ACK flows (flagless TCP / UDP:
+    port ≥ 1024 → port < 1024). Never count replies; the replay test
+    (`TestIntegrationAlertReplay`) has responders on TCP 443 / 8443 / UDP 53
+    and a NAT gateway with 8 % unanswered SYNs that must stay quiet.
+
+25. **Flapping alerts.** Alerts auto-resolve after 5 min without a violation;
+    a busy host bursting above a static threshold a few minutes an hour got a
+    new alert (and notification) every ~20 min all day (5,150 alerts in 10
+    days, none acknowledged), and acknowledging a running incident spawned a
+    duplicate. The engine now re-opens the last alert of the rule + target
+    within the re-arm window (`LatestAlert` / `ReopenAlert`, `reopen_count`),
+    heartbeats acknowledged ones, and only escalation (≥ 2× the peak) makes a
+    new incident. Static thresholds on hosts whose normal traffic is above
+    them are the other half: use `baseline_factor` (2× / 3× usual on the
+    seeded volume rules).
 
 ## Operational notes — ClickHouse
 

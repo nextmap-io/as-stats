@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"time"
@@ -16,8 +17,9 @@ import (
 	"github.com/nextmap-io/as-stats/internal/store"
 )
 
-// NewRouter creates the API router with all endpoints.
-func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter string, localPrefixes []string) http.Handler {
+// NewRouter creates the API router with all endpoints. ctx bounds the
+// background loops it starts (BGP expiry / reconciliation).
+func NewRouter(ctx context.Context, s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter string, localPrefixes []string) http.Handler {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -74,31 +76,20 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		}
 	}
 
-	// BGP blocker: real ScriptBlocker when BGP_ENABLED=true, noop otherwise.
-	// The ScriptBlocker is initialized here (not in main.go) because the
-	// handler needs the blocker reference and the router owns the lifecycle.
+	// BGP blackhole service (BGP_ENABLED=true): validated settings, the
+	// LOCAL_AS prefixes as default allow-list, its expiry / reconciliation
+	// loop bound to ctx. Blocks are left in the daemon on shutdown; the next
+	// start takes them over from bgp_blocks.
 	if cfg.BGPEnabled {
-		scriptCfg := bgp.Config{
-			AnnounceCmd: cfg.BGPAnnounceCmd,
-			WithdrawCmd: cfg.BGPWithdrawCmd,
-			StatusCmd:   cfg.BGPStatusCmd,
-			Community:   cfg.BGPCommunity,
-			NextHop:     cfg.BGPNextHop,
-			PeerAddress: cfg.BGPPeerAddress,
-			PeerAS:      cfg.BGPPeerAS,
-			LocalAS:     cfg.BGPLocalAS,
+		h.BGP = bgp.NewService(cfg.BGP.Options(s, s, localPrefixes, cfg.LocalAS))
+		h.BGPAPIToken = cfg.BGPAPIToken
+		go h.BGP.Run(ctx)
+		st := h.BGP.Status(ctx, false)
+		log.Printf("BGP blackholing enabled (dry_run=%v, allow-list: %d prefixes from %s, max %d active, %d auto-blocks/h)",
+			st.DryRun, st.AllowedPrefixCount, st.AllowedSource, st.MaxActiveBlocks, st.AutoBlocksPerHour)
+		if st.AllowedPrefixCount == 0 {
+			log.Printf("WARNING: BGP blackholing has no allow-list (set BGP_ALLOWED_PREFIXES or LOCAL_AS): every block will be refused")
 		}
-		blocker, err := bgp.NewScript(scriptCfg, s)
-		if err != nil {
-			// Non-fatal: log and fall back to noop so the rest of the API works
-			log.Printf("WARNING: BGP blocker init failed: %v — falling back to noop", err)
-			h.BGPBlocker = bgp.NewNoop()
-			h.FeatureBGP = false
-		} else {
-			h.BGPBlocker = blocker
-		}
-	} else {
-		h.BGPBlocker = bgp.NewNoop()
 	}
 	sessions := middleware.NewSessionStore()
 	// Read-only API token authenticator (Module G). The api_tokens table is
@@ -122,6 +113,14 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 		cfg.PrometheusUser,
 		cfg.PrometheusPass,
 	))
+
+	// Collector → API auto-block (bgp.Client). Outside /api/v1: no session,
+	// no CSRF cookie; the shared BGP_API_TOKEN is the only credential
+	// (constant-time compare in the handler). Not proxied by the bundled
+	// nginx. Registered only when BGP and the token are both configured.
+	if cfg.BGPEnabled && cfg.BGPAPIToken != "" {
+		r.With(middleware.RateLimit(5)).Post(bgp.InternalBlockPath, h.InternalAutoBlock)
+	}
 
 	// Auth endpoints (if OIDC enabled)
 	if cfg.AuthEnabled {
@@ -237,7 +236,8 @@ func NewRouter(s *store.ClickHouseStore, cfg *config.APIConfig, localIPFilter st
 			})
 		}
 
-		// BGP blackhole management
+		// BGP blackhole management. Reads for every authenticated user,
+		// writes admin-only (CSRF is applied API-wide above).
 		if cfg.BGPEnabled {
 			r.Get("/bgp/status", h.BGPStatus)
 			r.Get("/bgp/blocks", h.ListBGPBlocks)

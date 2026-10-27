@@ -1,498 +1,542 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { api } from "@/lib/api"
 import { useCurrentUser } from "@/hooks/useAuth"
 import { useFeatures } from "@/hooks/useFeatures"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ErrorDisplay, EmptyState } from "@/components/ui/error"
+import { ErrorDisplay } from "@/components/ui/error"
 import { TableSkeleton } from "@/components/ui/skeleton"
 import { IPWithPTR } from "@/components/PTR"
-import { Plus, X } from "lucide-react"
+import { BlockDialog } from "@/components/BlockDialog"
+import { blockErrorMessage, blockSource, blockTarget, relativeTime } from "@/lib/block"
 import { cn } from "@/lib/utils"
-import type { BGPBlock } from "@/lib/types"
+import type { BGPBlock, BGPSessionStatus } from "@/lib/types"
 
-const DURATIONS: { value: number; label: string }[] = [
-  { value: 15, label: "15 min" },
-  { value: 30, label: "30 min" },
-  { value: 60, label: "1 hour" },
-  { value: 240, label: "4 hours" },
-  { value: 1440, label: "24 hours" },
-]
+const HISTORY_LIMIT = 200
 
+/**
+ * BGP blackholes, ordered by the operator's questions: is the blackhole path
+ * working, what is blocked right now (and until when), then how to block,
+ * which rules apply, and what happened before.
+ */
 export function BGP() {
   const queryClient = useQueryClient()
-
-  // --- Auth: check if current user is admin ---
   const { data: featuresRes } = useFeatures()
   const authEnabled = featuresRes?.data?.auth
   const { data: userData } = useCurrentUser(authEnabled)
-  const user = userData?.data
-  const isAdmin = authEnabled === false || user?.role === "admin"
+  const isAdmin = authEnabled === false || userData?.data?.role === "admin"
 
-  // --- BGP session status ---
-  const {
-    data: statusData,
-    isLoading: statusLoading,
-    error: statusError,
-    refetch: refetchStatus,
-  } = useQuery({
-    queryKey: ["bgp-status"],
-    queryFn: () => api.bgpStatus(),
-    refetchInterval: 10_000,
+  const status = useQuery({ queryKey: ["bgp-status"], queryFn: () => api.bgpStatus(), refetchInterval: 15_000 })
+  const blocks = useQuery({ queryKey: ["bgp-blocks"], queryFn: () => api.bgpBlocks(), refetchInterval: 15_000 })
+  const history = useQuery({ queryKey: ["bgp-block-history"], queryFn: () => api.bgpBlockHistory(HISTORY_LIMIT) })
+
+  const invalidate = () => {
+    for (const key of ["bgp-blocks", "bgp-block-history", "bgp-status"]) {
+      queryClient.invalidateQueries({ queryKey: [key] })
+    }
+  }
+
+  const check = useMutation({
+    mutationFn: () => api.bgpStatus(true),
+    onSuccess: (res) => queryClient.setQueryData(["bgp-status"], res),
   })
 
-  // --- Active blocks ---
-  const {
-    data: blocksData,
-    isLoading: blocksLoading,
-    error: blocksError,
-    refetch: refetchBlocks,
-  } = useQuery({
-    queryKey: ["bgp-blocks"],
-    queryFn: () => api.bgpBlocks(),
-    refetchInterval: 15_000,
-  })
-
-  // --- Block history ---
-  const {
-    data: historyData,
-    isLoading: historyLoading,
-    error: historyError,
-    refetch: refetchHistory,
-  } = useQuery({
-    queryKey: ["bgp-block-history"],
-    queryFn: () => api.bgpBlockHistory(200),
-  })
-
-  // --- Manual block mutation ---
-  const blockMutation = useMutation({
-    mutationFn: ({ ip, duration, description }: { ip: string; duration: number; description: string }) =>
-      api.bgpBlock(ip, duration, description),
+  // Block: the form only collects the target; the dialog states the impact.
+  const [formTarget, setFormTarget] = useState("")
+  const [reviewing, setReviewing] = useState<string | null>(null)
+  const block = useMutation({
+    mutationFn: ({ ip, duration, reason }: { ip: string; duration: number; reason: string }) => api.bgpBlock(ip, duration, reason),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["bgp-blocks"] })
-      queryClient.invalidateQueries({ queryKey: ["bgp-block-history"] })
-      queryClient.invalidateQueries({ queryKey: ["bgp-status"] })
-      setShowForm(false)
-      setFormIP("")
-      setFormDuration(60)
-      setFormDescription("")
+      setReviewing(null)
+      setFormTarget("")
+      invalidate()
     },
   })
 
-  // --- Unblock mutation ---
-  const unblockMutation = useMutation({
-    mutationFn: ({ ip, description }: { ip: string; description?: string }) =>
-      api.bgpUnblock(ip, description),
+  const [withdrawing, setWithdrawing] = useState<string | null>(null)
+  const [withdrawReason, setWithdrawReason] = useState("")
+  const unblock = useMutation({
+    mutationFn: ({ ip, prefixLen, reason }: { ip: string; prefixLen?: number; reason?: string }) => api.bgpUnblock(ip, reason, prefixLen),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["bgp-blocks"] })
-      queryClient.invalidateQueries({ queryKey: ["bgp-block-history"] })
-      queryClient.invalidateQueries({ queryKey: ["bgp-status"] })
-      setUnblockTarget(null)
-      setUnblockReason("")
+      setWithdrawing(null)
+      setWithdrawReason("")
+      invalidate()
     },
   })
-
-  // --- Form state ---
-  const [showForm, setShowForm] = useState(false)
-  const [formIP, setFormIP] = useState("")
-  const [formDuration, setFormDuration] = useState(60)
-  const [formDescription, setFormDescription] = useState("")
-
-  // --- Unblock confirm state ---
-  const [unblockTarget, setUnblockTarget] = useState<string | null>(null)
-  const [unblockReason, setUnblockReason] = useState("")
-
-  const session = statusData?.data
-  const blocks: BGPBlock[] = blocksData?.data || []
-  const history: BGPBlock[] = historyData?.data || []
+  const st = status.data?.data
+  const active: BGPBlock[] = blocks.data?.data ?? []
+  const past: BGPBlock[] = history.data?.data ?? []
+  const orphans = st?.rib.orphans ?? []
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+    <div className="space-y-8">
+      <div>
         <h1 className="text-2xl font-semibold">BGP blocks</h1>
+        <p className="mt-1 max-w-[70ch] text-[13px] text-muted-foreground">
+          RFC 7999 blackholes: a host route announced to your upstream{st?.peer_address ? <> through <span className="font-ip">{st.peer_address}</span></> : null}{" "}
+          with {st?.communities?.length ? st.communities.join(", ") : "the BLACKHOLE community"}. Your providers then drop every packet to that
+          address before it reaches you. Every block expires on its own.
+        </p>
       </div>
 
-      {/* Section 1: Session Status */}
-      {statusError ? (
-        <ErrorDisplay error={statusError as Error} onRetry={() => refetchStatus()} title="Failed to load BGP status" />
+      {status.error ? (
+        <ErrorDisplay error={status.error as Error} onRetry={() => status.refetch()} title="Failed to load BGP status" />
       ) : (
-        <Card>
-          <CardHeader className="pb-1">
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-              <CardTitle>BGP Session</CardTitle>
-              {session && (
-                <span
-                  className={cn(
-                    "px-1.5 py-0.5 text-xs font-medium rounded border  ",
-                    session.state === "established"
-                      ? "bg-success/20 text-success border-success/40"
-                      : "bg-destructive/20 text-destructive border-destructive/40"
-                  )}
-                >
-                  {session.state}
-                </span>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent>
-            {statusLoading ? (
-              <div className="flex gap-6">
-                <div className="h-4 w-24 rounded bg-muted" />
-                <div className="h-4 w-24 rounded bg-muted" />
-                <div className="h-4 w-24 rounded bg-muted" />
-              </div>
-            ) : session ? (
-              <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
-                {session.peer_address && (
-                  <div>
-                    <span className="text-muted-foreground">Peer: </span>
-                    <span className="font-ip text-[13px]">{session.peer_address}</span>
-                  </div>
-                )}
-                {session.local_as != null && session.peer_as != null && (
-                  <div>
-                    <span className="text-muted-foreground">AS: </span>
-                    <span className="font-ip text-[13px]">
-                      {session.local_as} / {session.peer_as}
-                    </span>
-                  </div>
-                )}
-                <div>
-                  <span className="text-muted-foreground">Uptime: </span>
-                  <span className="text-[13px] tabular-nums">{formatUptime(session.uptime)}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Routes announced: </span>
-                  <span className="text-[13px] tabular-nums">{session.routes_announced}</span>
-                </div>
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">No session data</p>
-            )}
-          </CardContent>
-        </Card>
+        <RightNow st={st} activeCount={active.length} onCheck={() => check.mutate()} checking={check.isPending} />
       )}
 
-      {/* Section 2: Manual Block Form (admin only) */}
-      {isAdmin && (
-        <Card>
-          <CardHeader>
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-              <CardTitle>Manual block</CardTitle>
-              <button
-                onClick={() => {
-                  setShowForm((s) => !s)
-                  if (!showForm) {
-                    setFormIP("")
-                    setFormDuration(60)
-                    setFormDescription("")
-                  }
-                }}
-                className="inline-flex items-center gap-1 px-2 py-0.5 text-[13px] font-medium rounded border border-input bg-background hover:bg-accent transition-colors"
-              >
-                <Plus className="size-3" />
-                {showForm ? "Cancel" : "Block IP"}
-              </button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {showForm && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  blockMutation.mutate({ ip: formIP.trim(), duration: formDuration, description: formDescription.trim() })
-                }}
-                className="space-y-2 p-3 border border-border rounded bg-muted/20"
-              >
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <label htmlFor="bgp-block-ip" className="space-y-1 block">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      IP address
-                    </span>
-                    <input
-                      id="bgp-block-ip"
-                      type="text"
-                      required
-                      value={formIP}
-                      onChange={(e) => setFormIP(e.target.value)}
-                      placeholder="192.0.2.1 or 2001:db8::1"
-                      className="w-full h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    />
-                  </label>
-                  <label htmlFor="bgp-block-duration" className="space-y-1 block">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      Duration
-                    </span>
-                    <select
-                      id="bgp-block-duration"
-                      value={formDuration}
-                      onChange={(e) => setFormDuration(Number(e.target.value))}
-                      className="w-full h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    >
-                      {DURATIONS.map((d) => (
-                        <option key={d.value} value={d.value}>
-                          {d.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                <label htmlFor="bgp-block-description" className="space-y-1 block">
-                  <span className="text-xs font-medium text-muted-foreground">
-                    Description
-                  </span>
-                  <textarea
-                    id="bgp-block-description"
-                    rows={2}
-                    value={formDescription}
-                    onChange={(e) => setFormDescription(e.target.value)}
-                    placeholder="Optional reason for the block"
-                    className="w-full px-2 py-1.5 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
-                  />
-                </label>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="submit"
-                    disabled={blockMutation.isPending}
-                    className="px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-                  >
-                    {blockMutation.isPending ? "Blocking..." : "Block IP"}
-                  </button>
-                  {blockMutation.isError && (
-                    <span className="text-xs text-destructive">
-                      {(blockMutation.error as Error).message}
-                    </span>
-                  )}
-                </div>
-              </form>
-            )}
-          </CardContent>
-        </Card>
+      {st?.dry_run && (
+        <p className="border-l-2 border-warning-mark pl-3 text-sm">
+          <span className="font-semibold text-warning">Dry run.</span> BGP_DRY_RUN is on: blocks are checked and recorded, but no route is announced.
+          Blocks recorded in dry run are never announced later.
+        </p>
       )}
 
-      {/* Section 3: Active Blocks Table */}
-      {blocksError ? (
-        <ErrorDisplay error={blocksError as Error} onRetry={() => refetchBlocks()} title="Failed to load active blocks" />
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Active blocks ({blocks.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {blocksLoading ? (
-              <TableSkeleton rows={5} cols={7} />
-            ) : blocks.length === 0 ? (
-              <EmptyState message="No active blocks" />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">IP</th>
-                      <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Reason</th>
-                      <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground hidden sm:table-cell">Blocked By</th>
-                      <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Blocked At</th>
-                      <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Expires At</th>
-                      <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Description</th>
-                      <th scope="col" className="pb-1.5 text-right font-medium text-muted-foreground">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {blocks.map((b) => (
-                      <tr key={b.id} className="border-b border-border-soft last:border-0 hover:bg-accent/50 transition-colors">
-                        <td className="py-1.5">
-                          <Link to={`/ip/${b.ip}`} className="text-primary hover:underline font-ip text-[13px]">
-                            <IPWithPTR ip={b.ip} />
-                          </Link>
-                        </td>
-                        <td className="py-1.5">
-                          <ReasonBadge reason={b.reason} />
-                        </td>
-                        <td className="py-1.5 text-muted-foreground hidden sm:table-cell">{b.blocked_by}</td>
-                        <td className="py-1.5 text-muted-foreground text-xs hidden md:table-cell">
-                          {relativeTime(b.blocked_at)}
-                        </td>
-                        <td className="py-1.5 text-muted-foreground text-xs hidden md:table-cell">
-                          {b.expires_at ? relativeTime(b.expires_at) : <span className="opacity-50">indefinite</span>}
-                        </td>
-                        <td className="py-1.5 text-muted-foreground text-xs max-w-[200px] truncate hidden lg:table-cell" title={b.description}>
-                          {b.description || <span className="opacity-50">--</span>}
-                        </td>
-                        <td className="py-1.5 text-right">
-                          {unblockTarget === b.ip ? (
-                            <div className="inline-flex items-center gap-1.5">
-                              <input
-                                type="text"
-                                value={unblockReason}
-                                onChange={(e) => setUnblockReason(e.target.value)}
-                                placeholder="Reason"
-                                className="h-6 w-28 px-1.5 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                              />
-                              <button
-                                onClick={() => unblockMutation.mutate({ ip: b.ip, description: unblockReason || undefined })}
-                                disabled={unblockMutation.isPending}
-                                className="px-1.5 py-0.5 text-xs rounded border border-destructive/40 text-destructive bg-destructive/10 hover:bg-destructive/20 transition-colors"
-                              >
-                                {unblockMutation.isPending ? "..." : "Confirm"}
-                              </button>
-                              <button
-                                onClick={() => { setUnblockTarget(null); setUnblockReason("") }}
-                                className="px-1 py-0.5 text-xs rounded border border-input bg-background hover:bg-accent transition-colors"
-                              >
-                                <X className="size-2.5" />
-                              </button>
-                            </div>
+      {unblock.error && (
+        <p role="alert" className="border-l-2 border-destructive py-1 pl-3 text-sm">
+          <span className="font-semibold">Not withdrawn.</span> {blockErrorMessage(unblock.error)}
+        </p>
+      )}
+
+      {/* Active blocks */}
+      <Section
+        title={`Active blocks (${active.length})`}
+        help="Each block is withdrawn automatically when it expires, even across restarts. Withdraw ends it now: traffic flows again within seconds."
+      >
+        {blocks.error ? (
+          <ErrorDisplay error={blocks.error as Error} onRetry={() => blocks.refetch()} title="Failed to load active blocks" />
+        ) : blocks.isLoading ? (
+          <TableSkeleton rows={3} cols={6} />
+        ) : active.length === 0 ? (
+          <p className="text-sm text-foreground-secondary">Nothing is blackholed.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-[13px] text-muted-foreground">
+                  <th scope="col" className="pb-1.5 font-normal">Target</th>
+                  <th scope="col" className="pb-1.5 font-normal">Why</th>
+                  <th scope="col" className="hidden pb-1.5 font-normal sm:table-cell">By</th>
+                  <th scope="col" className="hidden pb-1.5 font-normal md:table-cell">Since</th>
+                  <th scope="col" className="pb-1.5 font-normal">Expires</th>
+                  {isAdmin && <th scope="col" className="pb-1.5 text-right font-normal"><span className="sr-only">Actions</span></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {active.map((b) => {
+                  const target = blockTarget(b)
+                  return (
+                    <tr key={b.id} className="border-b border-border-soft align-top last:border-0">
+                      <td className="py-2 pr-3">
+                        <Link to={`/ip/${b.ip}`} className="font-ip text-[13px] text-link hover:underline">
+                          <IPWithPTR ip={target} />
+                        </Link>
+                        {b.dry_run && <span className="ml-2 rounded border border-border px-1 text-[12px] text-muted-foreground">dry run</span>}
+                      </td>
+                      <td className="py-2 pr-3">
+                        <BlockWhy b={b} />
+                      </td>
+                      <td className="hidden py-2 pr-3 text-foreground-secondary sm:table-cell">{b.blocked_by}</td>
+                      <td className="hidden py-2 pr-3 text-foreground-secondary md:table-cell" title={new Date(b.blocked_at).toLocaleString()}>
+                        {relativeTime(b.blocked_at)}
+                      </td>
+                      <td className="py-2 pr-3" title={b.expires_at ? new Date(b.expires_at).toLocaleString() : undefined}>
+                        {b.expires_at ? (
+                          <>
+                            {relativeTime(b.expires_at)}
+                            <span className="block text-[12px] text-muted-foreground">{new Date(b.expires_at).toLocaleTimeString()}</span>
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">no expiry</span>
+                        )}
+                      </td>
+                      {isAdmin && (
+                        <td className="py-2 text-right">
+                          {withdrawing === b.id ? (
+                            <WithdrawConfirm
+                              target={target}
+                              reason={withdrawReason}
+                              onReason={setWithdrawReason}
+                              pending={unblock.isPending}
+                              onConfirm={() => unblock.mutate({ ip: b.ip, prefixLen: b.prefix_len, reason: withdrawReason || undefined })}
+                              onCancel={() => {
+                                setWithdrawing(null)
+                                unblock.reset()
+                              }}
+                            />
                           ) : (
                             <button
-                              onClick={() => setUnblockTarget(b.ip)}
-                              className="px-1.5 py-0.5 text-xs rounded border border-destructive/40 text-destructive bg-destructive/10 hover:bg-destructive/20 transition-colors"
+                              type="button"
+                              onClick={() => {
+                                unblock.reset()
+                                setWithdrawReason("")
+                                setWithdrawing(b.id)
+                              }}
+                              className="h-7 rounded border border-input bg-background px-2 text-[13px] hover:bg-accent"
                             >
-                              Unblock
+                              Withdraw
                             </button>
                           )}
                         </td>
-                      </tr>
+                      )}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      {/* Routes in the daemon nobody asked for */}
+      {orphans.length > 0 && (
+        <Section
+          title="Routes without a block"
+          help="The daemon announces these but as-stats has no active block for them (added by hand, or left by a crash). They are never withdrawn automatically."
+        >
+          <ul className="divide-y divide-border-soft border-y border-border-soft">
+            {orphans.map((p) => {
+              const [ip, len] = p.split("/")
+              const host = ip.includes(":") ? 128 : 32
+              const key = `orphan:${p}`
+              return (
+                <li key={p} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <span className="font-ip text-[13px]">
+                    <span className="mr-2 rounded bg-warning-muted px-1 text-[12px] text-warning">Watch</span>
+                    {p}
+                  </span>
+                  {isAdmin &&
+                    (withdrawing === key ? (
+                      <WithdrawConfirm
+                        target={p}
+                        reason={withdrawReason}
+                        onReason={setWithdrawReason}
+                        pending={unblock.isPending}
+                        onConfirm={() => unblock.mutate({ ip, prefixLen: Number(len) < host ? Number(len) : undefined, reason: withdrawReason || undefined })}
+                        onCancel={() => setWithdrawing(null)}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setWithdrawing(key)}
+                        className="h-7 rounded border border-input bg-background px-2 text-[13px] hover:bg-accent"
+                      >
+                        Withdraw
+                      </button>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                </li>
+              )
+            })}
+          </ul>
+        </Section>
       )}
 
-      {/* Section 4: Block History */}
-      {historyError ? (
-        <ErrorDisplay error={historyError as Error} onRetry={() => refetchHistory()} title="Failed to load block history" />
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>History (last 200)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {historyLoading ? (
-              <TableSkeleton rows={8} cols={8} />
-            ) : history.length === 0 ? (
-              <EmptyState message="No block history" />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">IP</th>
-                      <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Reason</th>
-                      <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Status</th>
-                      <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground hidden sm:table-cell">Blocked By</th>
-                      <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Blocked At</th>
-                      <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Description</th>
-                      <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Unblocked By</th>
-                      <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Unblocked At</th>
-                      <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Unblock Reason</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {history.map((b) => (
-                      <tr
-                        key={b.id}
-                        className={cn(
-                          "border-b border-border-soft last:border-0 transition-colors",
-                          b.status === "withdrawn"
-                            ? "text-muted-foreground/60 hover:bg-accent/30"
-                            : "hover:bg-accent/50"
-                        )}
-                      >
-                        <td className="py-1.5">
-                          <Link to={`/ip/${b.ip}`} className="text-primary hover:underline font-ip text-[13px]">
-                            <IPWithPTR ip={b.ip} />
-                          </Link>
-                        </td>
-                        <td className="py-1.5">
-                          <ReasonBadge reason={b.reason} />
-                        </td>
-                        <td className="py-1.5">
-                          <StatusBadge status={b.status} />
-                        </td>
-                        <td className="py-1.5 hidden sm:table-cell">{b.blocked_by}</td>
-                        <td className="py-1.5 text-xs hidden md:table-cell">
-                          {relativeTime(b.blocked_at)}
-                        </td>
-                        <td className="py-1.5 text-xs max-w-[180px] truncate hidden md:table-cell" title={b.description}>
-                          {b.description || <span className="opacity-50">--</span>}
-                        </td>
-                        <td className="py-1.5 hidden lg:table-cell">{b.unblocked_by || <span className="opacity-50">--</span>}</td>
-                        <td className="py-1.5 text-xs hidden lg:table-cell">
-                          {b.unblocked_at ? relativeTime(b.unblocked_at) : <span className="opacity-50">--</span>}
-                        </td>
-                        <td className="py-1.5 text-xs max-w-[160px] truncate hidden lg:table-cell" title={b.unblock_reason || undefined}>
-                          {b.unblock_reason || <span className="opacity-50">--</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {/* Block an address (admins) */}
+      {isAdmin && (
+        <Section
+          title="Block an address"
+          help={
+            st
+              ? `Only addresses inside the allow-list below, as host routes${st.min_prefix_len_v4 < 32 ? ` or prefixes up to /${st.min_prefix_len_v4}` : ""}. You confirm the impact and duration on the next step.`
+              : "You confirm the impact and duration on the next step."
+          }
+        >
+          <form
+            className="flex flex-wrap items-end gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const t = formTarget.trim()
+              if (t) {
+                block.reset()
+                setReviewing(t)
+              }
+            }}
+          >
+            <label className="space-y-1">
+              <span className="block text-[13px] text-muted-foreground">Address</span>
+              <input
+                type="text"
+                required
+                value={formTarget}
+                onChange={(e) => setFormTarget(e.target.value)}
+                placeholder="198.51.100.10 or 2001:db8::10"
+                className="font-ip h-8 w-72 max-w-full rounded border border-input bg-background px-2 text-sm"
+              />
+            </label>
+            <button type="submit" disabled={!st?.ready} className="h-8 rounded border border-input bg-background px-3 text-sm hover:bg-accent disabled:opacity-50">
+              Review block…
+            </button>
+          </form>
+        </Section>
       )}
+
+      {st && <SafetyRules st={st} />}
+
+      {/* History */}
+      <Section title="History" help={`The last ${HISTORY_LIMIT} blocks, newest first. A failed block never reached the upstream.`}>
+        {history.error ? (
+          <ErrorDisplay error={history.error as Error} onRetry={() => history.refetch()} title="Failed to load block history" />
+        ) : history.isLoading ? (
+          <TableSkeleton rows={5} cols={5} />
+        ) : past.length === 0 ? (
+          <p className="text-sm text-foreground-secondary">No block yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-[13px] text-muted-foreground">
+                  <th scope="col" className="pb-1.5 font-normal">Target</th>
+                  <th scope="col" className="pb-1.5 font-normal">Outcome</th>
+                  <th scope="col" className="hidden pb-1.5 font-normal md:table-cell">Why</th>
+                  <th scope="col" className="hidden pb-1.5 font-normal sm:table-cell">Blocked</th>
+                  <th scope="col" className="hidden pb-1.5 font-normal lg:table-cell">Ended</th>
+                </tr>
+              </thead>
+              <tbody>
+                {past.map((b) => (
+                  <tr key={b.id} className="border-b border-border-soft align-top last:border-0">
+                    <td className="py-2 pr-3 font-ip text-[13px]">
+                      <Link to={`/ip/${b.ip}`} className="text-link hover:underline">{blockTarget(b)}</Link>
+                      {b.dry_run && <span className="ml-2 font-sans text-[12px] text-muted-foreground">dry run</span>}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <Outcome b={b} />
+                    </td>
+                    <td className="hidden py-2 pr-3 md:table-cell">
+                      <BlockWhy b={b} />
+                    </td>
+                    <td className="hidden py-2 pr-3 text-foreground-secondary sm:table-cell" title={new Date(b.blocked_at).toLocaleString()}>
+                      {new Date(b.blocked_at).toLocaleString()}
+                      <span className="block text-[12px] text-muted-foreground">by {b.blocked_by}</span>
+                    </td>
+                    <td className="hidden py-2 text-foreground-secondary lg:table-cell">
+                      {b.unblocked_at ? (
+                        <>
+                          {new Date(b.unblocked_at).toLocaleString()}
+                          <span className="block text-[12px] text-muted-foreground">
+                            {b.unblocked_by === "system" ? "" : `by ${b.unblocked_by}`}
+                            {b.unblock_reason ? `${b.unblocked_by === "system" ? "" : " — "}${b.unblock_reason}` : ""}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      <BlockDialog
+        target={reviewing}
+        defaultReason=""
+        subject="This address"
+        pending={block.isPending}
+        error={block.error}
+        onConfirm={(duration, reason) => reviewing && block.mutate({ ip: reviewing, duration, reason })}
+        onClose={() => {
+          setReviewing(null)
+          block.reset()
+        }}
+      />
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
-function ReasonBadge({ reason }: { reason: BGPBlock["reason"] }) {
-  const styles =
-    reason === "auto_block"
-      ? "bg-success/20 text-success border-success/40"
-      : "bg-primary/20 text-primary border-primary/40"
-  const label = reason === "auto_block" ? "auto" : "manual"
+function Section({ title, help, children }: { title: string; help: ReactNode; children: ReactNode }) {
   return (
-    <span className={cn("px-1.5 py-0.5 text-xs font-medium rounded border  ", styles)}>
-      {label}
-    </span>
+    <section className="grid gap-x-8 gap-y-3 border-t border-foreground pt-3 md:grid-cols-[220px_1fr]">
+      <div>
+        <h2 className="text-[15px] font-semibold">{title}</h2>
+        <p className="mt-1 text-[13px] text-muted-foreground">{help}</p>
+      </div>
+      <div className="min-w-0">{children}</div>
+    </section>
   )
 }
 
-function StatusBadge({ status }: { status: BGPBlock["status"] }) {
-  const styles =
-    status === "active"
-      ? "bg-destructive/20 text-destructive border-destructive/40"
-      : "bg-muted text-muted-foreground border-border"
+function Fact({ label, value, context, state }: { label: string; value: ReactNode; context: ReactNode; state?: "watch" | "incident" }) {
   return (
-    <span className={cn("px-1.5 py-0.5 text-xs font-medium rounded border  ", styles)}>
-      {status}
-    </span>
+    <div className="min-w-0 py-1 sm:px-4 sm:first:pl-0">
+      <div className="text-[13px] text-muted-foreground">{label}</div>
+      <div className={cn("mt-0.5 flex flex-wrap items-baseline gap-2 text-[22px] leading-tight", state === "incident" && "text-destructive", state === "watch" && "text-warning")}>
+        {value}
+        {state === "incident" && <span className="rounded bg-destructive px-1.5 text-[12px] font-semibold text-destructive-foreground">Incident</span>}
+        {state === "watch" && <span className="rounded bg-warning-muted px-1.5 text-[12px] font-semibold text-warning">Watch</span>}
+      </div>
+      <div className="mt-0.5 text-[13px] text-foreground-secondary">{context}</div>
+    </div>
   )
 }
 
 function formatUptime(seconds: number): string {
-  if (seconds <= 0) return "0m"
-  const h = Math.floor(seconds / 3600)
+  if (seconds <= 0) return ""
+  const d = Math.floor(seconds / 86400)
+  const h = Math.floor((seconds % 86400) / 3600)
   const m = Math.floor((seconds % 3600) / 60)
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m`
+  if (d > 0) return `up ${d} d ${h} h`
+  if (h > 0) return `up ${h} h ${m} min`
+  return `up ${m} min`
 }
 
-function relativeTime(iso: string): string {
-  const now = Date.now()
-  const then = new Date(iso).getTime()
-  const diff = now - then
+function RightNow({ st, activeCount, onCheck, checking }: { st?: BGPSessionStatus; activeCount: number; onCheck: () => void; checking: boolean }) {
+  if (!st) return <div className="h-20 rounded bg-muted" aria-hidden />
 
-  // Future timestamps
-  if (diff < 0) {
-    const absDiff = -diff
-    if (absDiff < 60_000) return "in <1m"
-    if (absDiff < 3600_000) return `in ${Math.round(absDiff / 60_000)}m`
-    if (absDiff < 86400_000) return `in ${Math.round(absDiff / 3600_000)}h`
-    return `in ${Math.round(absDiff / 86400_000)}d`
+  let session: { value: ReactNode; context: ReactNode; state?: "watch" | "incident" }
+  if (!st.ready) {
+    session = { value: "Not ready", state: "incident", context: `Active blocks not loaded from ClickHouse: ${st.load_error || "retrying"}. Blocking is refused until then.` }
+  } else if (st.dry_run) {
+    session = { value: "Dry run", state: "watch", context: "No command is run for new blocks." }
+  } else if (st.state === "established") {
+    session = { value: "Established", context: [st.peer_as ? `AS${st.peer_as}` : "", formatUptime(st.uptime)].filter(Boolean).join(" · ") || "Session up" }
+  } else if (st.state === "unknown") {
+    session = { value: "Unknown", context: "No status command (BGP_STATUS_CMD): the session is not checked." }
+  } else {
+    session = {
+      value: st.state === "error" ? "Status failed" : `Session ${st.state}`,
+      state: "incident",
+      context: st.state_error || "Blackholes are not reaching your upstream.",
+    }
   }
 
-  if (diff < 60_000) return "<1m ago"
-  if (diff < 3600_000) return `${Math.round(diff / 60_000)}m ago`
-  if (diff < 86400_000) return `${Math.round(diff / 3600_000)}h ago`
-  return `${Math.round(diff / 86400_000)}d ago`
+  const full = st.active_blocks >= st.max_active_blocks
+  const autoFull = st.auto_blocks_per_hour > 0 && st.auto_blocks_last_hour >= st.auto_blocks_per_hour
+
+  let rib: { value: ReactNode; context: ReactNode; state?: "watch" | "incident" }
+  if (!st.rib.supported) {
+    rib = { value: "Not checked", context: "No routes command (BGP_ROUTES_CMD)." }
+  } else if (st.rib.error) {
+    rib = { value: "Check failed", state: "incident", context: st.rib.error }
+  } else if ((st.rib.missing?.length ?? 0) > 0) {
+    rib = { value: `${st.rib.missing!.length} missing`, state: "incident", context: `Active but not announced: ${st.rib.missing!.join(", ")}` }
+  } else if ((st.rib.orphans?.length ?? 0) > 0) {
+    rib = { value: `${st.rib.orphans!.length} unknown`, state: "watch", context: "Routes in the daemon without a block (listed below)." }
+  } else {
+    rib = { value: "In sync", context: st.rib.checked_at ? `Checked ${relativeTime(st.rib.checked_at)}` : "Every active block is announced." }
+  }
+
+  return (
+    <section aria-label="Right now" className="border-t-2 border-foreground pt-3">
+      <div className="grid gap-y-3 sm:grid-cols-2 sm:divide-x sm:divide-border lg:grid-cols-4">
+        <Fact label="Session" {...session} />
+        <Fact
+          label="Active blocks"
+          value={<span>{activeCount}<span className="text-[15px] text-muted-foreground"> / {st.max_active_blocks}</span></span>}
+          state={full ? "watch" : undefined}
+          context={full ? "Limit reached: withdraw one to block another." : `${st.routes_announced} announced`}
+        />
+        <Fact
+          label="Automatic blocks"
+          value={<span>{st.auto_blocks_last_hour}<span className="text-[15px] text-muted-foreground"> / {st.auto_blocks_per_hour} per hour</span></span>}
+          state={autoFull ? "watch" : undefined}
+          context={st.auto_blocks_per_hour === 0 ? "Disabled (BGP_AUTO_BLOCK_MAX_PER_HOUR=0)." : autoFull ? "Further auto-blocks are refused this hour." : "From alert rules with action auto_block."}
+        />
+        <Fact label="Daemon routes" {...rib} />
+      </div>
+      <div className="mt-2">
+        <button type="button" onClick={onCheck} disabled={checking} className="h-7 rounded border border-input bg-background px-2 text-[13px] hover:bg-accent disabled:opacity-50">
+          {checking ? "Checking…" : "Check the daemon now"}
+        </button>
+      </div>
+    </section>
+  )
+}
+
+function BlockWhy({ b }: { b: BGPBlock }) {
+  return (
+    <div className="max-w-[40ch]">
+      {b.reason === "manual" ? (
+        <span>{blockSource(b)}</span>
+      ) : (
+        <Link to="/alerts" className="text-link hover:underline" title={b.alert_id ? `Alert ${b.alert_id}` : undefined}>
+          {blockSource(b)}
+        </Link>
+      )}
+      {b.description && <span className="block truncate text-[13px] text-muted-foreground" title={b.description}>{b.description}</span>}
+    </div>
+  )
+}
+
+function Outcome({ b }: { b: BGPBlock }) {
+  if (b.status === "failed") return <span className="text-destructive">Failed</span>
+  if (b.status === "active") return <span>Active</span>
+  if (b.unblocked_by === "system") return <span className="text-foreground-secondary">Expired</span>
+  return <span className="text-foreground-secondary">Withdrawn</span>
+}
+
+function WithdrawConfirm({
+  target,
+  reason,
+  onReason,
+  pending,
+  onConfirm,
+  onCancel,
+}: {
+  target: string
+  reason: string
+  onReason: (v: string) => void
+  pending: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div className="inline-flex flex-col items-end gap-1.5 text-left" role="group" aria-label={`Withdraw ${target}`}>
+      <span className="text-[13px]">Traffic to <span className="font-ip">{target}</span> flows again.</span>
+      <div className="flex flex-wrap justify-end gap-1.5">
+        <input
+          type="text"
+          value={reason}
+          onChange={(e) => onReason(e.target.value)}
+          placeholder="Reason (optional)"
+          aria-label="Reason"
+          className="h-7 w-40 rounded border border-input bg-background px-2 text-[13px]"
+        />
+        <button type="button" onClick={onConfirm} disabled={pending} className="h-7 rounded bg-primary px-2 text-[13px] font-semibold text-primary-foreground disabled:opacity-50">
+          {pending ? "Withdrawing…" : "Withdraw"}
+        </button>
+        <button type="button" onClick={onCancel} className="h-7 rounded border border-input bg-background px-2 text-[13px] hover:bg-accent">
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function SafetyRules({ st }: { st: BGPSessionStatus }) {
+  const rows: [string, ReactNode][] = [
+    [
+      "Allowed space",
+      st.allowed_prefix_count === 0 ? (
+        <span className="text-destructive">None — every block is refused. Set BGP_ALLOWED_PREFIXES or LOCAL_AS.</span>
+      ) : (
+        <>
+          <span className="font-ip">{(st.allowed_prefixes ?? []).join(", ")}</span>
+          {st.allowed_prefix_count > (st.allowed_prefixes?.length ?? 0) && ` and ${st.allowed_prefix_count - (st.allowed_prefixes?.length ?? 0)} more`}
+          <span className="block text-[13px] text-muted-foreground">from {st.allowed_source}</span>
+        </>
+      ),
+    ],
+    ["Never blocked", <span className="font-ip">{(st.protected_prefixes ?? []).join(", ") || "—"}</span>],
+    ["Prefix length", `IPv4 /${st.min_prefix_len_v4}${st.min_prefix_len_v4 < 32 ? "–/32" : " only"}, IPv6 /${st.min_prefix_len_v6}${st.min_prefix_len_v6 < 128 ? "–/128" : " only"}${st.ipv6_enabled ? "" : " (IPv6 off: no BGP_NEXT_HOP_V6)"}`],
+    ["Limits", `${st.max_active_blocks} active at most, ${st.auto_blocks_per_hour} automatic per hour`],
+    ["Duration", `${st.default_duration_minutes} min by default, ${st.max_duration_minutes / 60} h at most`],
+    ["Announced as", <span className="font-ip">{[st.communities.join(" "), st.next_hop_v4 && `next hop ${st.next_hop_v4}`, st.next_hop_v6 && st.next_hop_v6].filter(Boolean).join(", ")}</span>],
+  ]
+  return (
+    <Section title="Safety rules" help="Checked on every block — manual, from an alert or automatic. Set by BGP_* variables on the API.">
+      <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[160px_1fr]">
+        {rows.map(([k, v]) => (
+          <div key={k} className="contents">
+            <dt className="text-muted-foreground">{k}</dt>
+            <dd className="min-w-0 break-words">{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </Section>
+  )
 }

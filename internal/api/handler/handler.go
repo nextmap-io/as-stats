@@ -26,8 +26,10 @@ type Handler struct {
 	FeatureBGP        bool
 	FeatureReports    bool
 
-	// BGP blocker for blackhole actions (noop by default)
-	BGPBlocker bgp.Blocker
+	// BGP is the blackhole service; nil when BGP_ENABLED=false.
+	BGP *bgp.Service
+	// BGPAPIToken authenticates the collector on /internal/bgp/blocks.
+	BGPAPIToken string
 
 	// ReportService renders + sends scheduled reports on demand (test endpoint).
 	// Nil when FEATURE_REPORTS is off or SMTP is not configured.

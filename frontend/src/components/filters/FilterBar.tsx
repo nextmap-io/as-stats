@@ -65,7 +65,12 @@ export function FilterBar() {
               popover must live OUTSIDE this overflow container: setting
               overflow-x also forces overflow-y to `auto`, which would clip the
               popover as it opens downward (it looked like "Custom does nothing"). */}
-          <div ref={presetsRef} className="flex items-center gap-3 overflow-x-auto scrollbar-none min-w-0">
+          {/* On a phone the strip scrolls with no scrollbar; the edges fade so a
+              clipped "1h" or "30d" reads as "more this way", not as a glitch. */}
+          <div
+            ref={presetsRef}
+            className="flex items-center gap-3 overflow-x-auto scrollbar-none min-w-0 max-md:px-2 max-md:[mask-image:linear-gradient(to_right,transparent,black_12px,black_calc(100%-12px),transparent)]"
+          >
             <FilterGroup label="Time range">
               {relativePresets.map((p) => (
                 <FilterButton key={p.value} active={period === p.value} onClick={() => setPeriod(p.value)}>

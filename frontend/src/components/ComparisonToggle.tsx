@@ -1,9 +1,8 @@
 import { useSearchParams } from "react-router-dom"
-import { GitCompareArrows } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 /**
- * ComparisonToggle is a URL-synced (`?compare=prev`) button that turns the
+ * ComparisonToggle is a URL-synced (`?compare=prev`) checkbox that turns the
  * previous-period overlay on time-series charts on/off (Module D). It writes
  * the `compare` search param so the state survives navigation and shareable
  * links, matching the app's URL-synced-filters convention.
@@ -27,22 +26,15 @@ export function ComparisonToggle({ className }: { className?: string }) {
     )
   }
 
+  // A checkbox, as on the dashboard (Ledger: the comparison overlay is a dashed
+  // line switched by a checkbox, not a button with an on-state fill).
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      aria-pressed={on}
-      title="Overlay the previous equal-length period"
-      className={cn(
-        "inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded border transition-colors",
-        on
-          ? "border-primary/50 bg-primary/15 text-primary"
-          : "border-input text-foreground-secondary hover:bg-accent hover:text-foreground",
-        className,
-      )}
+    <label
+      title="Overlay the previous equal-length period as a dashed line"
+      className={cn("inline-flex min-h-7 cursor-pointer items-center gap-2 text-[13px] text-foreground-secondary", className)}
     >
-      <GitCompareArrows className="size-3" />
-      Compare previous
-    </button>
+      <input type="checkbox" checked={on} onChange={toggle} className="size-4 accent-[var(--color-ring)]" />
+      Compare with the previous period
+    </label>
   )
 }

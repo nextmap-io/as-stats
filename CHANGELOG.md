@@ -7,6 +7,112 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.7.0] - 2026-10-27
+
+### Security
+- BGP blackholing: every block (manual, from an alert, automatic) now passes
+  safety rails — an allow-list (`BGP_ALLOWED_PREFIXES`, else the LOCAL_AS
+  prefixes; nothing = every block refused), protected addresses (BGP peer,
+  next hops, router id, `BGP_PROTECTED_PREFIXES`), reserved ranges, host
+  routes only by default (`BGP_MIN_PREFIX_LEN_V4/_V6`, floors /24 and /48),
+  `BGP_MAX_ACTIVE_BLOCKS` (50) and `BGP_AUTO_BLOCK_MAX_PER_HOUR` (10). Before,
+  any address — the default route's `0.0.0.0`, the BGP peer itself — could be
+  announced.
+- BGP command templates are parsed into arguments and run without a shell,
+  with a minimal environment (the API's ClickHouse password, OIDC secret and
+  token are no longer inherited), a hard timeout that also stops children,
+  and bounded output.
+- Collector → API auto-block is authenticated: `POST /internal/bgp/blocks`
+  with `Authorization: Bearer $BGP_API_TOKEN` (outside `/api/v1`, not proxied
+  by nginx). Every block, withdrawal, refusal and expiry is in the audit log.
+
+### Fixed
+- Auto-block (`auto_block` rule action) never worked: the collector's
+  requests were rejected by the API's CSRF check.
+- Blocking from an alert did not record the block: it was missing from the BGP
+  page and, after an API restart, its route stayed announced forever.
+- Blocks survive restarts: the API reloads them (retrying until ClickHouse
+  answers), withdraws the ones that expired meanwhile and re-announces the
+  others with their original expiry. A failed announce marks the block
+  `failed` instead of leaving an untracked route.
+- Withdrawing an address that is not blocked answers 404 instead of
+  "unblocked"; a withdrawal the daemon refuses is reported (502) and retried.
+- IPv6 blackholes: a separate `BGP_NEXT_HOP_V6`; refused clearly without it.
+- The default gobgp status command now runs (the BGP page always said
+  "unknown"); the BIRD and FRR examples in the docs were wrong (no
+  `birdc route add`; `{peer_as}` placeholder unsupported).
+- **Alert false positives** (production: ~5,150 alerts in 10 days, none
+  acknowledged, mostly busy servers at their usual level):
+  - `port_scan` counted every distinct destination port of a local source,
+    so servers replying to clients' ephemeral ports "scanned" all day. It now
+    confirms its hot-table candidates on `flows_raw` and counts only
+    connection probes (TCP SYN without ACK; UDP / flagless TCP from port
+    ≥ 1024 to port < 1024).
+  - Flapping: an alert that resolved and fired again re-alerted (and
+    notified) every ~20 minutes. Within the re-arm window
+    (`max(cooldown_seconds, ALERT_REARM_WINDOW)`, default 1 h) the engine now
+    re-opens the previous alert silently (`reopen_count`, shown as
+    "re-opened ×N"); a value ≥ 2× the alert's peak is still a new incident,
+    and `auto_block` rules re-announce on a re-open.
+  - Acknowledging an alert that was still firing created a duplicate alert;
+    acknowledged alerts are now heartbeated.
+- Alert, rule, webhook and audit-log inserts use the native protocol instead
+  of `INSERT … VALUES` with rendered literals, which the server's fast VALUES
+  parser rejected on every insert (`CANNOT_PARSE_INPUT_ASSERTION_FAILED` in
+  `system.errors`, ~16k a day).
+
+### Added
+- `BGP_DRY_RUN`, reconciliation with the daemon's RIB (`BGP_ROUTES_CMD`,
+  default for gobgp; missing routes re-announced, unknown ones listed and
+  withdrawable), NO_EXPORT by default (`BGP_EXTRA_COMMUNITIES`),
+  `BGP_DEFAULT_DURATION`, `BGP_MAX_DURATION`, `BGP_COMMAND_TIMEOUT`,
+  `BGP_RECONCILE_INTERVAL`, `{prefix}` / `{communities}` / `{local_as}` /
+  `{peer_as}` placeholders, `ASSTATS_BGP_*` variables for wrapper scripts.
+- `scripts/bgp/bird-rtbh.sh` and `scripts/bgp/frr-rtbh.sh`.
+- Prometheus: `asstats_bgp_blocks_active`, `asstats_bgp_block_requests_total`,
+  `asstats_bgp_withdrawals_total`, `asstats_bgp_commands_total`,
+  `asstats_bgp_command_duration_seconds`, `asstats_bgp_daemon_up`,
+  `asstats_bgp_rib_missing`, `asstats_bgp_rib_orphans`,
+  `asstats_bgp_reannounced_total`, `asstats_bgp_auto_block_requests_total`.
+- BGP page rebuilt: daemon state, limits in use, active blocks with their
+  alert and expiry, withdraw with confirmation, unknown routes, the rules in
+  force, history with outcome. One block dialog (BGP page, Alerts, Live
+  Threats) states the impact and lets you choose the duration.
+- Migration 000019: `bgp_blocks.dry_run`.
+- `baseline_factor` on `volume_in` / `volume_out` rules (migration 000020):
+  fire only when the host is also N× its usual level (per-minute p99 at the
+  same time of day over 7 days). Hosts without history are judged on the
+  threshold alone. Editable in Admin › Alert Rules, which can now edit rules.
+  Live Threats counts such a rule as firing only under the same condition.
+- Seeded rules: "High inbound volume" / "High outbound volume" 2×,
+  "Sustained outbound exfiltration" 3×. **Existing installs**: the collector
+  applies them once at startup, only to the 3.6 seeded rules still exactly as
+  seeded (thresholds, window, severity, description); edited rules are kept.
+- `ALERT_REARM_WINDOW` (default `1h`); metrics
+  `asstats_alerts_reopened_total`, `asstats_alerts_baseline_suppressed_total`.
+- Alert replay test (`TestIntegrationAlertReplay`): the 3.6 and current
+  engines over a synthetic day of benign busy hosts and attacks.
+
+### Changed
+- **Upgrade notes (BGP):** auto-block needs `BGP_API_TOKEN` on the API and
+  the collector; set `BGP_ALLOWED_PREFIXES` (or `LOCAL_AS`) or every block is
+  refused; templates using shell syntax (`|`, `;`, `>`…) are refused at
+  startup — move them to a script; IPv6 needs `BGP_NEXT_HOP_V6`; NO_EXPORT is
+  added to gobgp announces (`BGP_EXTRA_COMMUNITIES=` to drop it);
+  `BGP_ROUTER_ID` is optional; an invalid BGP setting stops the API at
+  startup instead of silently falling back to a log-only blocker. Durations
+  outside 1 min – `BGP_MAX_DURATION` are refused (400) instead of clamped.
+- `POST /bgp/blocks` and `POST /alerts/{id}/block` answer 201 with the block,
+  200 with the existing block when the target is already blocked (was 409 /
+  a bare status).
+- **Second design review with impeccable** (`docs/design-review/impeccable-2026-10-b.md`):
+  one by-link chart with an IP-version switch on Links and AS detail; the
+  global time bar hidden on pages with their own clock; round axis values and
+  clock-aligned time ticks; one table header style; every state colour carries
+  its word (disks, settings no longer green); Live threats on the incident
+  path from the home; flow rows say when a flow happened; AA contrast on the
+  rule badges; values keep their unit on phones.
+
 ## [3.6.1] - 2026-10-26
 
 ### Security

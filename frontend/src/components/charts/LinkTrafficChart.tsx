@@ -11,7 +11,8 @@ import {
 import type { LinkTimeSeries } from "@/lib/types"
 import { useUnit } from "@/hooks/useUnit"
 import { axisTick, seriesColor, tooltipBoxStyle, useChartColors, annotationLabel, X_TICK_MARGIN } from "@/hooks/useChartColors"
-import { inferStepSeconds, formatTimeShort } from "./time"
+import { inferStepSeconds, formatTimeShort, timeTicks } from "./time"
+import { rateAxisTicks } from "@/lib/rate"
 
 
 interface LinkTrafficChartProps {
@@ -148,18 +149,29 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
   // no window is supplied.
   const domainFrom = timeBounds ? timeBounds.from : sortedTs[0] ?? 0
   const domainTo = timeBounds ? timeBounds.to : sortedTs[sortedTs.length - 1] ?? domainFrom + stepMs
-  const TICK_COUNT = 6
-  const xTicks =
-    domainTo > domainFrom
-      ? Array.from({ length: TICK_COUNT + 1 }, (_, i) => Math.round(domainFrom + ((domainTo - domainFrom) * i) / TICK_COUNT))
-      : undefined
+  const xTicks = domainTo > domainFrom ? timeTicks(domainFrom, domainTo) : undefined
+  // Stacked: the extent is the sum of the links in each direction.
+  let yMin = 0
+  let yMax = usePps ? 0 : (p95In ?? 0)
+  if (!usePps && p95Out) yMin = -p95Out
+  for (const row of dataByTs.values()) {
+    let up = 0
+    let down = 0
+    for (const tag of linkTags) {
+      up += row[`${tag}_in`]
+      down += row[`${tag}_out`]
+    }
+    yMax = Math.max(yMax, up)
+    yMin = Math.min(yMin, down)
+  }
+  const y = rateAxisTicks(yMin, yMax, interval, unit, kind)
 
   return (
     <div className="overflow-hidden">
       {/* Top-level block of its page, so an h2 under the page h1. */}
       {title && <h2 className="mb-1 text-[13px] font-normal text-foreground-secondary">{title}</h2>}
       <ResponsiveContainer width="100%" height={height}>
-        <AreaChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
+        <AreaChart data={data} margin={{ top: 8, right: 2, left: 0, bottom: 0 }}>
           {/* No gradients — solid fills like classic rrdtool */}
           <CartesianGrid vertical={false} stroke={chartColors.grid} />
           <XAxis
@@ -176,6 +188,9 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
             tickFormatter={(t) => formatTimeShort(Number(t), multiDay)}
           />
           <YAxis
+            ticks={y.ticks}
+            domain={y.domain}
+            interval={0}
             tick={axisTick(chartColors)}
             tickLine={false}
             axisLine={false}

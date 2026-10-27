@@ -191,6 +191,11 @@ export function utilLevel(pct: number | null): Level {
   return "normal"
 }
 
+/** Text colour of a value in a state; "" when normal (it stays unlit). */
+export function levelTextClass(level: Level): string {
+  return level === "critical" ? "text-destructive" : level === "watch" ? "text-warning" : ""
+}
+
 // ─── Status strip ──────────────────────────────────────────────────────────
 
 const SEVERITY_RANK: Record<AlertSeverity, number> = { critical: 3, warning: 2, info: 1 }

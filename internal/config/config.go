@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/nextmap-io/as-stats/internal/bgp"
 )
 
 // ClickHouseConfig holds ClickHouse connection settings.
@@ -87,15 +89,18 @@ type CollectorConfig struct {
 	FeatureAlerts       bool          // enables the alert evaluator goroutine
 	AlertEvalInterval   time.Duration // default 30s
 	AlertStaleThreshold time.Duration // alerts are auto-resolved after this gap
+	AlertRearmWindow    time.Duration // a violation within this long re-opens the last alert (default 1h)
 
 	// Scheduled reports (Module D)
 	FeatureReports bool       // enables the report scheduler goroutine
 	SMTP           SMTPConfig // outbound email settings
 
-	// BGP: the collector's alert engine can trigger blocks via the API server.
-	// Set BGP_API_URL to the API server's base URL (e.g. "http://localhost:8080")
-	// to enable RemoteBlocker. When empty, the collector uses NoopBlocker.
-	BGPAPIURL string
+	// BGP: the collector's alert engine asks the API to blackhole the target
+	// of an auto_block rule. BGP_API_URL is the API's base URL (e.g.
+	// "http://api:8080"), BGP_API_TOKEN the secret shared with the API. Both
+	// are needed; without them auto_block rules only alert.
+	BGPAPIURL   string
+	BGPAPIToken string
 
 	// Prometheus metrics endpoint served on a separate HTTP listener.
 	// Defaults to ":9090". Empty string disables the endpoint.
@@ -133,22 +138,12 @@ type APIConfig struct {
 	PrometheusUser      string   // PROMETHEUS_USER (basic auth)
 	PrometheusPass      string   // PROMETHEUS_PASS (basic auth)
 
-	// BGP blackhole client — announces /32 routes via shell commands
-	// (gobgp CLI, BIRD, FRRouting, ExaBGP, etc.).
-	BGPEnabled     bool
-	BGPRouterID    string // e.g. "192.0.2.1"
-	BGPLocalAS     uint32
-	BGPPeerAddress string // e.g. "10.0.0.1"
-	BGPPeerAS      uint32
-	BGPCommunity   string // e.g. "65535:666" (RFC 7999 BLACKHOLE)
-	BGPNextHop     string // next-hop for announced routes
-
-	// Custom shell command templates. Placeholders: {ip}, {prefix_len},
-	// {community}, {next_hop}, {peer_address}. When empty and BGP_ENABLED=true,
-	// defaults to gobgp CLI commands.
-	BGPAnnounceCmd string // BGP_ANNOUNCE_CMD
-	BGPWithdrawCmd string // BGP_WITHDRAW_CMD
-	BGPStatusCmd   string // BGP_STATUS_CMD
+	// BGP blackholing (docs/bgp-blackhole.md). BGP holds the validated
+	// BGP_* settings when BGPEnabled; BGPAPIToken authenticates the
+	// collector's auto-block requests on /internal/bgp/blocks.
+	BGPEnabled  bool
+	BGP         bgp.Settings
+	BGPAPIToken string
 }
 
 // CollectorConfig additions for detailed logging + alert engine.
@@ -237,6 +232,10 @@ func LoadCollector() (*CollectorConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid ALERT_STALE_THRESHOLD: %w", err)
 	}
+	alertRearm, err := time.ParseDuration(envOr("ALERT_REARM_WINDOW", "1h"))
+	if err != nil || alertRearm < 0 {
+		return nil, fmt.Errorf("invalid ALERT_REARM_WINDOW %q (want a duration >= 0)", os.Getenv("ALERT_REARM_WINDOW"))
+	}
 
 	featureReports, _ := strconv.ParseBool(envOr("FEATURE_REPORTS", "false"))
 	smtp, err := loadSMTP(featureReports)
@@ -261,9 +260,11 @@ func LoadCollector() (*CollectorConfig, error) {
 		FeatureAlerts:              featureAlerts,
 		AlertEvalInterval:          alertEval,
 		AlertStaleThreshold:        alertStale,
+		AlertRearmWindow:           alertRearm,
 		FeatureReports:             featureReports,
 		SMTP:                       smtp,
 		BGPAPIURL:                  envOr("BGP_API_URL", ""),
+		BGPAPIToken:                os.Getenv("BGP_API_TOKEN"),
 		PrometheusAddr:             envOr("COLLECTOR_PROMETHEUS_ADDR", ":9090"),
 		PrometheusAllowCIDR:        splitCSV(envOr("PROMETHEUS_ALLOW_CIDR", "")),
 		PrometheusUser:             envOr("PROMETHEUS_USER", ""),
@@ -297,9 +298,20 @@ func LoadAPI() (*APIConfig, error) {
 		return nil, err
 	}
 
-	bgpEnabled, _ := strconv.ParseBool(envOr("BGP_ENABLED", "false"))
-	bgpLocalAS, _ := strconv.ParseUint(envOr("BGP_LOCAL_AS", "0"), 10, 32)
-	bgpPeerAS, _ := strconv.ParseUint(envOr("BGP_PEER_AS", "0"), 10, 32)
+	bgpEnabled, err := envBool("BGP_ENABLED", false)
+	if err != nil {
+		return nil, err
+	}
+	var bgpSettings bgp.Settings
+	if bgpEnabled {
+		if bgpSettings, err = loadBGP(); err != nil {
+			return nil, err
+		}
+	}
+	bgpToken := os.Getenv("BGP_API_TOKEN")
+	if bgpToken != "" && len(bgpToken) < bgp.MinAPITokenLen {
+		return nil, fmt.Errorf("BGP_API_TOKEN must be at least %d characters (e.g. openssl rand -hex 32)", bgp.MinAPITokenLen)
+	}
 
 	cfg := &APIConfig{
 		ClickHouse:          loadClickHouse(),
@@ -321,31 +333,14 @@ func LoadAPI() (*APIConfig, error) {
 		PrometheusUser:      envOr("PROMETHEUS_USER", ""),
 		PrometheusPass:      envOr("PROMETHEUS_PASS", ""),
 		BGPEnabled:          bgpEnabled,
-		BGPRouterID:         envOr("BGP_ROUTER_ID", ""),
-		BGPLocalAS:          uint32(bgpLocalAS),
-		BGPPeerAddress:      envOr("BGP_PEER_ADDRESS", ""),
-		BGPPeerAS:           uint32(bgpPeerAS),
-		BGPCommunity:        envOr("BGP_COMMUNITY", "65535:666"),
-		BGPNextHop:          envOr("BGP_NEXT_HOP", ""),
-		BGPAnnounceCmd:      envOr("BGP_ANNOUNCE_CMD", ""),
-		BGPWithdrawCmd:      envOr("BGP_WITHDRAW_CMD", ""),
-		BGPStatusCmd:        envOr("BGP_STATUS_CMD", ""),
+		BGP:                 bgpSettings,
+		BGPAPIToken:         bgpToken,
 	}
 
 	// Validate OIDC config when auth is enabled
 	if cfg.AuthEnabled {
 		if cfg.OIDCIssuer == "" || cfg.OIDCClientID == "" {
 			return nil, fmt.Errorf("AUTH_ENABLED=true requires OIDC_ISSUER_URL and OIDC_CLIENT_ID")
-		}
-	}
-
-	// Validate BGP config when enabled
-	if cfg.BGPEnabled {
-		if cfg.BGPRouterID == "" || cfg.BGPPeerAddress == "" || cfg.BGPNextHop == "" {
-			return nil, fmt.Errorf("BGP_ENABLED=true requires BGP_ROUTER_ID, BGP_PEER_ADDRESS, and BGP_NEXT_HOP")
-		}
-		if cfg.BGPLocalAS == 0 || cfg.BGPPeerAS == 0 {
-			return nil, fmt.Errorf("BGP_ENABLED=true requires BGP_LOCAL_AS and BGP_PEER_AS")
 		}
 	}
 
@@ -357,6 +352,98 @@ func LoadAPI() (*APIConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+// loadBGP reads and validates the BGP_* variables (BGP_ENABLED=true).
+func loadBGP() (bgp.Settings, error) {
+	u32 := func(key string) (uint32, error) {
+		v, err := strconv.ParseUint(envOr(key, "0"), 10, 32)
+		if err != nil {
+			return 0, fmt.Errorf("invalid %s: %q", key, os.Getenv(key))
+		}
+		return uint32(v), nil
+	}
+	num := func(key string, def int) (int, error) {
+		raw := os.Getenv(key)
+		if raw == "" {
+			return def, nil
+		}
+		v, err := strconv.Atoi(raw)
+		if err != nil {
+			return 0, fmt.Errorf("invalid %s: %q", key, raw)
+		}
+		return v, nil
+	}
+	dur := func(key string) (time.Duration, error) {
+		raw := os.Getenv(key)
+		if raw == "" {
+			return 0, nil
+		}
+		v, err := time.ParseDuration(raw)
+		if err != nil {
+			return 0, fmt.Errorf("invalid %s: %q", key, raw)
+		}
+		return v, nil
+	}
+	var r bgp.RawSettings
+	var err error
+	if r.LocalAS, err = u32("BGP_LOCAL_AS"); err != nil {
+		return bgp.Settings{}, err
+	}
+	if r.PeerAS, err = u32("BGP_PEER_AS"); err != nil {
+		return bgp.Settings{}, err
+	}
+	if r.DryRun, err = envBool("BGP_DRY_RUN", false); err != nil {
+		return bgp.Settings{}, err
+	}
+	ints := []struct {
+		key string
+		def int
+		dst *int
+	}{
+		{"BGP_MIN_PREFIX_LEN_V4", 32, &r.MinPrefixLenV4},
+		{"BGP_MIN_PREFIX_LEN_V6", 128, &r.MinPrefixLenV6},
+		{"BGP_MAX_ACTIVE_BLOCKS", 50, &r.MaxActive},
+		{"BGP_AUTO_BLOCK_MAX_PER_HOUR", 10, &r.AutoPerHour},
+	}
+	for _, i := range ints {
+		if *i.dst, err = num(i.key, i.def); err != nil {
+			return bgp.Settings{}, err
+		}
+	}
+	durs := []struct {
+		key string
+		dst *time.Duration
+	}{
+		{"BGP_DEFAULT_DURATION", &r.DefaultDuration},
+		{"BGP_MAX_DURATION", &r.MaxDuration},
+		{"BGP_COMMAND_TIMEOUT", &r.CommandTimeout},
+		{"BGP_RECONCILE_INTERVAL", &r.ReconcileInterval},
+	}
+	for _, d := range durs {
+		if *d.dst, err = dur(d.key); err != nil {
+			return bgp.Settings{}, err
+		}
+	}
+	_, r.StatusCmdSet = os.LookupEnv("BGP_STATUS_CMD")
+	_, r.RoutesCmdSet = os.LookupEnv("BGP_ROUTES_CMD")
+	extra, extraSet := os.LookupEnv("BGP_EXTRA_COMMUNITIES")
+	if !extraSet {
+		extra = "65535:65281" // NO_EXPORT, RFC 7999 section 3.2
+	}
+	r.AnnounceCmd = os.Getenv("BGP_ANNOUNCE_CMD")
+	r.WithdrawCmd = os.Getenv("BGP_WITHDRAW_CMD")
+	r.StatusCmd = os.Getenv("BGP_STATUS_CMD")
+	r.RoutesCmd = os.Getenv("BGP_ROUTES_CMD")
+	r.Community = envOr("BGP_COMMUNITY", "65535:666")
+	r.ExtraCommunities = extra
+	r.NextHop = os.Getenv("BGP_NEXT_HOP")
+	r.NextHopV6 = os.Getenv("BGP_NEXT_HOP_V6")
+	r.PeerAddress = os.Getenv("BGP_PEER_ADDRESS")
+	r.RouterID = os.Getenv("BGP_ROUTER_ID")
+	r.AllowedPrefixes = os.Getenv("BGP_ALLOWED_PREFIXES")
+	r.ProtectedPrefixes = os.Getenv("BGP_PROTECTED_PREFIXES")
+	return bgp.ParseSettings(r)
 }
 
 // parseSamplingOverride parses "ip=rate,ip=rate" (e.g.
