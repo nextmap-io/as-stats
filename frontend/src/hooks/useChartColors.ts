@@ -1,7 +1,8 @@
 import { useMemo } from "react"
 import { useTheme } from "./useTheme"
 
-const SERIES_COUNT = 8
+/** Size of the ordinal palette (`--color-series-1…8`). */
+export const SERIES_COUNT = 8
 
 export interface ChartColors {
   /** Page background, used as the halo behind annotation labels. */
@@ -60,6 +61,15 @@ export function useChartColors(): ChartColors {
 /** Colour for the i-th series, honouring an operator-configured override. */
 export function seriesColor(colors: ChartColors, i: number, override?: string): string {
   return override || colors.series[i % colors.series.length]
+}
+
+/**
+ * Colour of the i-th network in a per-AS breakdown: the palette for the first
+ * SERIES_COUNT, then one neutral tone for the folded "other networks" — never a
+ * palette colour again, which made the 9th network look like the 1st.
+ */
+export function asSeriesColor(colors: ChartColors, i: number): string {
+  return i < SERIES_COUNT ? colors.series[i] : colors.text
 }
 
 /** Shared Recharts tooltip container style. */

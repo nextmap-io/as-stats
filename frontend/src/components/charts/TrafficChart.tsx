@@ -12,7 +12,8 @@ import {
 import type { TrafficPoint } from "@/lib/types"
 import { useUnit } from "@/hooks/useUnit"
 import { axisTick, tooltipBoxStyle, useChartColors, annotationLabel, X_TICK_MARGIN } from "@/hooks/useChartColors"
-import { inferStepSeconds, formatTimeShort } from "./time"
+import { inferStepSeconds, formatTimeShort, timeTicks } from "./time"
+import { rateAxisTicks } from "@/lib/rate"
 
 interface TrafficChartProps {
   data: TrafficPoint[]
@@ -121,11 +122,18 @@ export function TrafficChart({
 
   const domainFrom = timeBounds ? timeBounds.from : (sortedTs[0] ?? 0)
   const domainTo = timeBounds ? timeBounds.to : (sortedTs[sortedTs.length - 1] ?? domainFrom + stepMs)
-  const TICKS = 6
-  const xTicks =
-    domainTo > domainFrom
-      ? Array.from({ length: TICKS + 1 }, (_, i) => Math.round(domainFrom + ((domainTo - domainFrom) * i) / TICKS))
-      : undefined
+  const xTicks = domainTo > domainFrom ? timeTicks(domainFrom, domainTo) : undefined
+  let yMin = 0
+  let yMax = 0
+  for (const r of rows) {
+    yMax = Math.max(yMax, r.inbound, r.prevInbound ?? 0)
+    yMin = Math.min(yMin, r.outbound, r.prevOutbound ?? 0)
+  }
+  if (!usePps) {
+    yMax = Math.max(yMax, p95In ?? 0)
+    yMin = Math.min(yMin, -(p95Out ?? 0))
+  }
+  const y = rateAxisTicks(yMin, yMax, interval, unit, kind)
 
   const labels: Record<string, string> = {
     inbound: "In",
@@ -154,6 +162,9 @@ export function TrafficChart({
             tickFormatter={(t) => formatTimeShort(Number(t), multiDay)}
           />
           <YAxis
+            ticks={y.ticks}
+            domain={y.domain}
+            interval={0}
             tick={axisTick(colors)}
             tickLine={false}
             axisLine={false}

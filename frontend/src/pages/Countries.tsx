@@ -6,7 +6,6 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  Cell,
 } from "recharts"
 import { useTopCountry } from "@/hooks/useApi"
 import { useFilters } from "@/hooks/useFilters"
@@ -14,10 +13,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { QueryBoundary } from "@/components/QueryBoundary"
 import { DataTable, PercentBar, type Column } from "@/components/DataTable"
 import { ExportButton, type ExportColumn } from "@/components/ExportButton"
-import { formatNumber, formatBytes } from "@/lib/utils"
+import { formatNumber } from "@/lib/utils"
+import { rateAxisTicks } from "@/lib/rate"
 import { useUnit } from "@/hooks/useUnit"
 import { useChartColors } from "@/hooks/useChartColors"
-import { countryFlag, countryName } from "@/lib/countries"
+import { countryFlag, countryName, hasCountry } from "@/lib/countries"
 import type { CountryTraffic } from "@/lib/types"
 
 interface CountryBar {
@@ -25,25 +25,31 @@ interface CountryBar {
   bytes: number
 }
 
-function TopCountriesBar({ rows }: { rows: CountryTraffic[] }) {
+function TopCountriesBar({ rows, periodSeconds }: { rows: CountryTraffic[]; periodSeconds: number }) {
   const colors = useChartColors()
+  const { unit, formatTraffic, formatAxis } = useUnit()
   const data = useMemo<CountryBar[]>(
     () =>
       rows.slice(0, 10).map((c) => ({
-        label: `${countryFlag(c.country)} ${c.country || "??"}`,
+        label: hasCountry(c.country) ? `${countryFlag(c.country)} ${c.country}` : "Unknown",
         bytes: c.bytes,
       })),
     [rows],
   )
 
   if (data.length === 0) return null
+  // Same unit as the table below (the header toggle), on round values.
+  const x = rateAxisTicks(0, data[0].bytes, periodSeconds, unit, "bytes")
 
   return (
     <ResponsiveContainer width="100%" height={Math.max(160, data.length * 28)}>
       <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
         <XAxis
           type="number"
-          tickFormatter={(v) => formatBytes(Number(v))}
+          domain={x.domain}
+          ticks={x.ticks}
+          interval={0}
+          tickFormatter={(v) => formatAxis(Number(v), periodSeconds)}
           tick={{ fill: colors.text, fontSize: 12 }}
           stroke={colors.grid}
         />
@@ -51,6 +57,8 @@ function TopCountriesBar({ rows }: { rows: CountryTraffic[] }) {
           type="category"
           dataKey="label"
           width={72}
+          // Every bar is labelled; Recharts dropped every other one by default.
+          interval={0}
           tick={{ fill: colors.text, fontSize: 12 }}
           stroke={colors.grid}
         />
@@ -59,18 +67,16 @@ function TopCountriesBar({ rows }: { rows: CountryTraffic[] }) {
           contentStyle={{
             backgroundColor: colors.tooltipBg,
             border: `1px solid ${colors.tooltipBorder}`,
-            borderRadius: 6,
+            borderRadius: 4,
             fontSize: 12,
           }}
           labelStyle={{ color: colors.tooltipText }}
           itemStyle={{ color: colors.tooltipText }}
-          formatter={(v) => [formatBytes(Number(v)), "Traffic"]}
+          formatter={(v) => [formatTraffic(Number(v), periodSeconds), "Traffic"]}
         />
-        <Bar dataKey="bytes" radius={[0, 3, 3, 0]}>
-          {data.map((d) => (
-            <Cell key={d.label} fill="var(--color-primary)" />
-          ))}
-        </Bar>
+        {/* Secondary ink, like the percent bars in the table: full ink bars
+            were the loudest thing on the page in dark mode. */}
+        <Bar dataKey="bytes" fill="var(--color-foreground-secondary)" radius={[0, 2, 2, 0]} />
       </BarChart>
     </ResponsiveContainer>
   )
@@ -100,9 +106,11 @@ export function Countries() {
               {countryFlag(c.country)}
             </span>
             <span>{countryName(c.country, c.name)}</span>
-            <span className="text-muted-foreground text-xs">
-              {c.country || "??"}
-            </span>
+            {hasCountry(c.country) ? (
+              <span className="text-muted-foreground text-xs">{c.country}</span>
+            ) : (
+              <span className="text-muted-foreground text-xs">no registered country, private ASNs included</span>
+            )}
           </span>
         ),
       },
@@ -163,7 +171,7 @@ export function Countries() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Top 10 by traffic volume</CardTitle>
+          <CardTitle>Top {Math.min(rows.length, 10) || 10} countries</CardTitle>
         </CardHeader>
         <CardContent>
           <QueryBoundary
@@ -171,7 +179,7 @@ export function Countries() {
             isEmpty={(d) => !d.data?.length}
             skeleton={<div className="h-64 rounded bg-muted/40" />}
           >
-            {(data) => <TopCountriesBar rows={data.data} />}
+            {(data) => <TopCountriesBar rows={data.data} periodSeconds={periodSeconds} />}
           </QueryBoundary>
         </CardContent>
       </Card>
@@ -179,7 +187,7 @@ export function Countries() {
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle>Countries by traffic volume</CardTitle>
+            <CardTitle>All countries</CardTitle>
             <ExportButton rows={rows} columns={exportColumns} filename="top-countries" />
           </div>
         </CardHeader>

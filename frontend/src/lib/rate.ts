@@ -84,3 +84,41 @@ export function formatRateAxis(value: number, intervalSeconds: number, unit: Rat
   const label = n < 10 ? (Math.round(n * 10) / 10).toString() : Math.round(n).toString()
   return `${label}${RATE_UNITS[i].toUpperCase()}`
 }
+
+/** 1, 2, 2.5 or 5 times a power of ten: the smallest that is ≥ `raw`. */
+export function niceStep(raw: number): number {
+  if (!(raw > 0) || !Number.isFinite(raw)) return 1
+  const p = Math.pow(10, Math.floor(Math.log10(raw)))
+  const n = raw / p
+  const m = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10
+  return m * p
+}
+
+/**
+ * Y-axis ticks for a rate chart that land on round values *in the unit shown*.
+ * Left to itself Recharts rounds the raw series (bytes or packets per bucket),
+ * which reads 307M / 613M / 920M once divided by the bucket width. `min` and
+ * `max` are raw values (min < 0 on a mirrored chart); the ticks are raw too,
+ * and the domain ends on a tick so the top of the plot carries a label.
+ */
+export function rateAxisTicks(
+  min: number,
+  max: number,
+  intervalSeconds: number,
+  unit: RateUnit,
+  kind: RateKind,
+  target = 4,
+): { ticks: number[]; domain: [number, number] } {
+  const secs = intervalSeconds > 0 ? intervalSeconds : 1
+  const f = unit === "bytes" ? 1 : kind === "packets" ? 1 / secs : 8 / secs
+  const lo = Math.min(0, Number.isFinite(min) ? min : 0) * f
+  const hi = Math.max(0, Number.isFinite(max) ? max : 0) * f
+  if (!(hi - lo > 0)) return { ticks: [0], domain: [0, 1] }
+  // A mirrored chart uses one step on both sides of zero.
+  const step = niceStep((hi - lo) / target)
+  const first = Math.floor(lo / step + 1e-9)
+  const last = Math.ceil(hi / step - 1e-9)
+  const ticks: number[] = []
+  for (let i = first; i <= last; i++) ticks.push((i * step) / f)
+  return { ticks, domain: [(first * step) / f, (last * step) / f] }
+}
