@@ -20,6 +20,9 @@ const PROTOCOLS = [
   { value: 89, label: "OSPF" },
 ]
 
+// Minute bucket of a flow-log row: "Oct 27, 20:15".
+const FLOW_MINUTE = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+
 const PERIODS = [
   { value: "1h", label: "1h" },
   { value: "6h", label: "6h" },
@@ -289,8 +292,9 @@ export function FlowSearch() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-foreground">
+                      <th className="pb-1.5 pr-4 text-left text-[13px] font-normal text-muted-foreground hidden md:table-cell">Minute</th>
                       <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Source</th>
-                      <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">→</th>
+                      <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground"><span aria-hidden>→</span><span className="sr-only">to</span></th>
                       <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Destination</th>
                       <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Protocol</th>
                       <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Bytes</th>
@@ -300,7 +304,11 @@ export function FlowSearch() {
                   </thead>
                   <tbody>
                     {results.map((e) => (
-                      <tr key={`${e.src_ip}-${e.src_port}-${e.dst_ip}-${e.dst_port}-${e.protocol}`} className="border-b border-border-soft last:border-0 hover:bg-accent/60">
+                      // The same tuple recurs minute after minute (and on several
+                      // links): the key needs both, or React merges rows.
+                      <tr key={`${e.ts}-${e.link_tag}-${e.src_ip}-${e.src_port}-${e.dst_ip}-${e.dst_port}-${e.protocol}`} className="border-b border-border-soft last:border-0 hover:bg-accent/60">
+                        {/* A forensic row says when: the log's 1-minute bucket. */}
+                        <td className="py-1 pr-4 whitespace-nowrap text-[13px] text-muted-foreground hidden md:table-cell">{FLOW_MINUTE.format(Date.parse(e.ts))}</td>
                         <td className="py-1 font-ip text-xs max-w-[260px]">
                           <Link to={`/ip/${e.src_ip}`} className="text-primary hover:underline">
                             <IPWithPTR ip={e.src_ip} />
@@ -367,21 +375,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 // Protocol color coding — security-relevant highlights
+// One neutral chip for every protocol. The old palette painted "risky" ones red
+// and matched by substring, so every HTTPS flow wore the HTTP red (and SSH a
+// hard-coded blue); red is for incidents, and a protocol is not one.
 function ProtocolBadge({ protocol }: { protocol: string }) {
-  const risky = ["Telnet", "FTP", "HTTP"]
-  const admin = ["SSH", "RDP", "VNC"]
-  const encrypted = ["HTTPS", "SSH", "TLS", "DoT"]
-  const common = ["TCP", "UDP", "ICMP", "DNS", "NTP"]
-
-  let color = "bg-muted/50 text-foreground-secondary"
-  if (risky.some(r => protocol.includes(r))) color = "bg-destructive/20 text-destructive"
-  else if (admin.some(r => protocol.includes(r))) color = "bg-blue-500/20 text-blue-500"
-  else if (encrypted.some(r => protocol.includes(r))) color = "bg-success/20 text-success"
-  else if (common.includes(protocol)) color = "bg-muted/50 text-foreground"
-
-  return (
-    <span className={`px-1.5 py-0.5 text-xs rounded ${color}`}>
-      {protocol}
-    </span>
-  )
+  return <span className="rounded-sm border border-border px-1.5 py-0.5 text-xs text-foreground-secondary">{protocol}</span>
 }
