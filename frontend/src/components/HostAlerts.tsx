@@ -40,6 +40,11 @@ export function HostAlerts({ ip, enabled }: { ip: string; enabled: boolean }) {
               <Link to="/alerts" className="underline underline-offset-2">
                 Open Alerts
               </Link>
+              {" · "}
+              {/* Live threats explains the attack (sources, ports, usual level). */}
+              <Link to="/live" className="underline underline-offset-2">
+                Live threats
+              </Link>
             </span>
           </li>
         )
