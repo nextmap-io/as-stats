@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/nextmap-io/as-stats/internal/alerts"
 	"github.com/nextmap-io/as-stats/internal/api/middleware"
 	"github.com/nextmap-io/as-stats/internal/model"
 )
@@ -211,6 +213,14 @@ func validateRule(r model.AlertRule) error {
 	case "info", "warning", "critical":
 	default:
 		return errBadField("severity must be info|warning|critical")
+	}
+	if r.BaselineFactor != 0 {
+		if !alerts.BaselineCapable(r.RuleType) {
+			return errBadField("baseline_factor is only supported by volume_in and volume_out rules")
+		}
+		if math.IsNaN(r.BaselineFactor) || r.BaselineFactor < 1 || r.BaselineFactor > 100 {
+			return errBadField("baseline_factor must be 0 (absolute threshold) or between 1 and 100")
+		}
 	}
 	return nil
 }

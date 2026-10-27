@@ -263,21 +263,43 @@ func TestClassifyAmplificationPorts(t *testing.T) {
 
 func TestClosestRuleProtocolFloods(t *testing.T) {
 	rules := defaultRules(t)
-	name, pct, _ := closestRule("in", model.ThreatNow{PPS: 15_000, ICMPPPS: 15_000}, rules)
+	name, pct, _ := closestRule("in", model.ThreatNow{PPS: 15_000, ICMPPPS: 15_000}, rules, 0, false)
 	if name != "ICMP flood" || round(pct, 1) != 75 {
 		t.Errorf("ICMP: %q %.1f, want ICMP flood 75", name, pct)
 	}
-	name, pct, _ = closestRule("in", model.ThreatNow{PPS: 80_000, UDPPPS: 80_000}, rules)
+	name, pct, _ = closestRule("in", model.ThreatNow{PPS: 80_000, UDPPPS: 80_000}, rules, 0, false)
 	if name != "UDP flood" || round(pct, 1) != 80 {
 		t.Errorf("UDP: %q %.1f, want UDP flood 80", name, pct)
 	}
 	// Outbound rows compare with outbound rules only.
-	name, pct, firing := closestRule("out", model.ThreatNow{BPS: 100 * mbps, PeerPorts: 10}, rules)
+	name, pct, firing := closestRule("out", model.ThreatNow{BPS: 100 * mbps, PeerPorts: 10}, rules, 0, false)
 	if name != "Sustained outbound exfiltration" || round(pct, 1) != 200 || round(firing, 1) != 20 {
 		t.Errorf("out: %q %.1f firing %.1f, want exfiltration 200 / firing 20", name, pct, firing)
 	}
-	if name, _, _ := closestRule("in", model.ThreatNow{PeerPorts: 5000}, rules); name == "Port scan from internal host" {
+	if name, _, _ := closestRule("in", model.ThreatNow{PeerPorts: 5000}, rules, 0, false); name == "Port scan from internal host" {
 		t.Error("inbound row compared with the outbound port_scan rule")
+	}
+}
+
+// A rule with a baseline_factor fires (and so makes an incident) only when
+// the host is that far above its usual level, as in the alert engine.
+func TestClosestRuleBaselineGate(t *testing.T) {
+	rules := defaultRules(t)
+	busy := model.ThreatNow{BPS: 610 * mbps} // 122 % of the 500 Mb/s rule
+	name, pct, firing := closestRule("in", busy, rules, 1.2, true)
+	// Only the 2 Gb/s rule (no factor) counts: 30.5 %.
+	if name != "High inbound volume" || round(pct, 0) != 122 || round(firing, 1) != 30.5 {
+		t.Errorf("busy host at 1.2x usual: %q %.0f%% firing %.1f, want 122%% and firing 30.5 (the 2 Gb/s rule)", name, pct, firing)
+	}
+	if _, _, firing := closestRule("in", busy, rules, 2.5, true); round(firing, 0) != 122 {
+		t.Errorf("2.5x usual: firing %.0f, want 122", firing)
+	}
+	if _, _, firing := closestRule("in", busy, rules, 1.2, false); round(firing, 0) != 122 {
+		t.Errorf("no history: firing %.0f, want 122", firing)
+	}
+	// The 2 Gb/s rule has no factor: a flood on a busy host still fires.
+	if _, _, firing := closestRule("in", model.ThreatNow{BPS: 2500 * mbps}, rules, 1.5, true); firing < 100 {
+		t.Errorf("2.5 Gb/s on a busy host: firing %.0f, want >= 100", firing)
 	}
 }
 

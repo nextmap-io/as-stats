@@ -269,7 +269,9 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, canBlock, linkTags, ack
   const host = hostTarget(a)
   const target = (extra?.target || "").trim()
   const topSources = details?.top_sources ?? []
-  const hasDetails = isAnomaly || topSources.length > 0
+  const usual = extra?.usual
+  const probeHosts = typeof extra?.probe_hosts === "number" ? extra.probe_hosts : undefined
+  const hasDetails = isAnomaly || topSources.length > 0 || !!usual || probeHosts !== undefined
 
   // On-demand live explain: window is the alert's last complete hour.
   const explainTo = a.last_seen_at
@@ -302,6 +304,14 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, canBlock, linkTags, ack
         </td>
         <td className="py-1.5 pr-2 font-medium">
           {a.rule_name}
+          {!!a.reopen_count && (
+            <span
+              className="ml-1.5 text-xs font-normal text-muted-foreground tabular-nums"
+              title="The condition came back within the rule's re-arm window after this alert resolved; it was re-opened instead of raising a new alert"
+            >
+              re-opened ×{a.reopen_count}
+            </span>
+          )}
           {/* On a phone the target rides under the rule, so the actions keep their room. */}
           <div className="mt-0.5 font-normal sm:hidden">{targetCell}</div>
         </td>
@@ -370,6 +380,27 @@ function AlertRow({ alert: a, onAck, onResolve, onBlock, canBlock, linkTags, ack
           <td colSpan={ALERT_COLSPAN} className="px-3 py-3">
             <div className="space-y-3">
               {isAnomaly && extra && <AnomalyStats extra={extra} />}
+
+              {usual && (
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">Usual level (same time of day, last 7 days)</div>
+                  <div className="text-xs tabular-nums">
+                    {usual.new_host
+                      ? `No usual level: ${usual.samples} minutes of history — judged on the threshold alone`
+                      : `p99 ${formatMetric("bps", usual.usual_bps ?? 0)} · median ${formatMetric("bps", usual.p50_bps ?? 0)} · now ${usual.ratio ?? "?"}× usual (rule fires from ${usual.factor}×)`}
+                  </div>
+                </div>
+              )}
+
+              {probeHosts !== undefined && (
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">Connection probes</div>
+                  <div className="text-xs tabular-nums">
+                    {formatMetric("count", a.metric_value)} ports probed on {probeHosts.toLocaleString()} hosts
+                    {typeof extra?.all_dst_ports === "number" && ` · ${extra.all_dst_ports.toLocaleString()} destination ports in all its flows`}
+                  </div>
+                </div>
+              )}
 
               {isAnomaly && extra?.explanation && (
                 <div className="space-y-1">

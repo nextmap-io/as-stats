@@ -786,7 +786,7 @@ const RULE_TYPE_META: Record<string, {
   volume_out:       { label: "Outbound volume",      description: "Bandwidth/packet rate sent by a single source",         fields: ["bps", "pps"] },
   syn_flood:        { label: "TCP SYN flood",        description: "TCP SYN-only packet rate to a destination",             fields: ["pps"] },
   amplification:    { label: "Reflection / amp",     description: "Many unique sources hitting one destination (with optional sustained-bps floor to filter scanners)", fields: ["count", "bps"], fieldLabels: { count: "Min unique sources", bps: "Min sustained bps" } },
-  port_scan:        { label: "Port scan (outbound)", description: "An internal source touching many distinct destination ports", fields: ["count"], fieldLabels: { count: "Min unique ports" } },
+  port_scan:        { label: "Port scan (outbound)", description: "An internal source sending connection probes to many distinct destination ports. Probes are TCP SYN without ACK, or UDP / flagless TCP from a port ≥ 1024 to a port < 1024 — replies of a busy server to its clients' ephemeral ports do not count", fields: ["count"], fieldLabels: { count: "Min probed ports" } },
   icmp_flood:       { label: "ICMP flood",           description: "ICMP packet rate to a destination",                     fields: ["pps"] },
   udp_flood:        { label: "UDP flood",            description: "UDP packet rate to a destination (DNS query flood, NTP query flood, ...)", fields: ["pps"] },
   connection_flood: { label: "Connection flood",     description: "Distinct flow count per destination — Slowloris/half-open scan signature", fields: ["count"], fieldLabels: { count: "Min flow count" } },
@@ -808,10 +808,15 @@ function thresholdCountFromK(k: number): number {
   return Math.round(k * 10)
 }
 
+// Rule types that accept baseline_factor (relative to the host's usual level).
+const BASELINE_RULE_TYPES = new Set(["volume_in", "volume_out"])
+
 function RulesTab() {
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [draft, setDraft] = useState<Partial<AlertRule>>(() => emptyRule())
+  // id of the rule being edited; null = the form creates a new rule.
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["alert-rules"],
@@ -828,11 +833,12 @@ function RulesTab() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["alert-rules"] }),
   })
 
-  const createMutation = useMutation({
-    mutationFn: (r: Partial<AlertRule>) => api.createRule(r),
+  const saveMutation = useMutation({
+    mutationFn: (r: Partial<AlertRule>) => (editingId ? api.updateRule(editingId, r) : api.createRule(r)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["alert-rules"] })
       setShowForm(false)
+      setEditingId(null)
       setDraft(emptyRule())
     },
   })
@@ -841,6 +847,13 @@ function RulesTab() {
 
   const rules: AlertRule[] = data?.data || []
   const meta = draft.rule_type ? RULE_TYPE_META[draft.rule_type] : null
+  const baselineCapable = !!draft.rule_type && BASELINE_RULE_TYPES.has(draft.rule_type)
+
+  const startEdit = (r: AlertRule) => {
+    setDraft({ ...r })
+    setEditingId(r.id)
+    setShowForm(true)
+  }
 
   return (
     <Card>
@@ -848,7 +861,7 @@ function RulesTab() {
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <CardTitle>Alert rules ({rules.length})</CardTitle>
           <button
-            onClick={() => { setShowForm((s) => !s); if (!showForm) setDraft(emptyRule()) }}
+            onClick={() => { setShowForm((s) => !s); setEditingId(null); if (!showForm) setDraft(emptyRule()) }}
             className="inline-flex items-center gap-1 px-2 py-0.5 text-[13px] font-medium rounded border border-input bg-background hover:bg-accent transition-colors"
           >
             <Plus className="size-3" />
@@ -861,7 +874,7 @@ function RulesTab() {
           <form
             onSubmit={(e) => {
               e.preventDefault()
-              createMutation.mutate(draft)
+              saveMutation.mutate(draft)
             }}
             className="space-y-2 mb-4 p-3 border border-border rounded bg-muted/20"
           >
@@ -886,6 +899,7 @@ function RulesTab() {
                       rule_type: rt,
                       threshold_bps: 0,
                       threshold_pps: 0,
+                      baseline_factor: 0,
                       // Anomaly rules seed threshold_count with the default k.
                       threshold_count: rt === "anomaly" ? thresholdCountFromK(ANOMALY_DEFAULT_K) : 0,
                     }))
@@ -952,6 +966,30 @@ function RulesTab() {
                 )}
               </div>
             )}
+            {baselineCapable && (
+              <>
+                <Field label="Above usual ×">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.5}
+                    value={draft.baseline_factor || ""}
+                    onChange={(e) => setDraft((d) => ({ ...d, baseline_factor: Number(e.target.value) }))}
+                    placeholder="off"
+                    className="w-24 h-7 px-2 rounded border border-input bg-background text-xs tabular-nums outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                  <span className="text-xs text-muted-foreground ml-1">empty / 0 = threshold only</span>
+                </Field>
+                <p className="text-xs text-muted-foreground italic px-1">
+                  With a factor N the rule fires only when the host is above the threshold <em>and</em> at least
+                  N times its usual level — its per-minute 95th percentile at the same time of day over the last
+                  7 days. A busy server at its normal level stays quiet; a host without that history is judged on
+                  the threshold alone, so a flood on a new host still fires. Keep a high absolute rule without a
+                  factor (the default 2 Gb/s critical) for floods on busy hosts.
+                </p>
+              </>
+            )}
             {draft.rule_type === "subnet_flood" && (
               <Field label="Subnet prefix">
                 <input
@@ -1009,7 +1047,7 @@ function RulesTab() {
                   className="flex-1 h-7 px-2 rounded border border-input bg-background text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 />
               </Field>
-              <Field label="Cooldown (s)">
+              <Field label="Re-arm (s)">
                 <input
                   type="number"
                   min={0}
@@ -1030,12 +1068,20 @@ function RulesTab() {
                 </select>
               </Field>
             </div>
+            <p className="text-xs text-muted-foreground italic px-1">
+              Re-arm: if the condition comes back on the same target within this long (and at least the
+              collector&apos;s ALERT_REARM_WINDOW, 1 h by default) after the alert was last seen, the engine
+              re-opens that alert instead of creating and notifying a new one.
+            </p>
+            {saveMutation.error && (
+              <p className="text-xs text-destructive px-1">{(saveMutation.error as Error).message}</p>
+            )}
             <button
               type="submit"
-              disabled={createMutation.isPending || !draft.name || !draft.rule_type}
+              disabled={saveMutation.isPending || !draft.name || !draft.rule_type}
               className="px-3 py-1 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
-              Create rule
+              {editingId ? "Save rule" : "Create rule"}
             </button>
           </form>
         )}
@@ -1093,7 +1139,14 @@ function RulesTab() {
                       {formatThreshold(r)}
                     </td>
                     <td className="py-1.5 text-right text-muted-foreground">{r.window_seconds}s</td>
-                    <td className="py-1.5 text-right">
+                    <td className="py-1.5 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => startEdit(r)}
+                        className="inline-flex size-7 items-center justify-center rounded hover:bg-accent transition-colors"
+                        title="Edit rule"
+                      >
+                        <Pencil className="size-3.5" aria-hidden />
+                      </button>
                       <button
                         onClick={() => {
                           if (confirm(`Delete rule "${r.name}"?`)) {
@@ -1146,6 +1199,7 @@ function formatThreshold(r: AlertRule): React.ReactNode {
   if (r.threshold_count) parts.push(formatCount(r.threshold_count, r.rule_type))
   if (r.threshold_bps) parts.push(formatBpsThreshold(r.threshold_bps))
   if (r.threshold_pps) parts.push(`${r.threshold_pps.toLocaleString()} pps`)
+  if (r.baseline_factor) parts.push(`and ≥ ${r.baseline_factor}× usual`)
   if (parts.length === 0) return <span className="text-muted-foreground">—</span>
   return (
     <div className="flex flex-col items-end">

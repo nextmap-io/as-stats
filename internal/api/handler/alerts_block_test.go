@@ -75,3 +75,32 @@ func TestValidateRuleRejectsCustom(t *testing.T) {
 		t.Fatalf("volume_in rejected: %v", err)
 	}
 }
+
+func TestValidateRuleBaselineFactor(t *testing.T) {
+	base := model.AlertRule{Name: "r", WindowSeconds: 60, Severity: "warning"}
+	cases := []struct {
+		ruleType string
+		factor   float64
+		ok       bool
+	}{
+		{"volume_in", 0, true},
+		{"volume_in", 2, true},
+		{"volume_out", 100, true},
+		{"volume_out", 0.5, false},
+		{"volume_in", 101, false},
+		{"volume_in", -1, false},
+		{"port_scan", 2, false},
+		{"syn_flood", 3, false},
+	}
+	for _, c := range cases {
+		r := base
+		r.RuleType, r.BaselineFactor = c.ruleType, c.factor
+		err := validateRule(r)
+		if (err == nil) != c.ok {
+			t.Errorf("%s factor %v: err=%v, want ok=%v", c.ruleType, c.factor, err, c.ok)
+		}
+		if err != nil && ruleErrStatus(err) != http.StatusBadRequest {
+			t.Errorf("%s factor %v: status %d, want 400", c.ruleType, c.factor, ruleErrStatus(err))
+		}
+	}
+}
