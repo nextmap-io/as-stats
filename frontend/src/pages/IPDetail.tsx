@@ -8,6 +8,7 @@ import { stepSecondsOf } from "@/lib/rate"
 import { ExpandableChart } from "@/components/ExpandableChart"
 import { formatNumber } from "@/lib/utils"
 import { ASRef } from "@/components/ASRef"
+import { asDisplayName } from "@/lib/asn"
 import { useUnit } from "@/hooks/useUnit"
 import { IPWithPTR } from "@/components/PTR"
 import { Search } from "lucide-react"
@@ -140,7 +141,7 @@ export function IPDetail() {
                           className="text-primary hover:underline"
                         />
                       </td>
-                      <td className="py-1 text-muted-foreground truncate max-w-40">{as.as_name || "-"}</td>
+                      <td className="py-1 text-muted-foreground truncate max-w-40">{asDisplayName(as.as_number, as.as_name)}</td>
                       <td className="py-1 text-right">{formatTraffic(as.bytes, periodSeconds, as.packets)}</td>
                       <td className="py-1 text-right text-muted-foreground hidden sm:table-cell">{formatNumber(as.flows)}</td>
                     </tr>
