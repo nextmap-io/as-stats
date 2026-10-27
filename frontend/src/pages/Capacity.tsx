@@ -9,12 +9,16 @@ import { ExportButton, type ExportColumn } from "@/components/ExportButton"
 import { formatBitsPerSec, formatPercent } from "@/lib/utils"
 import type { LinkCapacity } from "@/lib/types"
 import { formatCapacity } from "@/lib/format"
+import { UTIL_CRIT_PCT, UTIL_WATCH_PCT, utilLevel } from "@/lib/home"
+import { StateBadge } from "@/components/ui/state-badge"
 
 // utilBarClass maps a utilisation percentage to a bar colour. Normal stays
-// neutral ink; only "watch" (>= 70%, amber) and "incident" (>= 90%, red) light up.
+// neutral ink; only "watch" (amber) and "incident" (red) light up, with the
+// word next to it (StateBadge), at the thresholds the dashboard uses.
 function utilBarClass(pct: number): string {
-  if (pct >= 90) return "bg-destructive"
-  if (pct >= 70) return "bg-warning-mark"
+  const level = utilLevel(pct)
+  if (level === "critical") return "bg-destructive"
+  if (level === "watch") return "bg-warning-mark"
   return "bg-foreground-secondary"
 }
 
@@ -43,7 +47,10 @@ function SaturationCell({ lc }: { lc: LinkCapacity }) {
   const rounded = Math.round(days)
   return (
     <span className="inline-flex flex-col items-end leading-tight">
-      <span className={days <= 30 ? "font-medium text-destructive" : days <= 90 ? "font-medium text-warning" : "font-medium"}>
+      <span className="inline-flex items-center gap-1.5 font-medium">
+        {/* A forecast inside a quarter is worth watching; the word carries it,
+            the number stays ink. */}
+        {days <= 90 && <StateBadge level="watch" />}
         {rounded.toLocaleString()}d
       </span>
       <span className="text-xs text-muted-foreground">{projectedDate(days)}</span>
@@ -113,7 +120,10 @@ export function Capacity() {
           l.utilization_pct == null ? (
             <span className="text-muted-foreground">—</span>
           ) : (
-            <PercentBar pct={l.utilization_pct} barClassName={utilBarClass(l.utilization_pct)} />
+            <span className="inline-flex items-center justify-end gap-2">
+              <StateBadge level={utilLevel(l.utilization_pct)} />
+              <PercentBar pct={l.utilization_pct} barClassName={utilBarClass(l.utilization_pct)} />
+            </span>
           ),
       },
       {
@@ -184,8 +194,9 @@ export function Capacity() {
           </QueryBoundary>
           <p className="mt-3 text-[13px] text-muted-foreground">
             Utilisation is the busier direction's p95 over the window against capacity: a link is full duplex, so
-            inbound and outbound are never added. Bars turn amber from {formatPercent(70)} and red from{" "}
-            {formatPercent(90)}.
+            inbound and outbound are never added. Watch from {formatPercent(UTIL_WATCH_PCT)}, incident from{" "}
+            {formatPercent(UTIL_CRIT_PCT)}. Days to saturation is the soonest of the 80, 95 and 100&nbsp;% forecasts
+            from the daily p95 trend; a dash means no upward trend.
           </p>
         </CardContent>
       </Card>

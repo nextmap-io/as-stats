@@ -4,13 +4,13 @@ import { api } from "@/lib/api"
 import { useFilters } from "@/hooks/useFilters"
 import { useUnit } from "@/hooks/useUnit"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ErrorDisplay, EmptyState } from "@/components/ui/error"
+import { ErrorDisplay, NoDataInWindow } from "@/components/ui/error"
 import { TableSkeleton } from "@/components/ui/skeleton"
 import { ExportButton, type ExportColumn } from "@/components/ExportButton"
 import { ViewToggle } from "@/components/ViewToggle"
+import { PercentBar } from "@/components/DataTable"
 import { asView } from "@/lib/view"
 import { TopNViz, type VizDatum } from "@/components/charts/TopNViz"
-import { BarChart3 } from "lucide-react"
 import type { PortTraffic } from "@/lib/types"
 import { Segmented } from "@/components/ui/segmented"
 import { PORT_STATS_HELP, flowSearchPath, portHistoryNote, portLabel } from "@/lib/ports"
@@ -131,7 +131,7 @@ export function TopPorts() {
           {isLoading ? (
             <TableSkeleton rows={10} cols={5} />
           ) : rows.length === 0 ? (
-            <EmptyState message="No port data" icon={<BarChart3 className="size-8" />} />
+            <NoDataInWindow hint="No flow was credited to a configured link in this window. Widen the time range, or check Admin › Links." />
           ) : view !== "table" ? (
             <TopNViz
               view={view}
@@ -146,14 +146,14 @@ export function TopPorts() {
           ) : (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border">
-                  <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">#</th>
-                  <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Service port</th>
-                  <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Service</th>
-                  <th scope="col" className="pb-1.5 text-left font-medium text-muted-foreground">Proto</th>
-                  <th scope="col" className="pb-1.5 text-right font-medium text-muted-foreground">Traffic</th>
-                  <th scope="col" className="pb-1.5 text-right font-medium text-muted-foreground hidden sm:table-cell">Flows</th>
-                  <th scope="col" className="pb-1.5 text-right font-medium text-muted-foreground">%</th>
+                <tr className="border-b border-foreground">
+                  <th scope="col" className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">#</th>
+                  <th scope="col" className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Service port</th>
+                  <th scope="col" className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Service</th>
+                  <th scope="col" className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Proto</th>
+                  <th scope="col" className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Traffic</th>
+                  <th scope="col" className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground hidden sm:table-cell">Flows</th>
+                  <th scope="col" className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">%</th>
                 </tr>
               </thead>
               <tbody>
@@ -169,7 +169,7 @@ export function TopPorts() {
                         {portLabel(p.port)}
                       </Link>
                     </td>
-                    <td className="py-1.5 text-foreground/80">{p.service || "-"}</td>
+                    <td className="py-1.5 text-foreground-secondary">{p.service || "—"}</td>
                     <td className="py-1.5">
                       <span className="px-1.5 py-0.5 text-xs rounded bg-muted/50 text-foreground">
                         {p.protocol_name || `proto:${p.protocol}`}
@@ -180,15 +180,7 @@ export function TopPorts() {
                       {p.flows.toLocaleString()}
                     </td>
                     <td className="py-1.5 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <div className="w-16 bg-muted rounded-full h-1">
-                          <div
-                            className={direction === "in" ? "bg-traffic-in h-1 rounded-full" : "bg-traffic-out h-1 rounded-full"}
-                            style={{ width: `${Math.min(p.pct || 0, 100)}%` }}
-                          />
-                        </div>
-                        <span className="w-8 text-right text-muted-foreground tabular-nums">{(p.pct || 0).toFixed(1)}%</span>
-                      </div>
+                      <PercentBar pct={p.pct || 0} barClassName={direction === "in" ? "bg-traffic-in" : "bg-traffic-out"} />
                     </td>
                   </tr>
                 ))}

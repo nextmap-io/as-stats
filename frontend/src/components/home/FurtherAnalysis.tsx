@@ -9,12 +9,12 @@ const ITEMS = [
   {
     to: "/links",
     title: "Traffic by link, stacked",
-    body: "IPv4 and IPv6 charts stacked per link, in Network › Links.",
+    body: "Traffic stacked per link, IPv4, IPv6 or both, in Network › Links.",
   },
   {
     to: "/top/as",
     title: "Per-network charts",
-    body: "Every AS name opens its own page with IPv4 and IPv6 charts by link, peers and top IPs.",
+    body: "Every AS name opens its own page with its traffic by link, peers and top IPs.",
   },
 ] as const
 

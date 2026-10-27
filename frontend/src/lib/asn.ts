@@ -8,6 +8,19 @@ export const PRIVATE_AS_GROUP = 4294967295
 /** Display name the backend sets on the grouped row. */
 export const PRIVATE_AS_GROUP_NAME = "Private / Internal"
 
+/** What the grouped row is, for the "Name" column next to its identity. */
+export const PRIVATE_AS_GROUP_NOTE = "private ASNs, grouped"
+
+/**
+ * asDisplayName is the "Name" cell of a per-AS table. The grouped row's name is
+ * its identity ("Private / Internal" already sits in the ASN column), so the
+ * name cell says what the row is instead of repeating it.
+ */
+export function asDisplayName(asn: number | string, name: string | undefined | null): string {
+  if (isPrivateASGroup(asn)) return PRIVATE_AS_GROUP_NOTE
+  return name || "—"
+}
+
 /**
  * isPrivateASGroup reports whether an AS identity is the collapsed private-use
  * group. Accepts strings too: movers / talkers / conversations carry the ASN as

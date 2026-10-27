@@ -15,13 +15,15 @@ import { ComparisonToggle } from "@/components/ComparisonToggle"
 import { previousWindow, shiftSeries, useCompareEnabled } from "@/lib/comparison"
 import { formatNumber, formatPercent } from "@/lib/utils"
 import { ASRef } from "@/components/ASRef"
+import { asDisplayName } from "@/lib/asn"
 import { useUnit } from "@/hooks/useUnit"
-import { seriesColor, useChartColors } from "@/hooks/useChartColors"
+import { asSeriesColor, useChartColors } from "@/hooks/useChartColors"
 import { bytesToBps, stepSecondsOf } from "@/lib/rate"
 import { ErrorDisplay } from "@/components/ui/error"
 import { PageSkeleton } from "@/components/ui/skeleton"
 import { formatCapacity } from "@/lib/format"
-import { utilLevel } from "@/lib/home"
+import { levelTextClass, utilLevel } from "@/lib/home"
+import { StateBadge } from "@/components/ui/state-badge"
 
 /** One percentile row (p50/p95/p99) showing in + out throughput. Renders
  *  nothing when neither direction is present (older backend). */
@@ -107,7 +109,7 @@ export function LinkDetail() {
   // Colors for AS in the chart and table
   const asColors: Record<number, string> = {}
   if (detail.as_series) {
-    detail.as_series.forEach((d, i) => { asColors[d.as_number] = seriesColor(chartColors, i) })
+    detail.as_series.forEach((d, i) => { asColors[d.as_number] = asSeriesColor(chartColors, i) })
   }
 
   return (
@@ -133,17 +135,11 @@ export function LinkDetail() {
             {utilizationPct != null && (
               <div>
                 <span className="text-muted-foreground">p95 utilisation, busier direction</span>{" "}
-                <span className={`font-semibold ${utilLevel(utilizationPct) === "critical" ? "text-destructive" : utilLevel(utilizationPct) === "watch" ? "text-warning" : ""}`}>
+                <span className={`font-semibold ${levelTextClass(utilLevel(utilizationPct))}`}>
                   {formatPercent(utilizationPct)}
                 </span>
                 {/* Colour never carries the state alone: the same words as the home strip. */}
-                {utilLevel(utilizationPct) !== "normal" && (
-                  <span
-                    className={`ml-1.5 rounded-sm px-1.5 text-xs font-semibold leading-5 ${utilLevel(utilizationPct) === "critical" ? "bg-destructive text-destructive-foreground" : "bg-warning-muted text-warning"}`}
-                  >
-                    {utilLevel(utilizationPct) === "critical" ? "Incident" : "Watch"}
-                  </span>
-                )}
+                <StateBadge level={utilLevel(utilizationPct)} className="ml-1.5" />
               </div>
             )}
           </>
@@ -226,22 +222,26 @@ export function LinkDetail() {
           <CardContent>
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border">
+                <tr className="border-b border-foreground">
                   <th className="pb-1.5 w-4"></th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">ASN</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
-                  <th className="pb-1.5 text-right font-medium text-muted-foreground">Traffic</th>
-                  <th className="pb-1.5 text-right font-medium text-muted-foreground hidden sm:table-cell">Flows</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">ASN</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Name</th>
+                  <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Traffic</th>
+                  <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground hidden sm:table-cell">Flows</th>
                 </tr>
               </thead>
               <tbody>
                 {detail.top_as.map((as) => (
                   <tr key={as.as_number} className="border-b border-border-soft last:border-0 hover:bg-accent/60">
                     <td className="py-1">
-                      <span
-                        className="inline-block size-3 rounded-sm"
-                        style={{ backgroundColor: asColors[as.as_number] || chartColors.grid }}
-                      />
+                      {/* The chart's colour key; networks it does not draw get none. */}
+                      {asColors[as.as_number] && (
+                        <span
+                          aria-hidden
+                          className="inline-block size-3 rounded-sm"
+                          style={{ backgroundColor: asColors[as.as_number] }}
+                        />
+                      )}
                     </td>
                     <td className="py-1">
                       <ASRef
@@ -251,7 +251,7 @@ export function LinkDetail() {
                         className="text-primary hover:underline"
                       />
                     </td>
-                    <td className="py-1 text-muted-foreground truncate max-w-48">{as.as_name || "-"}</td>
+                    <td className="py-1 text-muted-foreground truncate max-w-48">{asDisplayName(as.as_number, as.as_name)}</td>
                     <td className="py-1 text-right">{formatTraffic(as.bytes, periodSeconds, as.packets)}</td>
                     <td className="py-1 text-right text-muted-foreground hidden sm:table-cell">{formatNumber(as.flows)}</td>
                   </tr>

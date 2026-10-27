@@ -48,12 +48,14 @@
      that sit next to ink and cobalt; no pure red, which reads as "error". */
   --color-series-1: #7d9bff;
   --color-series-2: #4cc3b9;
-  --color-series-3: #e2ae4a;
+  --color-series-3: #c9a28f; /* clay: the guide's #e2ae4a read as "watch" amber */
   --color-series-4: #c08dda;
   --color-series-5: #7fc1ee;
   --color-series-6: #a3aeba;
   --color-series-7: #a9c25e;
   --color-series-8: #e68aae;
+  /* Networks past the eighth, folded into one "other" area: quieter than grey 6. */
+  --color-series-other: #4f5660;
   --color-chart-1: var(--color-series-1);
   --color-chart-2: var(--color-series-2);
   --color-chart-3: var(--color-series-3);
@@ -100,12 +102,13 @@
 
     --color-series-1: #2f55d4;
     --color-series-2: #12857f;
-    --color-series-3: #a8730f;
+    --color-series-3: #8d6553;
     --color-series-4: #8a4fa3;
     --color-series-5: #3d8fc8;
     --color-series-6: #5e6b78;
     --color-series-7: #66812a;
     --color-series-8: #b94d76;
+    --color-series-other: #c4cad1;
 
     --color-success: #2e7d4f;
     --color-warning: #9a5b00;
@@ -157,6 +160,22 @@
   /* Browser surfaces carry the palette too. */
   ::selection {
     background: color-mix(in srgb, var(--color-ring) 28%, transparent);
+  }
+
+  /* Links inside tables (IPs, ASNs, prefixes, link tags) are ink like the
+     values around them; a quiet resting underline says which cells open
+     something, and darkens on hover. Cobalt stays for the outbound series. */
+  td a[href],
+  td a[href] :where(span) {
+    /* The spans: an inline-flex child (IPWithPTR) does not inherit the line. */
+    text-decoration-line: underline;
+    text-decoration-color: var(--color-border);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+  td a[href]:hover,
+  td a[href]:hover :where(span) {
+    text-decoration-color: currentColor;
   }
 
   ::-webkit-scrollbar {

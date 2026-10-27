@@ -1,4 +1,4 @@
-import { AlertTriangle, RefreshCw, Inbox } from "lucide-react"
+import { AlertTriangle, RefreshCw } from "lucide-react"
 import { Card, CardContent } from "./card"
 
 interface ErrorDisplayProps {
@@ -62,8 +62,8 @@ export function EmptyState({ message, hint, icon, action }: EmptyStateProps) {
  */
 export function NoDataInWindow({ hint = "Try widening the time range.", action }: { hint?: string; action?: React.ReactNode }) {
   return (
+    // A sentence that says why and what to do, no illustration (Ledger).
     <EmptyState
-      icon={<Inbox className="size-8" />}
       message="No data in this window"
       hint={hint}
       action={action}

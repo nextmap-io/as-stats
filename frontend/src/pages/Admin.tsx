@@ -20,7 +20,9 @@ import {
 } from "@/hooks/useApi"
 import { Trash2, Plus, FileText, Pencil, HardDrive, Check, X, Mail, Send, KeyRound, Copy } from "lucide-react"
 import { cn, formatBytes, formatNumber, formatPercent } from "@/lib/utils"
-import { formatCapacity } from "@/lib/format"
+import { formatCapacity, formatDateTime } from "@/lib/format"
+import { diskLevel, levelTextClass } from "@/lib/home"
+import { StateBadge } from "@/components/ui/state-badge"
 import type {
   AlertRule,
   Hostgroup,
@@ -42,11 +44,11 @@ const TABS: { value: Tab; label: string; requiresFeature?: keyof ReturnType<type
   { value: "links", label: "Links" },
   { value: "storage", label: "Storage" },
   { value: "tokens", label: "Tokens" },
-  { value: "rules", label: "Alert Rules", requiresFeature: "alerts" },
+  { value: "rules", label: "Alert rules", requiresFeature: "alerts" },
   { value: "hostgroups", label: "Hostgroups", requiresFeature: "alerts" },
   { value: "webhooks", label: "Webhooks", requiresFeature: "alerts" },
   { value: "reports", label: "Reports", requiresFeature: "reports" },
-  { value: "audit", label: "Audit Log", requiresFeature: "alerts" },
+  { value: "audit", label: "Audit log", requiresFeature: "alerts" },
 ]
 
 export function Admin() {
@@ -76,9 +78,10 @@ export function Admin() {
           <button
             key={t.value}
             onClick={() => setTab(t.value)}
+            aria-current={tab === t.value ? "page" : undefined}
             className={cn(
-              "px-3 py-1.5 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap",
-              tab === t.value ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+              "min-h-8 px-3 py-1.5 text-[13px] border-b-2 -mb-px transition-colors whitespace-nowrap",
+              tab === t.value ? "border-foreground font-semibold text-foreground" : "border-transparent text-foreground-secondary hover:text-foreground"
             )}
           >
             {t.label}
@@ -123,12 +126,12 @@ function LinksTab() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border">
-                <th className="pb-1.5 text-left font-medium text-muted-foreground">Tag</th>
-                <th className="pb-1.5 text-left font-medium text-muted-foreground">Router IP</th>
-                <th className="pb-1.5 text-right font-medium text-muted-foreground">SNMP index</th>
-                <th className="pb-1.5 pl-6 text-left font-medium text-muted-foreground">Description</th>
-                <th className="pb-1.5 text-right font-medium text-muted-foreground">Capacity</th>
+              <tr className="border-b border-foreground">
+                <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Tag</th>
+                <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Router IP</th>
+                <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">SNMP index</th>
+                <th className="pb-1.5 pl-6 text-left text-[13px] font-normal text-muted-foreground">Description</th>
+                <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Capacity</th>
               </tr>
             </thead>
             <tbody>
@@ -212,20 +215,20 @@ function StorageTab() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border">
-                    <th className="pb-1.5 text-left font-medium text-muted-foreground">Table</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Compressed</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground hidden lg:table-cell" title="Bytes on disk: hot (fast disk) / cold volume">
+                  <tr className="border-b border-foreground">
+                    <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Table</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Compressed</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground hidden lg:table-cell" title="Bytes on disk: hot (fast disk) / cold volume">
                       Hot / cold
                     </th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Rows</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Parts</th>
-                    <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Oldest data</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground">TTL (days)</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground" title="Move data older than this many days to the cold volume (0 = off)">
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Rows</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Parts</th>
+                    <th className="pb-1.5 text-left pl-6 text-[13px] font-normal text-muted-foreground hidden md:table-cell">Oldest data</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">TTL (days)</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground" title="Move data older than this many days to the cold volume (0 = off)">
                       Move to cold after (days)
                     </th>
-                    <th className="pb-1.5 text-center font-medium text-muted-foreground">Managed</th>
+                    <th className="pb-1.5 text-center text-[13px] font-normal text-muted-foreground">Managed</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -251,26 +254,27 @@ function StorageTab() {
 
 function DiskGauge({ disk }: { disk: DiskStats }) {
   const pct = Math.min(100, Math.max(0, disk.used_percent))
-  // Color by threshold — mirrors the disk_usage alert defaults (80% warn, 90% crit).
+  // Threshold colours mirror the disk_usage alert defaults (80% warn, 90% crit).
+  // A normal disk stays unlit (no green); a full one gets the colour and the word.
+  const level = diskLevel(pct)
   const barColor =
-    pct >= 90 ? "bg-destructive" : pct >= 80 ? "bg-warning-mark" : "bg-foreground-secondary"
-  const textColor =
-    pct >= 90 ? "text-destructive" : pct >= 80 ? "text-warning" : "text-success"
+    level === "critical" ? "bg-destructive" : level === "watch" ? "bg-warning-mark" : "bg-foreground-secondary"
 
   return (
     <div>
-      <div className="flex items-baseline justify-between mb-1">
-        <span className="text-[13px] text-muted-foreground">
+      <div className="flex items-baseline justify-between gap-3 mb-1">
+        <span className="min-w-0 truncate text-[13px] text-foreground">
           {disk.name}
-          {disk.path && <span className="ml-2 text-xs">{disk.path}</span>}
+          {disk.path && <span className="ml-2 font-mono text-xs text-muted-foreground">{disk.path}</span>}
         </span>
-        <span className={cn("tabular-nums text-[13px]", textColor)}>
+        <span className={cn("inline-flex shrink-0 items-center gap-1.5 tabular-nums text-[13px]", levelTextClass(level))}>
+          <StateBadge level={level} />
           {formatPercent(pct)}
         </span>
       </div>
-      <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+      <div className="h-2 w-full rounded-[1px] bg-muted overflow-hidden">
         <div
-          className={cn("h-full rounded-full transition-colors", barColor)}
+          className={cn("h-full rounded-[1px] transition-colors", barColor)}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -294,6 +298,8 @@ function DaysField({
   max,
   disabled,
   title,
+  label,
+  zeroLabel,
   saveTitle,
   onSave,
 }: {
@@ -302,10 +308,16 @@ function DaysField({
   max?: number
   disabled: boolean
   title?: string
+  /** Accessible name of the input, e.g. "Retention of flows_raw, days". */
+  label: string
+  /** Shown (as a placeholder) instead of a bare "0": "not set", "off". */
+  zeroLabel: string
   saveTitle: string
   onSave: (days: number) => void
 }) {
-  const serverValue = String(value)
+  // 0 is "no policy" for a TTL and "off" for the cold tier: an input showing
+  // "0" read as "keep 0 days", one Enter away from a destructive save.
+  const serverValue = value === 0 ? "" : String(value)
   const [draft, setDraft] = useState<string>(serverValue)
   const editingRef = useRef(false)
 
@@ -332,19 +344,22 @@ function DaysField({
         min={min}
         max={max}
         value={draft}
+        placeholder={zeroLabel}
+        aria-label={label}
         disabled={disabled}
         onChange={(e) => setDraft(e.target.value)}
         onFocus={() => { editingRef.current = true }}
         onBlur={() => { editingRef.current = false }}
         onKeyDown={(e) => { if (e.key === "Enter") save() }}
-        className="w-16 h-6 px-1.5 rounded border border-input bg-background text-xs tabular-nums text-right outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+        className="w-[4.5rem] h-7 px-1.5 rounded border border-input bg-background text-[13px] tabular-nums text-right outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
       />
       {dirty && !disabled && (
         <div className="flex gap-0.5">
           <button
             onClick={save}
-            className="inline-flex size-7 items-center justify-center rounded hover:bg-success/10 hover:text-success transition-colors"
+            className="inline-flex size-7 items-center justify-center rounded hover:bg-accent transition-colors"
             title={saveTitle}
+            aria-label={saveTitle}
           >
             <Check className="size-3" />
           </button>
@@ -352,6 +367,7 @@ function DaysField({
             onClick={() => setDraft(serverValue)}
             className="inline-flex size-7 items-center justify-center rounded hover:bg-accent transition-colors"
             title="Discard"
+            aria-label="Discard"
           >
             <X className="size-3" />
           </button>
@@ -443,13 +459,19 @@ function StorageRow({ table }: { table: TableStorageStats }) {
       <td className="py-1.5 text-right tabular-nums">{formatBytes(table.compressed_bytes)}</td>
       <td className="py-1.5 text-right tabular-nums text-muted-foreground hidden lg:table-cell whitespace-nowrap" title={diskBreakdown}>
         {formatBytes(table.hot_bytes)}
-        <span className="mx-1">/</span>
-        {table.has_cold_volume || table.cold_bytes > 0 ? formatBytes(table.cold_bytes) : "—"}
+        {/* Without a cold volume there is no second figure to show (a column of
+            "/ —" said nothing; the caption under the table explains why). */}
+        {(table.has_cold_volume || table.cold_bytes > 0) && (
+          <>
+            <span className="mx-1">/</span>
+            {formatBytes(table.cold_bytes)}
+          </>
+        )}
       </td>
       <td className="py-1.5 text-right tabular-nums text-muted-foreground">{formatNumber(table.rows)}</td>
       <td className="py-1.5 text-right tabular-nums text-muted-foreground">{formatNumber(table.parts)}</td>
-      <td className="py-1.5 text-xs text-muted-foreground hidden md:table-cell whitespace-nowrap">
-        {table.oldest_data ? new Date(table.oldest_data).toLocaleString() : "—"}
+      <td className="py-1.5 pl-6 text-[13px] text-muted-foreground hidden md:table-cell whitespace-nowrap">
+        {table.oldest_data ? formatDateTime(table.oldest_data) : "—"}
       </td>
       {follows ? (
         <>
@@ -470,6 +492,8 @@ function StorageRow({ table }: { table: TableStorageStats }) {
               value={table.ttl_days}
               min={Math.max(1, table.cold_after_days + 1)}
               disabled={setRetention.isPending}
+              label={`Retention of ${table.table}, days`}
+              zeroLabel="not set"
               saveTitle="Save retention"
               onSave={saveDays}
             />
@@ -481,6 +505,8 @@ function StorageRow({ table }: { table: TableStorageStats }) {
               max={Math.max(0, table.ttl_days - 1)}
               disabled={setRetention.isPending || !table.has_cold_volume}
               title={coldTitle}
+              label={`Move ${table.table} to cold after, days`}
+              zeroLabel="off"
               saveTitle="Save move-to-cold age"
               onSave={saveCold}
             />
@@ -489,15 +515,18 @@ function StorageRow({ table }: { table: TableStorageStats }) {
             <button
               onClick={toggleEnabled}
               disabled={setRetention.isPending}
+              aria-pressed={table.ttl_enabled}
+              aria-label={`Reconciler manages ${table.table}`}
+              // A setting, not a state to watch: neutral, never green (Ledger).
               className={cn(
-                "px-1.5 py-0.5 text-xs rounded border font-medium disabled:opacity-50",
+                "min-h-7 min-w-10 px-2 text-[13px] rounded border disabled:opacity-50 transition-colors",
                 table.ttl_enabled
-                  ? "border-success/40 bg-success/10 text-success"
-                  : "border-input bg-background text-muted-foreground"
+                  ? "border-foreground text-foreground"
+                  : "border-input bg-background text-muted-foreground hover:text-foreground"
               )}
               title={table.ttl_enabled ? "Reconciler manages this table — click to disable" : "Unmanaged — click to enable reconciler"}
             >
-              {table.ttl_enabled ? "ON" : "OFF"}
+              {table.ttl_enabled ? "on" : "off"}
             </button>
           </td>
         </>
@@ -700,15 +729,15 @@ function TokensTab() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border">
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Prefix</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Owner</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Created</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Last used</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Expires</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Status</th>
-                  <th className="pb-1.5 text-right font-medium text-muted-foreground">Actions</th>
+                <tr className="border-b border-foreground">
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Name</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Prefix</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden md:table-cell">Owner</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden lg:table-cell">Created</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden lg:table-cell">Last used</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Expires</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Status</th>
+                  <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -732,21 +761,21 @@ function TokenRow({ token, onRevoke, revoking }: { token: APIToken; onRevoke: (i
       <td className="py-1.5 font-mono text-xs text-muted-foreground">{token.token_prefix}…</td>
       <td className="py-1.5 text-xs text-muted-foreground hidden md:table-cell truncate max-w-[14rem]">{token.owner || "—"}</td>
       <td className="py-1.5 text-xs text-muted-foreground hidden lg:table-cell whitespace-nowrap">
-        {new Date(token.created_at).toLocaleString()}
+        {formatDateTime(token.created_at)}
       </td>
       <td className="py-1.5 text-xs text-muted-foreground hidden lg:table-cell whitespace-nowrap">
-        {isUnsetTime(token.last_used_at) ? "never" : new Date(token.last_used_at).toLocaleString()}
+        {isUnsetTime(token.last_used_at) ? "never" : formatDateTime(token.last_used_at)}
       </td>
       <td className="py-1.5 text-xs text-muted-foreground whitespace-nowrap">
-        {isUnsetTime(token.expires_at) ? "never" : new Date(token.expires_at).toLocaleString()}
+        {isUnsetTime(token.expires_at) ? "never" : formatDateTime(token.expires_at)}
       </td>
       <td className="py-1.5">
         <span
           className={cn(
-            "px-1.5 py-0.5 text-xs font-medium rounded border ",
-            status === "active" && "border-success/40 bg-success/10 text-success",
-            status === "revoked" && "border-destructive/40 bg-destructive/10 text-destructive",
-            status === "expired" && "border-warning/40 bg-warning/10 text-warning"
+            // A token's lifecycle is configuration, not an incident: neutral
+            // chips, the word carries it (Ledger: normal stays silent).
+            "px-1.5 py-0.5 text-xs rounded border",
+            status === "active" ? "border-foreground text-foreground" : "border-border text-muted-foreground"
           )}
         >
           {status}
@@ -1112,7 +1141,7 @@ function RulesTab() {
                         onClick={() => toggleMutation.mutate(r)}
                         className={cn(
                           "px-1.5 py-0.5 text-xs rounded border font-medium",
-                          r.enabled ? "border-success/40 bg-success/10 text-success" : "border-input bg-background text-muted-foreground"
+                          r.enabled ? "border-success/40 text-success" : "border-input bg-background text-muted-foreground"
                         )}
                       >
                         {r.enabled ? "ON" : "OFF"}
@@ -1127,9 +1156,9 @@ function RulesTab() {
                       <span
                         className={cn(
                           "px-1.5 py-0.5 text-xs font-medium rounded border ",
-                          r.severity === "critical" && "border-destructive/40 bg-destructive/10 text-destructive",
-                          r.severity === "warning" && "border-warning/40 bg-warning/10 text-warning",
-                          r.severity === "info" && "border-primary/40 bg-primary/10 text-primary"
+                          r.severity === "critical" && "border-destructive/40 text-destructive",
+                          r.severity === "warning" && "border-warning/40 text-warning",
+                          r.severity === "info" && "border-primary/40 text-primary"
                         )}
                       >
                         {r.severity}
@@ -1356,12 +1385,12 @@ function WebhooksTab() {
           ) : (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border">
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Type</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">URL</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Min severity</th>
-                  <th className="pb-1.5 text-right font-medium text-muted-foreground">Actions</th>
+                <tr className="border-b border-foreground">
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Name</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Type</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">URL</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Min severity</th>
+                  <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1672,14 +1701,14 @@ function ReportsTab() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border">
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Enabled</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Schedule</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Recipients</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Sections</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Format</th>
-                  <th className="pb-1.5 text-right font-medium text-muted-foreground">Actions</th>
+                <tr className="border-b border-foreground">
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Enabled</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Name</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Schedule</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden md:table-cell">Recipients</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden lg:table-cell">Sections</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Format</th>
+                  <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1719,12 +1748,13 @@ function ReportRow({ schedule, editing, onEdit }: { schedule: ReportSchedule; ed
         <button
           onClick={toggleEnabled}
           disabled={updateMutation.isPending}
+          aria-pressed={schedule.enabled}
           className={cn(
-            "px-1.5 py-0.5 text-xs rounded border font-medium disabled:opacity-50",
-            schedule.enabled ? "border-success/40 bg-success/10 text-success" : "border-input bg-background text-muted-foreground"
+            "min-h-7 min-w-10 px-2 text-[13px] rounded border disabled:opacity-50 transition-colors",
+            schedule.enabled ? "border-foreground text-foreground" : "border-input bg-background text-muted-foreground hover:text-foreground"
           )}
         >
-          {schedule.enabled ? "ON" : "OFF"}
+          {schedule.enabled ? "on" : "off"}
         </button>
       </td>
       <td className="py-1.5 font-medium">{schedule.name}</td>
@@ -1801,20 +1831,20 @@ function AuditTab() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border">
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Time</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">User</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Action</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Resource</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Client IP</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Result</th>
+                <tr className="border-b border-foreground">
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Time</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">User</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Action</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden md:table-cell">Resource</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden md:table-cell">Client IP</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Result</th>
                 </tr>
               </thead>
               <tbody>
                 {entries.map((e) => (
                   <tr key={`${e.ts}-${e.action}-${e.resource}-${e.client_ip}`} className="border-b border-border-soft last:border-0 hover:bg-accent/50">
                     <td className="py-1 text-xs text-muted-foreground whitespace-nowrap">
-                      {new Date(e.ts).toLocaleString()}
+                      {formatDateTime(e.ts)}
                     </td>
                     <td className="py-1">{e.user_email || <span className="text-muted-foreground">anonymous</span>}</td>
                     <td className="py-1 text-xs">{e.action}</td>
@@ -1823,10 +1853,12 @@ function AuditTab() {
                     <td className="py-1">
                       <span
                         className={cn(
-                          "px-1.5 py-0.5 text-xs font-medium rounded ",
-                          e.result === "success" && "bg-success/20 text-success",
-                          e.result === "denied" && "bg-warning/20 text-warning",
-                          e.result === "error" && "bg-destructive/20 text-destructive"
+                          // Success is the normal outcome and stays unlit; a denied
+                          // or failed action is what an auditor looks for.
+                          "text-[13px]",
+                          e.result === "success" && "text-muted-foreground",
+                          e.result === "denied" && "rounded-sm bg-warning-muted px-1.5 font-semibold text-warning",
+                          e.result === "error" && "rounded-sm bg-destructive px-1.5 font-semibold text-destructive-foreground"
                         )}
                       >
                         {e.result}
@@ -1966,11 +1998,11 @@ function HostgroupsTab() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border">
-                <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
-                <th className="pb-1.5 text-left font-medium text-muted-foreground">CIDRs</th>
-                <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Description</th>
-                <th className="pb-1.5 text-right font-medium text-muted-foreground">Actions</th>
+              <tr className="border-b border-foreground">
+                <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Name</th>
+                <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">CIDRs</th>
+                <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden md:table-cell">Description</th>
+                <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody>

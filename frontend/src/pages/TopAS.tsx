@@ -15,7 +15,7 @@ import { RatioBar, AsymmetryBadge } from "@/components/Asymmetry"
 import { formatNumber, formatBytes, cn } from "@/lib/utils"
 import { useUnit } from "@/hooks/useUnit"
 import { countryFlag, hasCountry } from "@/lib/countries"
-import { asPath, isPrivateASGroup, PRIVATE_AS_GROUP_NAME, ourView } from "@/lib/asn"
+import { asDisplayName, asPath, isPrivateASGroup, PRIVATE_AS_GROUP_NAME, ourView } from "@/lib/asn"
 import { ASRef } from "@/components/ASRef"
 import type { ASTraffic } from "@/lib/types"
 
@@ -70,7 +70,7 @@ export function TopAS() {
                 {countryFlag(as.country)}
               </span>
             )}
-            <span className="truncate">{as.as_name || "-"}</span>
+            <span className="truncate">{asDisplayName(as.as_number, as.as_name)}</span>
           </span>
         ),
       },
@@ -218,7 +218,7 @@ export function TopAS() {
                     Previous
                   </button>
                   <span className="text-sm text-muted-foreground">
-                    Showing {offset + 1} - {offset + data.data.length}
+                    Showing {offset + 1}–{offset + data.data.length}
                   </span>
                   <button
                     disabled={data.data.length < 50}
