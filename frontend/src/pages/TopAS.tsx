@@ -218,7 +218,7 @@ export function TopAS() {
                     Previous
                   </button>
                   <span className="text-sm text-muted-foreground">
-                    Showing {offset + 1} - {offset + data.data.length}
+                    Showing {offset + 1}–{offset + data.data.length}
                   </span>
                   <button
                     disabled={data.data.length < 50}

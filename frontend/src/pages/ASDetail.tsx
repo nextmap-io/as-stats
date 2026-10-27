@@ -126,25 +126,25 @@ export function ASDetail() {
       <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
         <div>
           <span className="text-muted-foreground">IPv4:</span>{" "}
-          <span className="text-traffic-in">{formatBytes(detail.v4_bytes_in || 0)} in</span>
+          <span className="whitespace-nowrap text-traffic-in">{formatBytes(detail.v4_bytes_in || 0)} in</span>
           {" / "}
-          <span className="text-traffic-out">{formatBytes(detail.v4_bytes_out || 0)} out</span>
+          <span className="whitespace-nowrap text-traffic-out">{formatBytes(detail.v4_bytes_out || 0)} out</span>
           {(detail.p95_v4_in || detail.p95_v4_out) ? (
             <span className="ml-2 text-muted-foreground">
-              p95: <span className="text-traffic-in">{formatTraffic(detail.p95_v4_in || 0, step)}</span>
-              {" / "}<span className="text-traffic-out">{formatTraffic(detail.p95_v4_out || 0, step)}</span>
+              p95: <span className="whitespace-nowrap text-traffic-in">{formatTraffic(detail.p95_v4_in || 0, step)}</span>
+              {" / "}<span className="whitespace-nowrap text-traffic-out">{formatTraffic(detail.p95_v4_out || 0, step)}</span>
             </span>
           ) : null}
         </div>
         <div>
           <span className="text-muted-foreground">IPv6:</span>{" "}
-          <span className="text-traffic-in">{formatBytes(detail.v6_bytes_in || 0)} in</span>
+          <span className="whitespace-nowrap text-traffic-in">{formatBytes(detail.v6_bytes_in || 0)} in</span>
           {" / "}
-          <span className="text-traffic-out">{formatBytes(detail.v6_bytes_out || 0)} out</span>
+          <span className="whitespace-nowrap text-traffic-out">{formatBytes(detail.v6_bytes_out || 0)} out</span>
           {(detail.p95_v6_in || detail.p95_v6_out) ? (
             <span className="ml-2 text-muted-foreground">
-              p95: <span className="text-traffic-in">{formatTraffic(detail.p95_v6_in || 0, step)}</span>
-              {" / "}<span className="text-traffic-out">{formatTraffic(detail.p95_v6_out || 0, step)}</span>
+              p95: <span className="whitespace-nowrap text-traffic-in">{formatTraffic(detail.p95_v6_in || 0, step)}</span>
+              {" / "}<span className="whitespace-nowrap text-traffic-out">{formatTraffic(detail.p95_v6_out || 0, step)}</span>
             </span>
           ) : null}
         </div>
