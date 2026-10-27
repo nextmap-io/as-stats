@@ -145,8 +145,18 @@ var AlertEngineCycleDuration = promauto.NewHistogram(prometheus.HistogramOpts{
 
 var CooldownMapSize = promauto.NewGauge(prometheus.GaugeOpts{
 	Name: "asstats_cooldown_map_size",
-	Help: "Current number of entries in the alert engine cooldown map.",
+	Help: "Current number of entries in the alert engine's recent-alert map (rule|target → alert stored or re-opened by this process).",
 })
+
+var AlertsReopened = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "asstats_alerts_reopened_total",
+	Help: "Alerts re-opened instead of re-created: the condition came back within the re-arm window after an auto-resolution (no new notification).",
+}, []string{"severity"})
+
+var AlertsBaselineSuppressed = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "asstats_alerts_baseline_suppressed_total",
+	Help: "Violations of a rule with a baseline_factor dropped because the target was not that far above its usual level.",
+}, []string{"rule_type"})
 
 // ── API: HTTP ───────────────────────────────────────────────────────────────
 

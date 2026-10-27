@@ -644,6 +644,8 @@ export interface Alert {
   action_taken?: string
   action_by?: string
   action_at?: string
+  /** Times the engine re-opened this alert (condition back within the re-arm window). */
+  reopen_count?: number
 }
 
 export interface AlertRule {
@@ -679,6 +681,8 @@ export interface AlertRule {
   webhook_ids?: string[]
   hostgroup_id?: string
   subnet_prefix_len?: number
+  /** volume_in / volume_out: 0 = absolute threshold; N = also N× the host's usual level. */
+  baseline_factor?: number
   created_at: string
   updated_at: string
 }
@@ -769,7 +773,24 @@ export interface AlertDetailsExtra {
   samples_count?: number
   sensitivity_k?: number
   explanation?: AnomalyExplanation
+  /** Volume rules with a baseline_factor: the host's usual level when it fired. */
+  usual?: AlertUsualLevel
+  /** port_scan: what the probe count was taken from. */
+  probe_hosts?: number
+  probe_flows?: number
+  all_dst_ports?: number
   [key: string]: unknown
+}
+
+/** details.extra.usual — see internal/alerts/baseline.go. */
+export interface AlertUsualLevel {
+  factor: number
+  samples: number
+  new_host?: boolean
+  usual_bps?: number
+  usual_pps?: number
+  p50_bps?: number
+  ratio?: number
 }
 
 /** Parsed shape of the JSON blob stored in Alert.details. Mirrors

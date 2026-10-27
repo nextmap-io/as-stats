@@ -27,6 +27,10 @@ type ClickHouseStore struct {
 	// `cold` volume, already logged — see warnNoColdVolumeOnce in retention.go.
 	coldWarnMu sync.Mutex
 	coldWarned map[string]bool
+
+	// clock is "now" for the alert queries and lifecycle; nil = time.Now.
+	// See SetClock in alert_queries.go.
+	clock func() time.Time
 }
 
 // NewClickHouseStore creates a new ClickHouse connection.

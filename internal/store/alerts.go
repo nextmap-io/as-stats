@@ -20,7 +20,7 @@ func (s *ClickHouseStore) ListAlertRules(ctx context.Context) ([]model.AlertRule
 			window_seconds, cooldown_seconds, severity,
 			target_filter, custom_sql, action, webhook_ids,
 			created_at, updated_at,
-			hostgroup_id, subnet_prefix_len
+			hostgroup_id, subnet_prefix_len, baseline_factor
 		FROM alert_rules FINAL
 		WHERE deleted = 0
 		ORDER BY name
@@ -42,7 +42,7 @@ func (s *ClickHouseStore) ListAlertRules(ctx context.Context) ([]model.AlertRule
 			&r.WindowSeconds, &r.CooldownSeconds, &r.Severity,
 			&r.TargetFilter, &r.CustomSQL, &r.Action, &webhookIDs,
 			&r.CreatedAt, &r.UpdatedAt,
-			&r.HostgroupID, &r.SubnetPrefixLen,
+			&r.HostgroupID, &r.SubnetPrefixLen, &r.BaselineFactor,
 		); err != nil {
 			return nil, err
 		}
@@ -73,40 +73,43 @@ func (s *ClickHouseStore) UpsertAlertRule(ctx context.Context, r model.AlertRule
 	if hgID == "" {
 		hgID = "00000000-0000-0000-0000-000000000000"
 	}
-	return s.conn.Exec(ctx, `
+	webhookIDs := r.WebhookIDs
+	if webhookIDs == nil {
+		webhookIDs = []string{}
+	}
+	return s.insertRow(ctx, `
 		INSERT INTO alert_rules (id, name, description, rule_type, enabled,
 			threshold_bps, threshold_pps, threshold_count,
 			window_seconds, cooldown_seconds, severity,
 			target_filter, custom_sql, action, webhook_ids,
 			created_at, updated_at, deleted,
-			hostgroup_id, subnet_prefix_len)
-		VALUES (@id, @name, @description, @rule_type, @enabled,
-			@threshold_bps, @threshold_pps, @threshold_count,
-			@window_seconds, @cooldown_seconds, @severity,
-			@target_filter, @custom_sql, @action, @webhook_ids,
-			@created_at, @updated_at, 0,
-			@hostgroup_id, @subnet_prefix_len)
-	`,
-		clickhouse.Named("id", r.ID),
-		clickhouse.Named("name", r.Name),
-		clickhouse.Named("description", r.Description),
-		clickhouse.Named("rule_type", r.RuleType),
-		clickhouse.Named("enabled", enabled),
-		clickhouse.Named("threshold_bps", r.ThresholdBps),
-		clickhouse.Named("threshold_pps", r.ThresholdPps),
-		clickhouse.Named("threshold_count", r.ThresholdCount),
-		clickhouse.Named("window_seconds", r.WindowSeconds),
-		clickhouse.Named("cooldown_seconds", r.CooldownSeconds),
-		clickhouse.Named("severity", r.Severity),
-		clickhouse.Named("target_filter", r.TargetFilter),
-		clickhouse.Named("custom_sql", r.CustomSQL),
-		clickhouse.Named("action", r.Action),
-		clickhouse.Named("webhook_ids", r.WebhookIDs),
-		clickhouse.Named("created_at", r.CreatedAt),
-		clickhouse.Named("updated_at", r.UpdatedAt),
-		clickhouse.Named("hostgroup_id", hgID),
-		clickhouse.Named("subnet_prefix_len", r.SubnetPrefixLen),
+			hostgroup_id, subnet_prefix_len, baseline_factor)`,
+		r.ID, r.Name, r.Description, r.RuleType, enabled,
+		r.ThresholdBps, r.ThresholdPps, r.ThresholdCount,
+		r.WindowSeconds, r.CooldownSeconds, r.Severity,
+		r.TargetFilter, r.CustomSQL, r.Action, webhookIDs,
+		r.CreatedAt, r.UpdatedAt, uint8(0),
+		hgID, r.SubnetPrefixLen, r.BaselineFactor,
 	)
+}
+
+// insertRow writes one row through the native protocol (PrepareBatch +
+// Append). An INSERT … VALUES with named parameters reaches the server with
+// every value rendered as a SQL literal or expression (cast(5e+08,
+// 'Float64'), toDateTime('…')): the fast VALUES parser rejects it and the
+// server falls back to the full SQL parser — harmless, but each insert
+// bumped CANNOT_PARSE_INPUT_ASSERTION_FAILED in system.errors (~16k a day in
+// production, mostly alert inserts).
+func (s *ClickHouseStore) insertRow(ctx context.Context, insert string, values ...any) error {
+	batch, err := s.conn.PrepareBatch(ctx, insert)
+	if err != nil {
+		return err
+	}
+	if err := batch.Append(values...); err != nil {
+		_ = batch.Abort()
+		return err
+	}
+	return batch.Send()
 }
 
 // DeleteAlertRule soft-deletes a rule.
@@ -138,7 +141,7 @@ func (s *ClickHouseStore) ListAlerts(ctx context.Context, status string, limit i
 			toString(target_ip) AS target_ip, target_as, protocol,
 			metric_value, threshold, metric_type, details,
 			status, acknowledged_by, acknowledged_at,
-			action_taken, action_by, action_at
+			action_taken, action_by, action_at, reopen_count
 		FROM alerts
 		WHERE %s
 		ORDER BY triggered_at DESC
@@ -161,7 +164,7 @@ func (s *ClickHouseStore) ListAlerts(ctx context.Context, status string, limit i
 			&a.TargetIP, &a.TargetAS, &a.Protocol,
 			&a.MetricValue, &a.Threshold, &a.MetricType, &a.Details,
 			&a.Status, &a.AcknowledgedBy, &ackedAt,
-			&a.ActionTaken, &a.ActionBy, &actionAt,
+			&a.ActionTaken, &a.ActionBy, &actionAt, &a.ReopenCount,
 		); err != nil {
 			return nil, err
 		}
@@ -206,29 +209,16 @@ func (s *ClickHouseStore) CountAlertsBySeverity(ctx context.Context) (map[string
 	return counts, nil
 }
 
-// InsertAlert inserts a new alert or updates last_seen_at on an existing active one.
+// InsertAlert stores a new alert (status active). See insertRow for why it
+// does not use INSERT … VALUES.
 func (s *ClickHouseStore) InsertAlert(ctx context.Context, a model.Alert) error {
-	return s.conn.Exec(ctx, `
+	return s.insertRow(ctx, `
 		INSERT INTO alerts (id, rule_id, rule_name, severity,
 			triggered_at, last_seen_at, target_ip, target_as, protocol,
-			metric_value, threshold, metric_type, details, status)
-		VALUES (@id, @rule_id, @rule_name, @severity,
-			@triggered_at, @last_seen_at, @target_ip, @target_as, @protocol,
-			@metric_value, @threshold, @metric_type, @details, 'active')
-	`,
-		clickhouse.Named("id", a.ID),
-		clickhouse.Named("rule_id", a.RuleID),
-		clickhouse.Named("rule_name", a.RuleName),
-		clickhouse.Named("severity", a.Severity),
-		clickhouse.Named("triggered_at", a.TriggeredAt),
-		clickhouse.Named("last_seen_at", a.LastSeenAt),
-		clickhouse.Named("target_ip", ipToIPv6(net.ParseIP(a.TargetIP))),
-		clickhouse.Named("target_as", a.TargetAS),
-		clickhouse.Named("protocol", a.Protocol),
-		clickhouse.Named("metric_value", a.MetricValue),
-		clickhouse.Named("threshold", a.Threshold),
-		clickhouse.Named("metric_type", a.MetricType),
-		clickhouse.Named("details", a.Details),
+			metric_value, threshold, metric_type, details, status)`,
+		a.ID, a.RuleID, a.RuleName, a.Severity,
+		a.TriggeredAt, a.LastSeenAt, ipToIPv6(net.ParseIP(a.TargetIP)), a.TargetAS, a.Protocol,
+		a.MetricValue, a.Threshold, a.MetricType, a.Details, "active",
 	)
 }
 
@@ -253,29 +243,76 @@ func (s *ClickHouseStore) updateAlertStatus(ctx context.Context, id, newStatus, 
 	return s.conn.Exec(ctx, query, args...)
 }
 
-// FindActiveAlert returns the ID of an active alert matching rule+target, or "" if none.
-// Used by the evaluator to avoid duplicate alerts during cooldown.
-func (s *ClickHouseStore) FindActiveAlert(ctx context.Context, ruleID string, targetIP net.IP) (string, time.Time, error) {
-	query := `
-		SELECT id, triggered_at
-		FROM alerts
-		WHERE rule_id = @rule_id AND target_ip = @target_ip AND status = 'active'
-		ORDER BY triggered_at DESC
-		LIMIT 1
-	`
-	var id string
-	var triggeredAt time.Time
-	err := s.conn.QueryRow(ctx, query,
+// AlertState is the most recent alert of one (rule, target): what the engine
+// needs to heartbeat, re-open or replace it. ID is "" when there is none.
+type AlertState struct {
+	ID          string
+	Status      string // active | acknowledged | resolved | muted
+	TriggeredAt time.Time
+	LastSeenAt  time.Time
+	MetricValue float64 // peak value (re-opens keep the highest)
+}
+
+// LatestAlert returns the most recent alert of a rule for a target, in any
+// status. The engine decides from it whether a violation heartbeats that
+// alert, re-opens it (resolved within the re-arm window) or starts a new one.
+// The alerts table is small (a year of alerts, partitioned by month).
+func (s *ClickHouseStore) LatestAlert(ctx context.Context, ruleID string, targetIP net.IP) (AlertState, error) {
+	var (
+		st    AlertState
+		count uint64
+	)
+	// An aggregate always yields one row: count() = 0 means no alert.
+	err := s.conn.QueryRow(ctx, `
+		SELECT count(),
+			toString(argMax(a.id, a.triggered_at)),
+			argMax(a.status, a.triggered_at),
+			max(a.triggered_at),
+			argMax(a.last_seen_at, a.triggered_at),
+			argMax(a.metric_value, a.triggered_at)
+		FROM alerts AS a
+		WHERE a.rule_id = @rule_id AND a.target_ip = @target_ip
+	`,
 		clickhouse.Named("rule_id", ruleID),
 		clickhouse.Named("target_ip", ipToIPv6(targetIP)),
-	).Scan(&id, &triggeredAt)
+	).Scan(&count, &st.ID, &st.Status, &st.TriggeredAt, &st.LastSeenAt, &st.MetricValue)
 	if err != nil {
-		if strings.Contains(err.Error(), "no rows") {
-			return "", time.Time{}, nil
-		}
-		return "", time.Time{}, err
+		return AlertState{}, fmt.Errorf("latest alert: %w", err)
 	}
-	return id, triggeredAt, nil
+	if count == 0 {
+		return AlertState{}, nil
+	}
+	return st, nil
+}
+
+// ReopenAlert re-arms a resolved alert instead of creating a new one: status
+// back to active, last_seen_at = ts, metric_value raised to the new value when
+// higher (it reads as the peak), reopen_count + 1. One mutation per re-open;
+// the engine never issues it twice for the same alert within a cycle or two
+// (see Engine.recent).
+func (s *ClickHouseStore) ReopenAlert(ctx context.Context, id string, ts time.Time, value float64) error {
+	err := s.conn.Exec(ctx, `
+		ALTER TABLE alerts UPDATE
+			status = 'active',
+			resolved_at = toDateTime(0),
+			last_seen_at = toDateTime(@ts, 'UTC'),
+			metric_value = greatest(metric_value, @value),
+			reopen_count = reopen_count + 1
+		WHERE id = @id
+	`,
+		clickhouse.Named("id", id),
+		clickhouse.Named("ts", uint32(ts.Unix())),
+		clickhouse.Named("value", value),
+	)
+	if err == nil {
+		// last_seen_at was just written: the next heartbeat can be throttled.
+		s.hbMu.Lock()
+		if s.hbWritten != nil {
+			s.hbWritten[id] = ts
+		}
+		s.hbMu.Unlock()
+	}
+	return err
 }
 
 // Heartbeat throttling constants. ClickHouse mutations (ALTER ... UPDATE) are
@@ -359,13 +396,14 @@ func (s *ClickHouseStore) forgetHeartbeat(id string) {
 // heartbeat, so the two can never disagree about what "stale" means.
 func (s *ClickHouseStore) AutoResolveStaleAlerts(ctx context.Context, olderThan time.Duration) error {
 	s.setHeartbeatWindow(olderThan)
-	cutoff := time.Now().UTC().Add(-olderThan)
+	now := s.now()
+	cutoff := clickhouse.Named("cutoff", uint32(now.Add(-olderThan).Unix()))
 
 	var stale uint64
 	if err := s.conn.QueryRow(ctx, `
 		SELECT count() FROM alerts
-		WHERE status = 'active' AND last_seen_at < @cutoff
-	`, clickhouse.Named("cutoff", cutoff)).Scan(&stale); err != nil {
+		WHERE status = 'active' AND last_seen_at < toDateTime(@cutoff, 'UTC')
+	`, cutoff).Scan(&stale); err != nil {
 		return fmt.Errorf("count stale alerts: %w", err)
 	}
 	if stale == 0 {
@@ -373,9 +411,9 @@ func (s *ClickHouseStore) AutoResolveStaleAlerts(ctx context.Context, olderThan 
 	}
 
 	return s.conn.Exec(ctx, `
-		ALTER TABLE alerts UPDATE status = 'resolved', resolved_at = now()
-		WHERE status = 'active' AND last_seen_at < @cutoff
-	`, clickhouse.Named("cutoff", cutoff))
+		ALTER TABLE alerts UPDATE status = 'resolved', resolved_at = toDateTime(@now, 'UTC')
+		WHERE status = 'active' AND last_seen_at < toDateTime(@cutoff, 'UTC')
+	`, cutoff, clickhouse.Named("now", uint32(now.Unix())))
 }
 
 // setHeartbeatWindow updates the throttle window from the caller's auto-resolve
@@ -434,20 +472,10 @@ func (s *ClickHouseStore) UpsertWebhook(ctx context.Context, w model.WebhookConf
 	if w.CreatedAt.IsZero() {
 		w.CreatedAt = w.UpdatedAt
 	}
-	return s.conn.Exec(ctx, `
-		INSERT INTO webhook_configs (id, name, webhook_type, url, enabled, min_severity, headers, template, created_at, updated_at, deleted)
-		VALUES (@id, @name, @webhook_type, @url, @enabled, @min_severity, @headers, @template, @created_at, @updated_at, 0)
-	`,
-		clickhouse.Named("id", w.ID),
-		clickhouse.Named("name", w.Name),
-		clickhouse.Named("webhook_type", w.WebhookType),
-		clickhouse.Named("url", w.URL),
-		clickhouse.Named("enabled", enabled),
-		clickhouse.Named("min_severity", w.MinSeverity),
-		clickhouse.Named("headers", w.Headers),
-		clickhouse.Named("template", w.Template),
-		clickhouse.Named("created_at", w.CreatedAt),
-		clickhouse.Named("updated_at", w.UpdatedAt),
+	return s.insertRow(ctx, `
+		INSERT INTO webhook_configs (id, name, webhook_type, url, enabled, min_severity, headers, template, created_at, updated_at, deleted)`,
+		w.ID, w.Name, w.WebhookType, w.URL, enabled, w.MinSeverity, w.Headers, w.Template,
+		w.CreatedAt, w.UpdatedAt, uint8(0),
 	)
 }
 
@@ -471,21 +499,10 @@ func (s *ClickHouseStore) WriteAuditLog(ctx context.Context, e model.AuditLogEnt
 	if clientIP == nil {
 		clientIP = net.IPv6zero
 	}
-	return s.conn.Exec(ctx, `
-		INSERT INTO audit_log (ts, user_sub, user_email, user_role, action, resource, params, client_ip, user_agent, result, error_message)
-		VALUES (@ts, @user_sub, @user_email, @user_role, @action, @resource, @params, @client_ip, @user_agent, @result, @error_message)
-	`,
-		clickhouse.Named("ts", e.Timestamp),
-		clickhouse.Named("user_sub", e.UserSub),
-		clickhouse.Named("user_email", e.UserEmail),
-		clickhouse.Named("user_role", e.UserRole),
-		clickhouse.Named("action", e.Action),
-		clickhouse.Named("resource", e.Resource),
-		clickhouse.Named("params", e.Params),
-		clickhouse.Named("client_ip", ipToIPv6(clientIP)),
-		clickhouse.Named("user_agent", e.UserAgent),
-		clickhouse.Named("result", e.Result),
-		clickhouse.Named("error_message", e.ErrorMessage),
+	return s.insertRow(ctx, `
+		INSERT INTO audit_log (ts, user_sub, user_email, user_role, action, resource, params, client_ip, user_agent, result, error_message)`,
+		e.Timestamp, e.UserSub, e.UserEmail, e.UserRole, e.Action, e.Resource, e.Params,
+		ipToIPv6(clientIP), e.UserAgent, e.Result, e.ErrorMessage,
 	)
 }
 
@@ -541,9 +558,9 @@ func (s *ClickHouseStore) ListAuditLog(ctx context.Context, from, to time.Time, 
 
 // DetailsJSON helpers — for building alert.details blobs
 type AlertDetails struct {
-	TopSources   []string `json:"top_sources,omitempty"`
-	UniqueCount  uint64   `json:"unique_count,omitempty"`
-	WindowSecond uint32   `json:"window_seconds,omitempty"`
+	TopSources   []string       `json:"top_sources,omitempty"`
+	UniqueCount  uint64         `json:"unique_count,omitempty"`
+	WindowSecond uint32         `json:"window_seconds,omitempty"`
 	Extra        map[string]any `json:"extra,omitempty"`
 }
 

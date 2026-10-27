@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Alert false positives** (production: ~5,150 alerts in 10 days, none
+  acknowledged, mostly busy servers at their usual level):
+  - `port_scan` counted every distinct destination port of a local source,
+    so servers replying to clients' ephemeral ports "scanned" all day. It now
+    confirms its hot-table candidates on `flows_raw` and counts only
+    connection probes (TCP SYN without ACK; UDP / flagless TCP from port
+    ≥ 1024 to port < 1024).
+  - Flapping: an alert that resolved and fired again re-alerted (and
+    notified) every ~20 minutes. Within the re-arm window
+    (`max(cooldown_seconds, ALERT_REARM_WINDOW)`, default 1 h) the engine now
+    re-opens the previous alert silently (`reopen_count`, shown as
+    "re-opened ×N"); a value ≥ 2× the alert's peak is still a new incident,
+    and `auto_block` rules re-announce on a re-open.
+  - Acknowledging an alert that was still firing created a duplicate alert;
+    acknowledged alerts are now heartbeated.
+- Alert, rule, webhook and audit-log inserts use the native protocol instead
+  of `INSERT … VALUES` with rendered literals, which the server's fast VALUES
+  parser rejected on every insert (`CANNOT_PARSE_INPUT_ASSERTION_FAILED` in
+  `system.errors`, ~16k a day).
+
+### Added
+- `baseline_factor` on `volume_in` / `volume_out` rules (migration 000019):
+  fire only when the host is also N× its usual level (per-minute p99 at the
+  same time of day over 7 days). Hosts without history are judged on the
+  threshold alone. Editable in Admin › Alert Rules, which can now edit rules.
+  Live Threats counts such a rule as firing only under the same condition.
+- Seeded rules: "High inbound volume" / "High outbound volume" 2×,
+  "Sustained outbound exfiltration" 3×. **Existing installs**: the collector
+  applies them once at startup, only to the 3.6 seeded rules still exactly as
+  seeded (thresholds, window, severity, description); edited rules are kept.
+- `ALERT_REARM_WINDOW` (default `1h`); metrics
+  `asstats_alerts_reopened_total`, `asstats_alerts_baseline_suppressed_total`.
+- Alert replay test (`TestIntegrationAlertReplay`): the 3.6 and current
+  engines over a synthetic day of benign busy hosts and attacks.
+
 ## [3.6.1] - 2026-10-26
 
 ### Security

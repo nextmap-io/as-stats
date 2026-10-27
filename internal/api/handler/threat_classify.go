@@ -17,8 +17,8 @@ import (
 // Baseline floors: the usual p95 is never taken below these, so a nearly
 // idle host does not get a huge ratio from a few packets.
 const (
-	threatFloorBPS = 1_000_000 // 1 Mb/s
-	threatFloorPPS = 1_000
+	threatFloorBPS = store.BaselineFloorBPS // 1 Mb/s
+	threatFloorPPS = store.BaselineFloorPPS
 )
 
 // Level thresholds.
@@ -95,6 +95,19 @@ type threatInput struct {
 	Baseline       model.ThreatBaseline
 	PeersP50       uint64                  // usual per-minute peers; 0 = not looked up
 	Ports          *store.ThreatPortLookup // nil until looked up
+	// The alert engine's usual level (p99, floors — alerts.UsualLevel), for
+	// the baseline_factor gate of the rules. 0 = use the Live Threats ratio.
+	AlertUsualBPS float64
+	AlertUsualPPS float64
+}
+
+// alertRatio is the host's deviation as the alert engine's baseline mode
+// measures it (vs the p99), falling back to the Live Threats ratio.
+func (in threatInput) alertRatio(ltRatio float64) float64 {
+	if in.AlertUsualBPS <= 0 || in.AlertUsualPPS <= 0 {
+		return ltRatio
+	}
+	return math.Max(float64(in.Now.BPS)/in.AlertUsualBPS, float64(in.Now.PPS)/in.AlertUsualPPS)
 }
 
 // threatVerdict is the classification of one host.
@@ -129,7 +142,8 @@ func threatRatio(now model.ThreatNow, b model.ThreatBaseline) float64 {
 func classifyThreat(in threatInput, rules []model.AlertRule) threatVerdict {
 	v := threatVerdict{Ratio: threatRatio(in.Now, in.Baseline)}
 	var firingPct float64
-	v.ClosestRule, v.RulePct, firingPct = closestRule(in.Direction, in.Now, rules)
+	v.ClosestRule, v.RulePct, firingPct = closestRule(in.Direction, in.Now, rules, in.alertRatio(v.Ratio),
+		in.Baseline.Samples >= store.BaselineMinSamples)
 	v.Signatures = threatSignatures(in, v.Ratio)
 
 	// "Above usual" gates the shape signatures (in threatSignatures) and the
@@ -280,7 +294,12 @@ func needsPortLookup(in threatInput, v threatVerdict) bool {
 // exfiltration" info rule would otherwise flag every busy server). Peer
 // counts are over the Live Threats window, which may be longer than the
 // rule's own window — an over-estimate, never an under-estimate.
-func closestRule(direction string, n model.ThreatNow, rules []model.AlertRule) (name string, worst, firing float64) {
+//
+// A rule with a baseline_factor only fires when the host is that many times
+// its usual level (or has too little history — the alert engine's own
+// condition, alerts/baseline.go), so it counts toward firing only then:
+// ratio is the host's deviation, history whether it has enough samples.
+func closestRule(direction string, n model.ThreatNow, rules []model.AlertRule, ratio float64, history bool) (name string, worst, firing float64) {
 	pct := func(v float64, th uint64) float64 {
 		if th == 0 {
 			return 0
@@ -326,7 +345,8 @@ func closestRule(direction string, n model.ThreatNow, rules []model.AlertRule) (
 		if p > worst {
 			worst, name = p, r.Name
 		}
-		if r.Severity != "info" && p > firing {
+		baselineHolds := r.BaselineFactor <= 0 || !history || ratio >= r.BaselineFactor
+		if r.Severity != "info" && p > firing && baselineHolds {
 			firing = p
 		}
 	}

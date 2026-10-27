@@ -87,6 +87,7 @@ type CollectorConfig struct {
 	FeatureAlerts       bool          // enables the alert evaluator goroutine
 	AlertEvalInterval   time.Duration // default 30s
 	AlertStaleThreshold time.Duration // alerts are auto-resolved after this gap
+	AlertRearmWindow    time.Duration // a violation within this long re-opens the last alert (default 1h)
 
 	// Scheduled reports (Module D)
 	FeatureReports bool       // enables the report scheduler goroutine
@@ -237,6 +238,10 @@ func LoadCollector() (*CollectorConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid ALERT_STALE_THRESHOLD: %w", err)
 	}
+	alertRearm, err := time.ParseDuration(envOr("ALERT_REARM_WINDOW", "1h"))
+	if err != nil || alertRearm < 0 {
+		return nil, fmt.Errorf("invalid ALERT_REARM_WINDOW %q (want a duration >= 0)", os.Getenv("ALERT_REARM_WINDOW"))
+	}
 
 	featureReports, _ := strconv.ParseBool(envOr("FEATURE_REPORTS", "false"))
 	smtp, err := loadSMTP(featureReports)
@@ -261,6 +266,7 @@ func LoadCollector() (*CollectorConfig, error) {
 		FeatureAlerts:              featureAlerts,
 		AlertEvalInterval:          alertEval,
 		AlertStaleThreshold:        alertStale,
+		AlertRearmWindow:           alertRearm,
 		FeatureReports:             featureReports,
 		SMTP:                       smtp,
 		BGPAPIURL:                  envOr("BGP_API_URL", ""),

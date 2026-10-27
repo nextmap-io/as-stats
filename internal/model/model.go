@@ -267,25 +267,30 @@ type Hostgroup struct {
 
 // AlertRule is a configurable DDoS detection rule.
 type AlertRule struct {
-	ID              string    `json:"id"`
-	Name            string    `json:"name"`
-	Description     string    `json:"description,omitempty"`
-	RuleType        string    `json:"rule_type"` // volume_in, volume_out, syn_flood, amplification, port_scan, icmp_flood, udp_flood, connection_flood, subnet_flood, smtp_abuse, disk_usage, link_capacity, anomaly, custom
-	Enabled         bool      `json:"enabled"`
-	ThresholdBps    uint64    `json:"threshold_bps,omitempty"`
-	ThresholdPps    uint64    `json:"threshold_pps,omitempty"`
-	ThresholdCount  uint64    `json:"threshold_count,omitempty"`
-	WindowSeconds   uint32    `json:"window_seconds"`
-	CooldownSeconds uint32    `json:"cooldown_seconds"`
-	Severity        string    `json:"severity"` // info, warning, critical
-	TargetFilter    string    `json:"target_filter,omitempty"`
-	CustomSQL       string    `json:"custom_sql,omitempty"`
-	Action          string    `json:"action"` // notify, ack_required, auto_block
-	WebhookIDs      []string  `json:"webhook_ids,omitempty"`
-	HostgroupID     string    `json:"hostgroup_id,omitempty"`      // zero UUID or empty = use global LOCAL_AS
-	SubnetPrefixLen uint8     `json:"subnet_prefix_len,omitempty"` // only for subnet_flood: IPv4 prefix length (e.g. 24)
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Description     string   `json:"description,omitempty"`
+	RuleType        string   `json:"rule_type"` // volume_in, volume_out, syn_flood, amplification, port_scan, icmp_flood, udp_flood, connection_flood, subnet_flood, smtp_abuse, disk_usage, link_capacity, anomaly, custom
+	Enabled         bool     `json:"enabled"`
+	ThresholdBps    uint64   `json:"threshold_bps,omitempty"`
+	ThresholdPps    uint64   `json:"threshold_pps,omitempty"`
+	ThresholdCount  uint64   `json:"threshold_count,omitempty"`
+	WindowSeconds   uint32   `json:"window_seconds"`
+	CooldownSeconds uint32   `json:"cooldown_seconds"`
+	Severity        string   `json:"severity"` // info, warning, critical
+	TargetFilter    string   `json:"target_filter,omitempty"`
+	CustomSQL       string   `json:"custom_sql,omitempty"`
+	Action          string   `json:"action"` // notify, ack_required, auto_block
+	WebhookIDs      []string `json:"webhook_ids,omitempty"`
+	HostgroupID     string   `json:"hostgroup_id,omitempty"`      // zero UUID or empty = use global LOCAL_AS
+	SubnetPrefixLen uint8    `json:"subnet_prefix_len,omitempty"` // only for subnet_flood: IPv4 prefix length (e.g. 24)
+	// BaselineFactor (volume_in / volume_out only): 0 = absolute threshold;
+	// > 0 = the rule also requires the target to be at least this many times
+	// its usual level (same-time-of-day p95 over 7 days, floors applied).
+	// Hosts without that history are judged on the absolute threshold alone.
+	BaselineFactor float64   `json:"baseline_factor,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // Alert represents a triggered alert instance.
@@ -310,6 +315,10 @@ type Alert struct {
 	ActionTaken    string     `json:"action_taken,omitempty"`
 	ActionBy       string     `json:"action_by,omitempty"`
 	ActionAt       *time.Time `json:"action_at,omitempty"`
+	// ReopenCount is how many times the alert was re-armed: the condition came
+	// back within the rule's re-arm window after an auto-resolution, and the
+	// engine re-opened this alert instead of creating (and notifying) a new one.
+	ReopenCount uint32 `json:"reopen_count,omitempty"`
 }
 
 // WebhookConfig is a notification webhook (Slack, Teams, generic).
@@ -603,9 +612,9 @@ type StorageStats struct {
 //   - 0    when the projected value already meets/exceeds the level
 //   - >0   estimated days from now otherwise
 type LinkCapacity struct {
-	Tag             string   `json:"tag"`
-	Description     string   `json:"description"`
-	CapacityMbps    uint32   `json:"capacity_mbps"`
+	Tag          string `json:"tag"`
+	Description  string `json:"description"`
+	CapacityMbps uint32 `json:"capacity_mbps"`
 	// A link is full duplex: every *_bps without a direction is the BUSIER
 	// direction, max(in, out) — never in+out.
 	CurrentInBps       uint64   `json:"current_in_bps"`  // last complete bucket

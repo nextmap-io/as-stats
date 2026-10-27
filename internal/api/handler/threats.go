@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/nextmap-io/as-stats/internal/alerts"
 	"github.com/nextmap-io/as-stats/internal/model"
 	"github.com/nextmap-io/as-stats/internal/store"
 )
@@ -261,7 +262,10 @@ func threatInputFor(direction string, window uint32, c store.ThreatCandidate, hi
 	if c.Packets > 0 {
 		now.AvgPacketBytes = c.Bytes / c.Packets
 	}
+	alertBPS, alertPPS := alerts.UsualLevel(hist)
 	return threatInput{
+		AlertUsualBPS:  alertBPS,
+		AlertUsualPPS:  alertPPS,
 		Direction:      direction,
 		WindowSeconds:  window,
 		Now:            now,

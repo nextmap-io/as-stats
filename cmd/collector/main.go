@@ -186,6 +186,11 @@ func main() {
 		if err := alerts.EnsureDefaultRules(ctx, chStore); err != nil {
 			log.Printf("warning: could not seed default alert rules: %v", err)
 		}
+		// One-time upgrade of the 3.6 seeded rules still exactly as seeded
+		// (baseline factors, descriptions); operator-edited rules are left alone.
+		if _, err := alerts.ReconcileSeededRules(ctx, chStore); err != nil {
+			log.Printf("warning: could not upgrade the seeded alert rules: %v", err)
+		}
 
 		startEngine := func(prefixes []string) {
 			engine := alerts.New(
@@ -195,6 +200,7 @@ func main() {
 				cfg.AlertEvalInterval,
 				cfg.AlertStaleThreshold,
 			)
+			engine.SetRearmWindow(cfg.AlertRearmWindow)
 			// Connect the BGP blocker if BGP_API_URL is configured
 			if cfg.BGPAPIURL != "" {
 				log.Printf("BGP auto-block via RemoteBlocker → %s", cfg.BGPAPIURL)

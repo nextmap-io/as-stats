@@ -24,8 +24,12 @@ type mockStore struct {
 
 	topSources     []string // returned by TopSourcesForTarget
 	topSourceCalls int
-	findTargets    []string // target IPs passed to FindActiveAlert
-	activeAlertID  string   // returned by FindActiveAlert when non-empty
+	findTargets    []string          // target IPs passed to LatestAlert
+	activeAlertID  string            // LatestAlert returns it as an active, fresh alert when non-empty
+	latest         *store.AlertState // returned by LatestAlert when set (overrides activeAlertID)
+	reopened       []string
+	baselines      map[string]store.ThreatHistory // returned by ThreatBaselines
+	baselineCalls  int
 }
 
 func (m *mockStore) ListAlertRules(ctx context.Context) ([]model.AlertRule, error) {
@@ -90,11 +94,29 @@ func (m *mockStore) TopSourcesForTarget(ctx context.Context, _ net.IP, _ uint32,
 	m.topSourceCalls++
 	return m.topSources, nil
 }
-func (m *mockStore) FindActiveAlert(ctx context.Context, ruleID string, targetIP net.IP) (string, time.Time, error) {
+func (m *mockStore) LatestAlert(ctx context.Context, ruleID string, targetIP net.IP) (store.AlertState, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.findTargets = append(m.findTargets, targetIP.String())
-	return m.activeAlertID, time.Time{}, nil
+	if m.latest != nil {
+		return *m.latest, nil
+	}
+	if m.activeAlertID != "" {
+		return store.AlertState{ID: m.activeAlertID, Status: "active", LastSeenAt: time.Now().UTC()}, nil
+	}
+	return store.AlertState{}, nil
+}
+func (m *mockStore) ReopenAlert(ctx context.Context, id string, _ time.Time, _ float64) error {
+	m.mu.Lock()
+	m.reopened = append(m.reopened, id)
+	m.mu.Unlock()
+	return nil
+}
+func (m *mockStore) ThreatBaselines(ctx context.Context, _ string, _ time.Time, _ []string) (map[string]store.ThreatHistory, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.baselineCalls++
+	return m.baselines, nil
 }
 func (m *mockStore) InsertAlert(ctx context.Context, a model.Alert) error {
 	m.mu.Lock()
@@ -451,9 +473,9 @@ func TestCleanupCooldown(t *testing.T) {
 	recent := time.Now().Add(-30 * time.Minute)
 
 	e.mu.Lock()
-	e.cooldown["rule1|10.0.0.1"] = old
-	e.cooldown["rule1|10.0.0.2"] = old
-	e.cooldown["rule2|10.0.0.3"] = recent
+	e.recent["rule1|10.0.0.1"] = recentAlert{id: "a", at: old}
+	e.recent["rule1|10.0.0.2"] = recentAlert{id: "b", at: old}
+	e.recent["rule2|10.0.0.3"] = recentAlert{id: "c", at: recent}
 	e.mu.Unlock()
 
 	removed := e.cleanupCooldown(time.Hour)
