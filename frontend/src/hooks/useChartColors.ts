@@ -24,6 +24,8 @@ export interface ChartColors {
   tooltipText: string
   /** Ordinal palette for per-link / per-AS series, in order. */
   series: string[]
+  /** The folded "other" series: lighter than every palette entry, grey 6 included. */
+  other: string
 }
 
 /** Returns resolved chart colours that adapt to the current theme. */
@@ -49,6 +51,7 @@ export function useChartColors(): ChartColors {
       tooltipBorder: get("--color-border", "#333840"),
       tooltipText: get("--color-popover-foreground", "#eceef1"),
       series: Array.from({ length: SERIES_COUNT }, (_, i) => get(`--color-series-${i + 1}`, "#7d9bff")),
+      other: get("--color-series-other", "#4b525c"),
     }
     // `resolved` is not read inside the memo, but it is the dependency that
     // matters: switching theme rewrites the CSS variables read above, and this
@@ -69,7 +72,7 @@ export function seriesColor(colors: ChartColors, i: number, override?: string): 
  * palette colour again, which made the 9th network look like the 1st.
  */
 export function asSeriesColor(colors: ChartColors, i: number): string {
-  return i < SERIES_COUNT ? colors.series[i] : colors.text
+  return i < SERIES_COUNT ? colors.series[i] : colors.other
 }
 
 /** Shared Recharts tooltip container style. */

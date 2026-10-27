@@ -46,7 +46,7 @@ export function LoadDurationChart({ curve, capacityBps, height = 300, title }: L
     <div className="overflow-hidden">
       {title && <h3 className="mb-1 text-[13px] text-foreground-secondary">{title}</h3>}
       <ResponsiveContainer width="100%" height={height}>
-        <AreaChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
+        <AreaChart data={data} margin={{ top: 8, right: 2, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke={chartColors.grid} />
           <XAxis
             tickMargin={X_TICK_MARGIN}

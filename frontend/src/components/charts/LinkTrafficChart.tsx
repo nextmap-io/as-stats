@@ -171,7 +171,7 @@ export function LinkTrafficChart({ series, height = 260, title, linkColors, p95I
       {/* Top-level block of its page, so an h2 under the page h1. */}
       {title && <h2 className="mb-1 text-[13px] font-normal text-foreground-secondary">{title}</h2>}
       <ResponsiveContainer width="100%" height={height}>
-        <AreaChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
+        <AreaChart data={data} margin={{ top: 8, right: 2, left: 0, bottom: 0 }}>
           {/* No gradients — solid fills like classic rrdtool */}
           <CartesianGrid vertical={false} stroke={chartColors.grid} />
           <XAxis

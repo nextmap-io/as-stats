@@ -146,7 +146,7 @@ export function TrafficChart({
     <figure className="m-0 overflow-hidden" aria-label={ariaLabel ?? title ?? "Traffic over time, inbound above the axis, outbound below"}>
       {title && <figcaption className="mb-1 text-[13px] text-foreground-secondary">{title}</figcaption>}
       <ResponsiveContainer width="100%" height={height}>
-        <AreaChart data={rows} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
+        <AreaChart data={rows} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke={colors.grid} />
           <XAxis
             tickMargin={X_TICK_MARGIN}
