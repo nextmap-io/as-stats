@@ -48,7 +48,7 @@
      that sit next to ink and cobalt; no pure red, which reads as "error". */
   --color-series-1: #7d9bff;
   --color-series-2: #4cc3b9;
-  --color-series-3: #e2ae4a;
+  --color-series-3: #c9a28f; /* clay: the guide's #e2ae4a read as "watch" amber */
   --color-series-4: #c08dda;
   --color-series-5: #7fc1ee;
   --color-series-6: #a3aeba;
@@ -100,7 +100,7 @@
 
     --color-series-1: #2f55d4;
     --color-series-2: #12857f;
-    --color-series-3: #a8730f;
+    --color-series-3: #8d6553;
     --color-series-4: #8a4fa3;
     --color-series-5: #3d8fc8;
     --color-series-6: #5e6b78;
@@ -157,6 +157,19 @@
   /* Browser surfaces carry the palette too. */
   ::selection {
     background: color-mix(in srgb, var(--color-ring) 28%, transparent);
+  }
+
+  /* Links inside tables (IPs, ASNs, prefixes, link tags) are ink like the
+     values around them; a quiet resting underline says which cells open
+     something, and darkens on hover. Cobalt stays for the outbound series. */
+  td a[href] {
+    text-decoration-line: underline;
+    text-decoration-color: var(--color-border);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+  td a[href]:hover {
+    text-decoration-color: currentColor;
   }
 
   ::-webkit-scrollbar {
