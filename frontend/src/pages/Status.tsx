@@ -202,8 +202,8 @@ export function Status() {
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
-              <FeatureBadge label="Flow Search" on={features.flow_search} />
-              <FeatureBadge label="Port Stats" on={features.port_stats} />
+              <FeatureBadge label="Flow search" on={features.flow_search} />
+              <FeatureBadge label="Port stats" on={features.port_stats} />
               <FeatureBadge label="Alerts" on={features.alerts} />
               <FeatureBadge label="BGP" on={features.bgp} />
               <FeatureBadge label="Reports" on={features.reports} />
@@ -261,11 +261,13 @@ function FeatureBadge({ label, on }: { label: string; on: boolean }) {
     <span
       className={cn(
         "inline-flex items-center rounded-sm border px-2 py-0.5 text-[13px]",
-        on ? "border-foreground text-foreground" : "border-border text-muted-foreground line-through"
+        on ? "border-foreground text-foreground" : "border-border text-muted-foreground"
       )}
       title={on ? `${label} is on` : `${label} is off`}
     >
+      {/* Off is said, not struck through (a strike is colour-and-shape only). */}
       {label}
+      {!on && <span className="ml-1">· off</span>}
     </span>
   )
 }
