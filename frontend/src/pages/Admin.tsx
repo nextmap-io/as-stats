@@ -21,6 +21,8 @@ import {
 import { Trash2, Plus, FileText, Pencil, HardDrive, Check, X, Mail, Send, KeyRound, Copy } from "lucide-react"
 import { cn, formatBytes, formatNumber, formatPercent } from "@/lib/utils"
 import { formatCapacity } from "@/lib/format"
+import { diskLevel, levelTextClass } from "@/lib/home"
+import { StateBadge } from "@/components/ui/state-badge"
 import type {
   AlertRule,
   Hostgroup,
@@ -123,12 +125,12 @@ function LinksTab() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border">
-                <th className="pb-1.5 text-left font-medium text-muted-foreground">Tag</th>
-                <th className="pb-1.5 text-left font-medium text-muted-foreground">Router IP</th>
-                <th className="pb-1.5 text-right font-medium text-muted-foreground">SNMP index</th>
-                <th className="pb-1.5 pl-6 text-left font-medium text-muted-foreground">Description</th>
-                <th className="pb-1.5 text-right font-medium text-muted-foreground">Capacity</th>
+              <tr className="border-b border-foreground">
+                <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Tag</th>
+                <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Router IP</th>
+                <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">SNMP index</th>
+                <th className="pb-1.5 pl-6 text-left text-[13px] font-normal text-muted-foreground">Description</th>
+                <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Capacity</th>
               </tr>
             </thead>
             <tbody>
@@ -212,20 +214,20 @@ function StorageTab() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border">
-                    <th className="pb-1.5 text-left font-medium text-muted-foreground">Table</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Compressed</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground hidden lg:table-cell" title="Bytes on disk: hot (fast disk) / cold volume">
+                  <tr className="border-b border-foreground">
+                    <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Table</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Compressed</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground hidden lg:table-cell" title="Bytes on disk: hot (fast disk) / cold volume">
                       Hot / cold
                     </th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Rows</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground">Parts</th>
-                    <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Oldest data</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground">TTL (days)</th>
-                    <th className="pb-1.5 text-right font-medium text-muted-foreground" title="Move data older than this many days to the cold volume (0 = off)">
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Rows</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Parts</th>
+                    <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden md:table-cell">Oldest data</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">TTL (days)</th>
+                    <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground" title="Move data older than this many days to the cold volume (0 = off)">
                       Move to cold after (days)
                     </th>
-                    <th className="pb-1.5 text-center font-medium text-muted-foreground">Managed</th>
+                    <th className="pb-1.5 text-center text-[13px] font-normal text-muted-foreground">Managed</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -251,26 +253,27 @@ function StorageTab() {
 
 function DiskGauge({ disk }: { disk: DiskStats }) {
   const pct = Math.min(100, Math.max(0, disk.used_percent))
-  // Color by threshold — mirrors the disk_usage alert defaults (80% warn, 90% crit).
+  // Threshold colours mirror the disk_usage alert defaults (80% warn, 90% crit).
+  // A normal disk stays unlit (no green); a full one gets the colour and the word.
+  const level = diskLevel(pct)
   const barColor =
-    pct >= 90 ? "bg-destructive" : pct >= 80 ? "bg-warning-mark" : "bg-foreground-secondary"
-  const textColor =
-    pct >= 90 ? "text-destructive" : pct >= 80 ? "text-warning" : "text-success"
+    level === "critical" ? "bg-destructive" : level === "watch" ? "bg-warning-mark" : "bg-foreground-secondary"
 
   return (
     <div>
-      <div className="flex items-baseline justify-between mb-1">
-        <span className="text-[13px] text-muted-foreground">
+      <div className="flex items-baseline justify-between gap-3 mb-1">
+        <span className="min-w-0 truncate text-[13px] text-foreground">
           {disk.name}
-          {disk.path && <span className="ml-2 text-xs">{disk.path}</span>}
+          {disk.path && <span className="ml-2 font-mono text-xs text-muted-foreground">{disk.path}</span>}
         </span>
-        <span className={cn("tabular-nums text-[13px]", textColor)}>
+        <span className={cn("inline-flex shrink-0 items-center gap-1.5 tabular-nums text-[13px]", levelTextClass(level))}>
+          <StateBadge level={level} />
           {formatPercent(pct)}
         </span>
       </div>
-      <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+      <div className="h-2 w-full rounded-[1px] bg-muted overflow-hidden">
         <div
-          className={cn("h-full rounded-full transition-colors", barColor)}
+          className={cn("h-full rounded-[1px] transition-colors", barColor)}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -700,15 +703,15 @@ function TokensTab() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border">
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Prefix</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Owner</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Created</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Last used</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Expires</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Status</th>
-                  <th className="pb-1.5 text-right font-medium text-muted-foreground">Actions</th>
+                <tr className="border-b border-foreground">
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Name</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Prefix</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden md:table-cell">Owner</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden lg:table-cell">Created</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden lg:table-cell">Last used</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Expires</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Status</th>
+                  <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1302,12 +1305,12 @@ function WebhooksTab() {
           ) : (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border">
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Type</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">URL</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Min severity</th>
-                  <th className="pb-1.5 text-right font-medium text-muted-foreground">Actions</th>
+                <tr className="border-b border-foreground">
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Name</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Type</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">URL</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Min severity</th>
+                  <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1618,14 +1621,14 @@ function ReportsTab() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border">
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Enabled</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Schedule</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Recipients</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden lg:table-cell">Sections</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Format</th>
-                  <th className="pb-1.5 text-right font-medium text-muted-foreground">Actions</th>
+                <tr className="border-b border-foreground">
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Enabled</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Name</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Schedule</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden md:table-cell">Recipients</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden lg:table-cell">Sections</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Format</th>
+                  <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1747,13 +1750,13 @@ function AuditTab() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border">
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Time</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">User</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Action</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Resource</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Client IP</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Result</th>
+                <tr className="border-b border-foreground">
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Time</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">User</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Action</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden md:table-cell">Resource</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden md:table-cell">Client IP</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Result</th>
                 </tr>
               </thead>
               <tbody>
@@ -1912,11 +1915,11 @@ function HostgroupsTab() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border">
-                <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
-                <th className="pb-1.5 text-left font-medium text-muted-foreground">CIDRs</th>
-                <th className="pb-1.5 text-left font-medium text-muted-foreground hidden md:table-cell">Description</th>
-                <th className="pb-1.5 text-right font-medium text-muted-foreground">Actions</th>
+              <tr className="border-b border-foreground">
+                <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Name</th>
+                <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">CIDRs</th>
+                <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground hidden md:table-cell">Description</th>
+                <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody>

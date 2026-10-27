@@ -13,6 +13,8 @@ import { formatBytes, formatNumber } from "@/lib/utils"
 import { Activity, ShieldAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { DiskStats } from "@/lib/types"
+import { diskLevel } from "@/lib/home"
+import { StateBadge } from "@/components/ui/state-badge"
 
 // diskBarClass colours the disk-usage bar: neutral < 80, amber >= 80, red >= 90,
 // matching the disk_usage alert-rule defaults.
@@ -118,11 +120,11 @@ export function Status() {
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border/50 text-left text-muted-foreground">
-                  <th className="py-2 pr-4 font-medium">Router</th>
-                  <th className="py-2 pr-4 font-medium">State, last 10 min</th>
-                  <th className="py-2 pr-4 font-medium">Last seen</th>
-                  <th className="py-2 pr-4 text-right font-medium">Flows</th>
+                <tr className="border-b border-foreground text-left text-[13px] text-muted-foreground">
+                  <th className="pb-1.5 pr-4 font-normal">Router</th>
+                  <th className="pb-1.5 pr-4 font-normal">State, last 10 min</th>
+                  <th className="pb-1.5 pr-4 font-normal">Last seen</th>
+                  <th className="pb-1.5 pr-4 text-right font-normal">Flows</th>
                 </tr>
               </thead>
               <tbody>
@@ -162,13 +164,14 @@ export function Status() {
             <div key={d.name}>
               <div className="mb-1 flex items-center justify-between text-sm">
                 <span className="">{d.name}</span>
-                <span className="tabular-nums text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5 tabular-nums text-muted-foreground">
+                  <StateBadge level={diskLevel(d.used_percent)} />
                   {formatBytes(d.used_bytes)} / {formatBytes(d.total_bytes)} ({d.used_percent.toFixed(1)}%)
                 </span>
               </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div className="h-2 w-full overflow-hidden rounded-[1px] bg-muted">
                 <div
-                  className={cn("h-full rounded-full", diskBarClass(d.used_percent))}
+                  className={cn("h-full rounded-[1px]", diskBarClass(d.used_percent))}
                   style={{ width: `${Math.min(d.used_percent, 100)}%` }}
                 />
               </div>

@@ -22,7 +22,8 @@ import { bytesToBps, stepSecondsOf } from "@/lib/rate"
 import { ErrorDisplay } from "@/components/ui/error"
 import { PageSkeleton } from "@/components/ui/skeleton"
 import { formatCapacity } from "@/lib/format"
-import { utilLevel } from "@/lib/home"
+import { levelTextClass, utilLevel } from "@/lib/home"
+import { StateBadge } from "@/components/ui/state-badge"
 
 /** One percentile row (p50/p95/p99) showing in + out throughput. Renders
  *  nothing when neither direction is present (older backend). */
@@ -134,17 +135,11 @@ export function LinkDetail() {
             {utilizationPct != null && (
               <div>
                 <span className="text-muted-foreground">p95 utilisation, busier direction</span>{" "}
-                <span className={`font-semibold ${utilLevel(utilizationPct) === "critical" ? "text-destructive" : utilLevel(utilizationPct) === "watch" ? "text-warning" : ""}`}>
+                <span className={`font-semibold ${levelTextClass(utilLevel(utilizationPct))}`}>
                   {formatPercent(utilizationPct)}
                 </span>
                 {/* Colour never carries the state alone: the same words as the home strip. */}
-                {utilLevel(utilizationPct) !== "normal" && (
-                  <span
-                    className={`ml-1.5 rounded-sm px-1.5 text-xs font-semibold leading-5 ${utilLevel(utilizationPct) === "critical" ? "bg-destructive text-destructive-foreground" : "bg-warning-muted text-warning"}`}
-                  >
-                    {utilLevel(utilizationPct) === "critical" ? "Incident" : "Watch"}
-                  </span>
-                )}
+                <StateBadge level={utilLevel(utilizationPct)} className="ml-1.5" />
               </div>
             )}
           </>
@@ -227,12 +222,12 @@ export function LinkDetail() {
           <CardContent>
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border">
+                <tr className="border-b border-foreground">
                   <th className="pb-1.5 w-4"></th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">ASN</th>
-                  <th className="pb-1.5 text-left font-medium text-muted-foreground">Name</th>
-                  <th className="pb-1.5 text-right font-medium text-muted-foreground">Traffic</th>
-                  <th className="pb-1.5 text-right font-medium text-muted-foreground hidden sm:table-cell">Flows</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">ASN</th>
+                  <th className="pb-1.5 text-left text-[13px] font-normal text-muted-foreground">Name</th>
+                  <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground">Traffic</th>
+                  <th className="pb-1.5 text-right text-[13px] font-normal text-muted-foreground hidden sm:table-cell">Flows</th>
                 </tr>
               </thead>
               <tbody>
