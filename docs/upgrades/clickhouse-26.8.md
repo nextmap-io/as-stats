@@ -6,7 +6,7 @@ production. Every result below comes from a throwaway rehearsal in Docker.
 | | |
 |---|---|
 | **From** | `clickhouse/clickhouse-server:24.3-alpine` (24.3.18.7). Upstream support ended in early 2025, and SECURITY.md lists all of 24.x as unsupported. |
-| **To** | `clickhouse/clickhouse-server:26.8.33.10-alpine` (26.8 LTS, released 2026-08-27). Pin the full tag. `26.8-alpine` also tracks the line. |
+| **To** | `clickhouse/clickhouse-server:26.8.36.3-alpine` (26.8 LTS). **Minimum 26.8.36.3**: earlier 26.8 builds are affected by CVE-2026-116366 (unauthenticated remote code execution, fixed 2026-10-30). Production was upgraded from 26.8.36.3. Pin the full tag. `26.8-alpine` also tracks the line. |
 | **Support** | LTS lines are supported for one year, so 26.8 is covered until about August 2027, when 27.8 ships. 26.3 LTS (the previous LTS) is only covered until about March 2027. |
 | **Image** | Alpine is still published for amd64 and arm64. 26.3 added distroless variants; we don't need them. |
 | **Switch** | `CLICKHOUSE_IMAGE` in `.env`. The default stays `24.3-alpine` until the operator changes it. |
@@ -24,7 +24,7 @@ production. Every result below comes from a throwaway rehearsal in Docker.
    - ClickHouse #121124 is a TTL bug in 26.8: a TTL-drop merge can empty a part that has *stale non-row TTL info*. That happens after `ATTACH PARTITION … FROM` or after a column TTL is removed.
    - AS-Stats does neither. Pre-check 13 below confirms it on production.
    - The fix (#123068) is merged to master. The 26.8 backport (#125243) was still open on 2026-10-22.
-   - If a 26.8 patch containing #125243 is out by the upgrade date, use it. Otherwise 26.8.33.10 is acceptable once pre-check 13 comes back empty.
+   - If a 26.8 patch containing #125243 is out by the upgrade date, use it. Otherwise 26.8.36.3 is acceptable once pre-check 13 comes back empty.
 3. **Rollback strategy.**
    - From the first write onwards, 26.8 writes parts in formats that 24.3 cannot read (see Rollback). A Proxmox snapshot of **both** disks is the main safety net.
    - The rehearsal also proved a second path: run 26.8 with `merge-tree-downgrade-compat.xml` during a soak period. This is the only rollback path if `/data-cold` cannot be snapshotted (for example a passthrough HDD).
@@ -219,7 +219,7 @@ Go / no-go:
 Also check on the host:
 - `grep -c avx2 /proc/cpuinfo` > 0.
 - `docker compose … config | grep -A3 'clickhouse:'`: make sure `docker-compose.deploy.yml` does not pin its own `image:` for `clickhouse`. If it does, change it there instead of `.env`.
-- `docker pull clickhouse/clickhouse-server:26.8.33.10-alpine` ahead of time (~250 MB).
+- `docker pull clickhouse/clickhouse-server:26.8.36.3-alpine` ahead of time (~250 MB).
 
 ## Backup plan
 
@@ -250,13 +250,13 @@ Also check on the host:
 0. **Before the window:** deploy the AS-Stats release that contains this branch, while still on 24.3.
    - It pins `async_insert = 0`, handles the 26.8 empty parts, adds the system log TTLs, and adds the `CLICKHOUSE_IMAGE` switch.
    - The new `system-logs-ttl.xml` takes effect at the next ClickHouse restart. On 24.3 that would switch `text_log` on at `information` level; on 26.8 it caps `text_log`.
-   - Run the pre-checks. `docker pull clickhouse/clickhouse-server:26.8.33.10-alpine`. Check AVX2.
+   - Run the pre-checks. `docker pull clickhouse/clickhouse-server:26.8.36.3-alpine`. Check AVX2.
 1. **BACKUP** the small tables (above) and copy them to the cold disk.
 2. `$C stop collector`: graceful, the last batch is flushed. **Flow ingestion stops here.**
 3. `$C stop api frontend` (optional; otherwise the UI shows errors for a minute).
 4. `$C stop clickhouse`. Check `$C logs --tail 20 clickhouse` for a clean shutdown.
 5. **Proxmox snapshot** of the VM (both disks). If the CPU type must change, shut the VM down, change it to `host` / `x86-64-v3`, snapshot, boot, and check `grep -c avx2 /proc/cpuinfo`.
-6. Edit `.env`: `CLICKHOUSE_IMAGE=clickhouse/clickhouse-server:26.8.33.10-alpine`.
+6. Edit `.env`: `CLICKHOUSE_IMAGE=clickhouse/clickhouse-server:26.8.36.3-alpine`.
    - **Soak (recommended):** add the compat file to the `clickhouse` service in `docker-compose.deploy.yml`. The volumes list merges by container path, so the other mounts stay.
 
      ```yaml
@@ -267,7 +267,7 @@ Also check on the host:
      ```
 7. `$C up -d clickhouse` (recreates it on 26.8), then wait for `healthy`: `$C ps clickhouse`.
 8. **Verify ClickHouse** (as `asstats`):
-   - `SELECT version()` → `26.8.33.10`.
+   - `SELECT version()` → `26.8.36.3`.
    - Pre-checks 2, 3, 7 and 12 unchanged; pre-check 9 shows the same part counts per disk.
    - `SELECT * FROM system.warnings`.
    - `$C logs clickhouse | grep -E '<(Error|Fatal)>'`: only the known `Listen [::]` / cgroup lines are expected.
@@ -312,7 +312,7 @@ Also check on the host:
 
 ## How this was tested (reproducible)
 
-- **Fresh install / suite:** the `go-integration` CI job, matrix `24.3-alpine` / `26.8.33.10-alpine`.
+- **Fresh install / suite:** the `go-integration` CI job, matrix `24.3-alpine` / `26.8.36.3-alpine`.
 - **In-place rehearsal:**
   1. 24.3 on named volumes with `storage-hot-cold.xml.example`.
   2. `migrate` up to 16, `scripts/demo` seed of 15 days, cold tier, `migrate` 17–18, last 3 h, reconcile.
