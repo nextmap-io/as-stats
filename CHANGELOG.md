@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- ClickHouse 26.8: the tested and documented image is now
+  `clickhouse/clickhouse-server:26.8.36.3-alpine`. Earlier 26.8 builds are
+  affected by CVE-2026-116366 (unauthenticated remote code execution, fixed in
+  26.3.62.3 / 26.8.36.3 / 26.9.27.3 / 26.10.3.7). Sites running 26.8 should
+  set `CLICKHOUSE_IMAGE` to it and recreate the `clickhouse` service.
+
 ## [3.7.0] - 2026-10-27
 
 ### Security

@@ -361,7 +361,7 @@ Everything is environment-variable driven. The full list lives in
 | Variable | Default | Description |
 |---|---|---|
 | `CLICKHOUSE_PASSWORD` | *required* | Strong password for the `asstats` user |
-| `CLICKHOUSE_IMAGE` | `clickhouse/clickhouse-server:24.3-alpine` | ClickHouse server image used by the compose files. 26.8 LTS (`…:26.8.33.10-alpine`) is tested too; switching is a one-way data upgrade, see [Upgrading ClickHouse](#upgrading-clickhouse-243--268-lts) |
+| `CLICKHOUSE_IMAGE` | `clickhouse/clickhouse-server:24.3-alpine` | ClickHouse server image used by the compose files. 26.8 LTS (`…:26.8.36.3-alpine`) is tested too; switching is a one-way data upgrade, see [Upgrading ClickHouse](#upgrading-clickhouse-243--268-lts) |
 | `COLLECTOR_LISTEN_NETFLOW` | `:2055` | NetFlow / IPFIX UDP listen address |
 | `COLLECTOR_LISTEN_SFLOW` | `:6343` | sFlow UDP listen address |
 | `COLLECTOR_BATCH_SIZE` | `50000` | Burst ceiling per batch INSERT (flush on size or timer, whichever fires first) |

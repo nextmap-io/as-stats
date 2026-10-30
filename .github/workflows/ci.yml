@@ -58,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        clickhouse: ["24.3-alpine", "26.8.33.10-alpine"]
+        clickhouse: ["24.3-alpine", "26.8.36.3-alpine"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
