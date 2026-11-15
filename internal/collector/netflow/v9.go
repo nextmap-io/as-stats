@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/nextmap-io/as-stats/internal/metrics"
@@ -287,18 +288,36 @@ func (st *recordState) finish(flow *model.FlowRecord) {
 // prefixString returns "addr/len" for ip masked to maskLen, or "" when there
 // is no address, no mask, or a mask longer than the address family allows
 // (an exporter-supplied 200 used to produce "<nil>/200").
+//
+// It runs twice per decoded flow. IPv4 is formatted by hand into a stack
+// buffer (one allocation, the result) instead of fmt.Sprintf over net.IP.Mask,
+// which cost four allocations per prefix; TestPrefixStringMatchesNetIP pins
+// the output to the net.IP formatting.
 func prefixString(ip net.IP, maskLen int) string {
 	if ip == nil || maskLen <= 0 {
 		return ""
 	}
-	bits := 128
-	if ip.To4() != nil {
-		bits = 32
+	if v4 := ip.To4(); v4 != nil {
+		if maskLen > 32 {
+			return ""
+		}
+		a := binary.BigEndian.Uint32(v4) & (^uint32(0) << (32 - maskLen))
+		var buf [len("255.255.255.255/32")]byte
+		b := strconv.AppendUint(buf[:0], uint64(a>>24), 10)
+		b = append(b, '.')
+		b = strconv.AppendUint(b, uint64(a>>16&0xff), 10)
+		b = append(b, '.')
+		b = strconv.AppendUint(b, uint64(a>>8&0xff), 10)
+		b = append(b, '.')
+		b = strconv.AppendUint(b, uint64(a&0xff), 10)
+		b = append(b, '/')
+		b = strconv.AppendUint(b, uint64(maskLen), 10)
+		return string(b)
 	}
-	if maskLen > bits {
+	if maskLen > 128 {
 		return ""
 	}
-	return fmt.Sprintf("%s/%d", maskIP(ip, uint8(maskLen)), maskLen)
+	return maskIP(ip, uint8(maskLen)).String() + "/" + strconv.Itoa(maskLen)
 }
 
 func applyField(flow *model.FlowRecord, st *recordState, fieldType uint16, data []byte) {
