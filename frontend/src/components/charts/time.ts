@@ -2,7 +2,6 @@ import type { TrafficPoint } from "@/lib/types"
 
 const TIME = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" })
 const DAY_TIME = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
-const DAY = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" })
 
 /** Axis / tooltip time label: "20:00", or "12 Oct, 20:00" on multi-day windows. */
 export function formatTimeShort(ts: number, multiDay: boolean): string {
@@ -27,11 +26,6 @@ export function timeTicks(from: number, to: number, max = 7): number[] {
   const ticks: number[] = []
   for (let t = Math.ceil((from + offset) / step) * step - offset; t <= to; t += step) ticks.push(t)
   return ticks
-}
-
-/** Day-only label for wide windows: "12 Oct". */
-export function formatDay(ts: number): string {
-  return DAY.format(ts)
 }
 
 /**
