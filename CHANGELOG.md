@@ -46,6 +46,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   data at most 30 s old, as before. Scripts that relied on the header now get
   cached responses (`X-Cache: HIT`).
 
+### Fixed
+- Revoking an API token (Admin › Tokens, `DELETE /admin/tokens/{id}`) always
+  failed with HTTP 500: the statement also tried to update `updated_at`, the
+  table's version column, which ClickHouse refuses. Tokens that operators
+  tried to revoke are still active: revoke them again after upgrading.
+  Revocation now takes effect before the API answers 204
+  (`TestIntegrationRevokeTokenIsImmediate`).
+
 ## [3.7.0] - 2026-10-27
 
 ### Security

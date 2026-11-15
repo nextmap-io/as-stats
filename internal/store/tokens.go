@@ -158,10 +158,16 @@ func (s *ClickHouseStore) ListAPITokens(ctx context.Context) ([]model.APIToken, 
 
 // RevokeAPIToken permanently disables a token. Uses a lightweight in-place
 // mutation so a concurrent last-used touch cannot resurrect the row. Once
-// revoked, LookupAPIToken will never return it again.
+// revoked, LookupAPIToken will never return it again. The mutation is
+// asynchronous unless ctx carries mutations_sync (handler.RevokeToken sets 2,
+// pinned by TestIntegrationRevokeTokenIsImmediate).
+//
+// updated_at is the ReplacingMergeTree version column: ClickHouse refuses to
+// mutate it (CANNOT_UPDATE_COLUMN, code 420), which made every revocation
+// fail. Only the revoked flag is updated.
 func (s *ClickHouseStore) RevokeAPIToken(ctx context.Context, id string) error {
 	return s.conn.Exec(ctx,
-		"ALTER TABLE api_tokens UPDATE revoked = 1, updated_at = now() WHERE id = @id",
+		"ALTER TABLE api_tokens UPDATE revoked = 1 WHERE id = @id",
 		clickhouse.Named("id", id),
 	)
 }
