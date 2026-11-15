@@ -1045,6 +1045,16 @@ frontend lint + typecheck + build).
     them are the other half: use `baseline_factor` (2× / 3× usual on the
     seeded volume rules).
 
+26. **Keeping a non-session in the session store.** `/auth/login` stored the
+    OAuth state as `oidc_state:<state>` in the `SessionStore`, and
+    `AuthMiddleware` accepted any key it found there: the state returned by the
+    unauthenticated login redirect worked as a session cookie / bearer token
+    for 5 minutes (fixed in 3.7.1). Pending logins live in `loginStates`
+    (handler/auth.go, single use, bounded), and the middleware only accepts
+    sessions whose role is `admin` or `viewer` (`validRole`). Never put
+    anything but a logged-in user's session in that store
+    (`TestLoginStateIsNotASession`).
+
 ## Operational notes — ClickHouse
 
 - **Two server versions are supported: 24.3 LTS (compose default, production
