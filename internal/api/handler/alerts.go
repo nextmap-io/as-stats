@@ -68,6 +68,30 @@ func (h *Handler) AlertsSummary(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
+// existingAlertID returns the {id} path parameter when it is a UUID (400
+// otherwise) naming a stored alert (404 otherwise). Ack / resolve issue a
+// ClickHouse mutation, so nothing else may reach them.
+func (h *Handler) existingAlertID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	raw := chi.URLParam(r, "id")
+	parsed, err := uuid.Parse(raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid alert id")
+		return "", false
+	}
+	id := parsed.String()
+	found, err := h.Store.AlertExists(r.Context(), id)
+	if err != nil {
+		log.Printf("alert lookup %s: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "alert lookup failed")
+		return "", false
+	}
+	if !found {
+		writeError(w, http.StatusNotFound, "alert not found")
+		return "", false
+	}
+	return id, true
+}
+
 // AcknowledgeAlert handles POST /api/v1/alerts/{id}/ack
 func (h *Handler) AcknowledgeAlert(w http.ResponseWriter, r *http.Request) {
 	if !h.FeatureAlerts {
@@ -75,7 +99,10 @@ func (h *Handler) AcknowledgeAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := chi.URLParam(r, "id")
+	id, ok := h.existingAlertID(w, r)
+	if !ok {
+		return
+	}
 	userEmail := ""
 	if user := middleware.GetUser(r.Context()); user != nil {
 		userEmail = user.Email
@@ -96,7 +123,10 @@ func (h *Handler) ResolveAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := chi.URLParam(r, "id")
+	id, ok := h.existingAlertID(w, r)
+	if !ok {
+		return
+	}
 	if err := h.Store.ResolveAlert(r.Context(), id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
