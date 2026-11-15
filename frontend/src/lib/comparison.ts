@@ -1,5 +1,5 @@
 import { useSearchParams } from "react-router-dom"
-import type { LinkTimeSeries, QueryFilters, TrafficPoint } from "./types"
+import type { QueryFilters, TrafficPoint } from "./types"
 
 /** Reads the current `compare=prev` overlay state from the URL (Module D). */
 export function useCompareEnabled(): boolean {
@@ -55,32 +55,3 @@ export function shiftSeries(points: TrafficPoint[], windowMs: number): TrafficPo
   }))
 }
 
-/**
- * sumLinkSeries collapses a set of per-link time series into a single total
- * in/out series, summing every metric bucket by timestamp. Used to build a
- * dashboard-wide total series for the comparison overlay from data already
- * fetched per link (no extra endpoint).
- */
-export function sumLinkSeries(seriesList: LinkTimeSeries[]): TrafficPoint[] {
-  const byTs = new Map<string, TrafficPoint>()
-  for (const s of seriesList) {
-    for (const p of s.points) {
-      const cur = byTs.get(p.t)
-      if (cur) {
-        cur.bytes_in += p.bytes_in
-        cur.bytes_out += p.bytes_out || 0
-        cur.packets_in = (cur.packets_in || 0) + (p.packets_in || 0)
-        cur.packets_out = (cur.packets_out || 0) + (p.packets_out || 0)
-      } else {
-        byTs.set(p.t, {
-          t: p.t,
-          bytes_in: p.bytes_in,
-          bytes_out: p.bytes_out || 0,
-          packets_in: p.packets_in || 0,
-          packets_out: p.packets_out || 0,
-        })
-      }
-    }
-  }
-  return Array.from(byTs.values()).sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0))
-}

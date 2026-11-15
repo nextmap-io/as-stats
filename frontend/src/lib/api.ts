@@ -9,7 +9,6 @@ import type {
   ASDetailData,
   ASInfo,
   ASTraffic,
-  ASTrafficDetail,
   AuditLogEntry,
   Conversation,
   CountryTraffic,
@@ -33,7 +32,6 @@ import type {
   LiveThreatsData,
   ThreatDirection,
   MoversResponse,
-  Overview,
   PortTraffic,
   PrefixTraffic,
   ProtocolTraffic,
@@ -43,7 +41,6 @@ import type {
   StatusData,
   StorageStats,
   TalkersResponse,
-  TrafficPoint,
   UserInfo,
   WebhookConfig,
 } from "./types"
@@ -126,10 +123,7 @@ async function fetchAPI<T>(
 }
 
 export const api = {
-  overview: (filters?: QueryFilters) => fetchAPI<Overview>("/overview", filters),
-
   topAS: (filters?: QueryFilters) => fetchAPI<ASTraffic[]>("/top/as", filters),
-  topASTraffic: (filters?: QueryFilters) => fetchAPI<ASTrafficDetail[]>("/top/as/traffic", filters),
   topIP: (filters?: QueryFilters) => fetchAPI<IPTraffic[]>("/top/ip", filters),
   topPrefix: (filters?: QueryFilters) => fetchAPI<PrefixTraffic[]>("/top/prefix", filters),
   topCountry: (filters?: QueryFilters) => fetchAPI<CountryTraffic[]>("/top/country", filters),
@@ -148,7 +142,6 @@ export const api = {
     fetchAPI<TalkersResponse>("/changes/talkers", { ...filters, dimension: dim }),
 
   asDetail: (asn: number, filters?: QueryFilters) => fetchAPI<ASDetailData>(`/as/${asn}`, filters),
-  asPeers: (asn: number, filters?: QueryFilters) => fetchAPI<ASTraffic[]>(`/as/${asn}/peers`, filters),
   asTopIPs: (asn: number, filters?: QueryFilters) => fetchAPI<IPTraffic[]>(`/as/${asn}/ips`, filters),
   asRemoteIPs: (asn: number, filters?: QueryFilters) => fetchAPI<IPTraffic[]>(`/as/${asn}/ips`, { ...filters, scope: "external" }),
 
@@ -185,8 +178,6 @@ export const api = {
   // ─── Flow search ─────────────────────────────────────────
   flowSearch: (filters: FlowSearchFilters) =>
     fetchAPI<FlowLogEntry[]>("/flows/search", filters as QueryFilters),
-  flowTimeSeries: (filters: FlowSearchFilters) =>
-    fetchAPI<TrafficPoint[]>("/flows/timeseries", filters as QueryFilters),
   flowExportCSV: (filters: FlowSearchFilters) => {
     const url = new URL("/api/v1/flows/search", window.location.origin)
     Object.entries({ ...filters, format: "csv" }).forEach(([k, v]) => {
@@ -244,8 +235,6 @@ export const api = {
   listWebhooks: () => fetchAPI<WebhookConfig[]>("/admin/webhooks"),
   createWebhook: (webhook: Partial<WebhookConfig>) =>
     fetchAPI<WebhookConfig>("/admin/webhooks", undefined, { method: "POST", body: webhook }),
-  updateWebhook: (id: string, webhook: Partial<WebhookConfig>) =>
-    fetchAPI<WebhookConfig>(`/admin/webhooks/${id}`, undefined, { method: "PUT", body: webhook }),
   deleteWebhook: (id: string) =>
     fetchAPI<unknown>(`/admin/webhooks/${id}`, undefined, { method: "DELETE" }),
 
