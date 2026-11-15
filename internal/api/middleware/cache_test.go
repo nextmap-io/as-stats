@@ -32,6 +32,30 @@ func TestCacheIsBounded(t *testing.T) {
 	}
 }
 
+// TestCacheIgnoresClientNoCache: a client header must not force the heavy
+// query behind a cached GET to run again.
+func TestCacheIgnoresClientNoCache(t *testing.T) {
+	calls := 0
+	h := Cache(time.Minute)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/top/as?period=30d", nil))
+	for _, v := range []string{"no-cache", "no-store", "max-age=0"} {
+		req := httptest.NewRequest(http.MethodGet, "/top/as?period=30d", nil)
+		req.Header.Set("Cache-Control", v)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Header().Get("X-Cache") != "HIT" {
+			t.Errorf("Cache-Control: %s bypassed the cache", v)
+		}
+	}
+	if calls != 1 {
+		t.Errorf("handler ran %d times, want 1", calls)
+	}
+}
+
 // TestResponseCacheEvictsAndAccounts covers the LRU bookkeeping directly:
 // byte accounting must not drift and expired entries must be swept.
 func TestResponseCacheEvictsAndAccounts(t *testing.T) {
