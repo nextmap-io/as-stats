@@ -52,6 +52,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (names kept), and password / secret / token fields become `***`. A body that
   is not a complete JSON object is no longer stored. Existing audit rows are
   unchanged.
+- Containers: the api, collector and migrate images run as an unprivileged
+  user (`asstats`, uid / gid 10001) instead of root. Every port they bind is
+  ≥ 1024, so the default setups need no change. A BGP helper run by the API
+  (`BGP_*_CMD`) that reaches a mounted daemon control socket or writes a
+  mounted file now needs that socket / file to be accessible to uid or gid
+  10001 (or `user:` overridden in compose).
+- nginx (frontend image): `/assets/` responses now carry the same security
+  headers as every other response. They live in one snippet,
+  `/etc/nginx/snippets/security-headers.conf`, included by the server block
+  and by each location that sets its own headers; a custom `nginx.conf` that
+  replaces the shipped one must include it (or repeat the headers) too.
 
 ### Fixed
 - Revoking an API token (Admin › Tokens, `DELETE /admin/tokens/{id}`) always

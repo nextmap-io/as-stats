@@ -15,9 +15,15 @@ FROM alpine:3.24
 
 # The alpine:3.24 tag can lag behind the point release: upgrade so every
 # release ships the current security fixes (openssl, musl, zlib, …).
-RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata \
+    && addgroup -S -g 10001 asstats && adduser -S -D -H -u 10001 -G asstats asstats
 
 COPY --from=builder /collector /usr/local/bin/collector
+
+# Unprivileged: UDP 2055 / 6343 and the metrics port 9090 are all >= 1024.
+# The 8 MiB socket receive buffer is a plain SO_RCVBUF request, capped by
+# net.core.rmem_max as before (no SO_RCVBUFFORCE, which needs CAP_NET_ADMIN).
+USER 10001:10001
 
 EXPOSE 2055/udp 6343/udp
 

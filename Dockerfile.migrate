@@ -15,8 +15,12 @@ FROM alpine:3.24
 
 # The alpine:3.24 tag can lag behind the point release: upgrade so every
 # release ships the current security fixes (openssl, musl, zlib, …).
-RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata \
+    && addgroup -S -g 10001 asstats && adduser -S -D -H -u 10001 -G asstats asstats
 
 COPY --from=builder /migrate /usr/local/bin/migrate
+
+# Unprivileged: the migrations are embedded in the binary.
+USER 10001:10001
 
 ENTRYPOINT ["migrate"]
