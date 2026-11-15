@@ -90,15 +90,10 @@ func DecodeV5(data []byte, routerIP net.IP) ([]*model.FlowRecord, error) {
 		copy(flow.SrcIP, rec[0:4])
 		copy(flow.DstIP, rec[4:8])
 
-		// Build prefix from IP + mask
-		srcMask := rec[44]
-		dstMask := rec[45]
-		if srcMask > 0 {
-			flow.SrcPrefix = fmt.Sprintf("%s/%d", maskIP(flow.SrcIP, srcMask), srcMask)
-		}
-		if dstMask > 0 {
-			flow.DstPrefix = fmt.Sprintf("%s/%d", maskIP(flow.DstIP, dstMask), dstMask)
-		}
+		// Build prefix from IP + mask ("" for no mask, or one longer than 32,
+		// which used to come out as "<nil>/40").
+		flow.SrcPrefix = prefixString(flow.SrcIP, int(rec[44]))
+		flow.DstPrefix = prefixString(flow.DstIP, int(rec[45]))
 
 		flows = append(flows, flow)
 	}
