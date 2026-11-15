@@ -7,15 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.7.2] - 2026-11-15
+
 ### Security
-- Login: pending OAuth states are kept in their own single-use, bounded store
-  instead of the session store, and sessions must carry the `admin` or
-  `viewer` role. Upgrading is recommended.
-- ClickHouse 26.8: the tested and documented image is now
-  `clickhouse/clickhouse-server:26.8.36.3-alpine`. Earlier 26.8 builds are
-  affected by CVE-2026-116366 (unauthenticated remote code execution, fixed in
-  26.3.62.3 / 26.8.36.3 / 26.9.27.3 / 26.10.3.7). Sites running 26.8 should
-  set `CLICKHOUSE_IMAGE` to it and recreate the `clickhouse` service.
 - Go dependencies: `github.com/andybalholm/brotli` v1.2.7 (GO-2026-6888) and
   `github.com/klauspost/compress` v1.20.3 (GO-2026-6865, via clickhouse-go 2.51). `govulncheck ./...`
   reports no vulnerabilities.
@@ -71,6 +65,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tried to revoke are still active: revoke them again after upgrading.
   Revocation now takes effect before the API answers 204
   (`TestIntegrationRevokeTokenIsImmediate`).
+
+### Changed
+- Pages are loaded on demand (`React.lazy`): first-load JavaScript drops from
+  303 kB (gzip) to 238 kB on the dashboard and 118–133 kB on Search, Admin,
+  BGP and Live threats.
+- NetFlow prefix formatting without `fmt` / `net.IP.Mask`: NetFlow v5 decoding
+  is 62 % faster (7.9 → 3.0 µs per 30-record packet, 331 → 151 allocations).
+  A v5 mask longer than 32 now yields no prefix (as v9 / IPFIX already did)
+  instead of `<nil>/40`.
+- About 280 lines of dead code removed (Go and frontend), plus the unused
+  `class-variance-authority` and `date-fns` dependencies.
+- Dependencies: clickhouse-go 2.51, oauth2 0.38, go-jose 4.1.6,
+  OpenTelemetry 1.47, frontend npm group (13 updates).
+
+## [3.7.1] - 2026-11-15
+
+### Security
+- **Authentication bypass (critical, all versions up to 3.7.0).** `/auth/login`
+  stored the OAuth state in the session store as `oidc_state:<state>`, and the
+  auth middleware accepted any entry of that store: the state returned by the
+  unauthenticated login redirect, sent back as the `as_stats_session` cookie
+  or as a bearer token, authenticated the caller for 5 minutes, renewable at
+  will. That gave viewer-level access (flow search and CSV export, alerts,
+  Live Threats, every non-admin read) and alert ack / resolve; admin routes
+  stayed closed. Pending logins now live in their own single-use, bounded
+  store, and the middleware only accepts sessions with the `admin` or
+  `viewer` role. **Upgrade any internet-reachable instance.**
+- ClickHouse 26.8: the tested and documented image is now
+  `clickhouse/clickhouse-server:26.8.36.3-alpine`. Earlier 26.8 builds are
+  affected by CVE-2026-116366 (unauthenticated remote code execution, fixed in
+  26.3.62.3 / 26.8.36.3 / 26.9.27.3 / 26.10.3.7). Sites running 26.8 should
+  set `CLICKHOUSE_IMAGE` to it and recreate the `clickhouse` service.
 
 ## [3.7.0] - 2026-10-27
 
