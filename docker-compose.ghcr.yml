@@ -80,6 +80,7 @@ services:
       COLLECTOR_BATCH_SIZE: "50000"
       COLLECTOR_FLUSH_INTERVAL: "15s"
       COLLECTOR_WORKERS: "4"
+      COLLECTOR_ALLOWED_EXPORTERS: "${COLLECTOR_ALLOWED_EXPORTERS:-}"
       LOCAL_AS: "${LOCAL_AS:-}"
     # SIGTERM drains the pipeline and flushes the last batch, bounded by
     # COLLECTOR_SHUTDOWN_TIMEOUT (40s). Docker's default 10s grace would

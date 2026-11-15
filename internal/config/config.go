@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nextmap-io/as-stats/internal/bgp"
+	"github.com/nextmap-io/as-stats/internal/collector/exporters"
 )
 
 // ClickHouseConfig holds ClickHouse connection settings.
@@ -77,6 +78,10 @@ type CollectorConfig struct {
 	// flows whose sampling rate is known neither from the record itself nor
 	// from the exporter's options data (COLLECTOR_SAMPLING_OVERRIDE).
 	SamplingOverride map[string]uint32
+
+	// AllowedExporters restricts the flow listeners to these source
+	// addresses (COLLECTOR_ALLOWED_EXPORTERS). nil accepts any source.
+	AllowedExporters *exporters.AllowList
 
 	// Flow log retention (only applied when the table exists; default 180 days)
 	FlowLogRetentionDays int
@@ -207,6 +212,11 @@ func LoadCollector() (*CollectorConfig, error) {
 		return nil, err
 	}
 
+	allowedExporters, err := exporters.Parse(os.Getenv("COLLECTOR_ALLOWED_EXPORTERS"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid COLLECTOR_ALLOWED_EXPORTERS: %w", err)
+	}
+
 	localAS, _ := strconv.ParseUint(envOr("LOCAL_AS", "0"), 10, 32)
 
 	flowLogRetention, err := strconv.Atoi(envOr("FLOW_LOG_RETENTION_DAYS", "180"))
@@ -253,6 +263,7 @@ func LoadCollector() (*CollectorConfig, error) {
 		ShutdownTimeout:            shutdownTimeout,
 		FlushTimeout:               flushTimeout,
 		SamplingOverride:           samplingOverride,
+		AllowedExporters:           allowedExporters,
 		LocalAS:                    uint32(localAS),
 		FlowLogRetentionDays:       flowLogRetention,
 		RetentionReconcileInterval: reconcileInterval,

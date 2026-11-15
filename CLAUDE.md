@@ -89,8 +89,10 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
                                   - single batch INSERT to ClickHouse
 ```
 
-- **Reader**: 1 goroutine per UDP socket. Reads packets, copies router IP,
-  pushes to the decoder channel.
+- **Reader**: 1 goroutine per UDP socket. Reads packets, drops sources
+  outside `COLLECTOR_ALLOWED_EXPORTERS` (`internal/collector/exporters`,
+  counted in `asstats_datagrams_rejected_total{listener}`; unset = any
+  source), copies router IP, pushes to the decoder channel.
 - **Decoders**: `COLLECTOR_WORKERS` goroutines (default 4). Parse NetFlow
   v5 (fixed format), v9/IPFIX (template-based) or sFlow v5. Independent
   except for the global template cache (mutex-protected).

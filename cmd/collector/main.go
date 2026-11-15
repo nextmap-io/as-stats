@@ -41,6 +41,12 @@ func main() {
 	log.Printf("  Flush interval: %s", cfg.FlushInterval)
 	log.Printf("  Workers:        %d", cfg.Workers)
 	log.Printf("  Flush timeout:  %s (shutdown drain %s)", cfg.FlushTimeout, cfg.ShutdownTimeout)
+	if cfg.AllowedExporters == nil {
+		log.Printf("WARNING: COLLECTOR_ALLOWED_EXPORTERS is not set — flow datagrams are accepted from any source. " +
+			"Set it to your exporters' addresses and firewall UDP 2055/6343.")
+	} else {
+		log.Printf("  Allowed exporters: %s", cfg.AllowedExporters)
+	}
 	for router, rate := range cfg.SamplingOverride {
 		log.Printf("  Sampling override: %s = 1:%d (only when the exporter announces none)", router, rate)
 	}

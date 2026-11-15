@@ -39,13 +39,18 @@ func New(cfg *config.CollectorConfig, s store.FlowWriter) *Collector {
 	flowsCh := make(chan *model.FlowRecord, cfg.BatchSize)
 	enrichedCh := make(chan *model.FlowRecord, cfg.BatchSize)
 
+	nf := netflow.NewListener(cfg.ListenNetFlow, cfg.Workers)
+	nf.SetAllowedExporters(cfg.AllowedExporters)
+	sf := sflow.NewListener(cfg.ListenSFlow, cfg.Workers)
+	sf.SetAllowedExporters(cfg.AllowedExporters)
+
 	return &Collector{
 		cfg:      cfg,
 		store:    s,
 		enricher: enricher.New(),
 		writer:   writer.New(s, enrichedCh, cfg.BatchSize, cfg.FlushInterval, cfg.FlushTimeout),
-		nfListen: netflow.NewListener(cfg.ListenNetFlow, cfg.Workers),
-		sfListen: sflow.NewListener(cfg.ListenSFlow, cfg.Workers),
+		nfListen: nf,
+		sfListen: sf,
 		flows:    flowsCh,
 		enriched: enrichedCh,
 	}

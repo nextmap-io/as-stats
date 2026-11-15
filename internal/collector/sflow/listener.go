@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nextmap-io/as-stats/internal/collector/exporters"
 	"github.com/nextmap-io/as-stats/internal/collector/ratelog"
 	"github.com/nextmap-io/as-stats/internal/collector/udpstat"
 	"github.com/nextmap-io/as-stats/internal/metrics"
@@ -29,6 +30,12 @@ var (
 type packet struct {
 	data     []byte
 	routerIP net.IP
+}
+
+// SetAllowedExporters restricts the listener to datagrams from these sources
+// (nil accepts any). Call it before Start.
+func (l *Listener) SetAllowedExporters(a *exporters.AllowList) {
+	l.allow = a
 }
 
 // Start begins listening for sFlow packets and sending decoded flows to the output channel.
@@ -71,6 +78,13 @@ func (l *Listener) Start(ctx context.Context, flows chan<- *model.FlowRecord) er
 					return
 				}
 				readErrLog.Printf("sflow read error: %v", err)
+				continue
+			}
+
+			// Dropped before decoding (and before the copy).
+			if !l.allow.Allows(remoteAddr.IP) {
+				bufPool.Put(bufPtr)
+				metrics.DatagramsRejected.WithLabelValues("sflow").Inc()
 				continue
 			}
 

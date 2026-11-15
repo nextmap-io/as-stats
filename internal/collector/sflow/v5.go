@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nextmap-io/as-stats/internal/collector/exporters"
 	"github.com/nextmap-io/as-stats/internal/model"
 )
 
@@ -33,6 +34,8 @@ type Listener struct {
 	conn    *net.UDPConn
 	workers int
 	packets chan packet
+	// allow restricts the accepted sources; nil accepts any.
+	allow *exporters.AllowList
 	// decoders tracks the decoder goroutines, which are the only senders on the
 	// flows channel — see Wait.
 	decoders sync.WaitGroup
