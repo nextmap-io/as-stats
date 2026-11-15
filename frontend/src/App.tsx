@@ -1,3 +1,5 @@
+import { lazy } from "react"
+import type { ComponentType } from "react"
 import { BrowserRouter, Routes, Route } from "react-router-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { ThemeProvider } from "@/providers/ThemeProvider"
@@ -5,27 +7,37 @@ import { UnitProvider, useUnitState } from "@/hooks/useUnit"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { AppLayout } from "@/components/layout/AppLayout"
 import { FeatureGate } from "@/components/FeatureGate"
-import { Dashboard } from "@/pages/Dashboard"
-import { TopAS } from "@/pages/TopAS"
-import { TopIP } from "@/pages/TopIP"
-import { TopPrefixes } from "@/pages/TopPrefixes"
-import { Countries } from "@/pages/Countries"
-import { ASDetail } from "@/pages/ASDetail"
-import { IPDetail } from "@/pages/IPDetail"
-import { Links } from "@/pages/Links"
-import { LinkDetail } from "@/pages/LinkDetail"
-import { Capacity } from "@/pages/Capacity"
-import { Status } from "@/pages/Status"
-import { SearchPage } from "@/pages/SearchPage"
-import { FlowSearch } from "@/pages/FlowSearch"
-import { Conversations } from "@/pages/Conversations"
-import { Changes } from "@/pages/Changes"
-import { TopProtocols } from "@/pages/TopProtocols"
-import { TopPorts } from "@/pages/TopPorts"
-import { Alerts } from "@/pages/Alerts"
-import { LiveThreats } from "@/pages/LiveThreats"
-import { Admin } from "@/pages/Admin"
-import { BGP } from "@/pages/BGP"
+
+// One chunk per page: the shell (layout, header, filters, command palette)
+// loads first, each page (and recharts, shared by the chart pages) on first
+// visit. AppLayout holds the <Suspense> around the <Outlet>, so the header
+// stays up while a page chunk loads. Pages use named exports, hence the
+// re-wrap into the default export React.lazy expects.
+function page<K extends string>(load: () => Promise<Record<K, ComponentType>>, name: K) {
+  return lazy(() => load().then((m) => ({ default: m[name] })))
+}
+
+const Dashboard = page(() => import("@/pages/Dashboard"), "Dashboard")
+const TopAS = page(() => import("@/pages/TopAS"), "TopAS")
+const TopIP = page(() => import("@/pages/TopIP"), "TopIP")
+const TopPrefixes = page(() => import("@/pages/TopPrefixes"), "TopPrefixes")
+const Countries = page(() => import("@/pages/Countries"), "Countries")
+const ASDetail = page(() => import("@/pages/ASDetail"), "ASDetail")
+const IPDetail = page(() => import("@/pages/IPDetail"), "IPDetail")
+const Links = page(() => import("@/pages/Links"), "Links")
+const LinkDetail = page(() => import("@/pages/LinkDetail"), "LinkDetail")
+const Capacity = page(() => import("@/pages/Capacity"), "Capacity")
+const Status = page(() => import("@/pages/Status"), "Status")
+const SearchPage = page(() => import("@/pages/SearchPage"), "SearchPage")
+const FlowSearch = page(() => import("@/pages/FlowSearch"), "FlowSearch")
+const Conversations = page(() => import("@/pages/Conversations"), "Conversations")
+const Changes = page(() => import("@/pages/Changes"), "Changes")
+const TopProtocols = page(() => import("@/pages/TopProtocols"), "TopProtocols")
+const TopPorts = page(() => import("@/pages/TopPorts"), "TopPorts")
+const Alerts = page(() => import("@/pages/Alerts"), "Alerts")
+const LiveThreats = page(() => import("@/pages/LiveThreats"), "LiveThreats")
+const Admin = page(() => import("@/pages/Admin"), "Admin")
+const BGP = page(() => import("@/pages/BGP"), "BGP")
 
 const queryClient = new QueryClient({
   defaultOptions: {

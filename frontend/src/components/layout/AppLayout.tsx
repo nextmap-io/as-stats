@@ -1,5 +1,6 @@
-import { useEffect } from "react"
+import { Suspense, useEffect } from "react"
 import { Outlet, useLocation } from "react-router-dom"
+import { PageSkeleton } from "@/components/ui/skeleton"
 import { Header } from "./Header"
 import { FilterBar } from "@/components/filters/FilterBar"
 import { CommandPalette } from "@/components/CommandPalette"
@@ -27,7 +28,12 @@ export function AppLayout() {
       <Header />
       {showTimeBar && <FilterBar />}
       <main className="mx-auto max-w-[1400px] px-4 pb-16 pt-6 sm:px-6 lg:px-8">
-        <Outlet />
+        {/* Pages are lazy chunks (App.tsx): the header and filters stay up
+            while one loads. A chunk that fails to load (a redeploy removed
+            it) reaches the top-level ErrorBoundary and its reload button. */}
+        <Suspense fallback={<PageSkeleton />}>
+          <Outlet />
+        </Suspense>
       </main>
       <CommandPalette />
     </div>
