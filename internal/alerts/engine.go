@@ -19,7 +19,6 @@ package alerts
 import (
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -715,12 +714,6 @@ func (e *Engine) CooldownSnapshot() map[string]time.Time {
 		out[k] = r.at
 	}
 	return out
-}
-
-// JSONEncode helper for tests / debugging.
-func JSONEncode(v any) string {
-	b, _ := json.Marshal(v)
-	return string(b)
 }
 
 // EnsureDefaultRules creates a set of sensible default rules if none exist.

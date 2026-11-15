@@ -56,11 +56,6 @@ func (c *Collector) Enricher() *enricher.Enricher {
 	return c.enricher
 }
 
-// WriterMetrics returns the writer metrics.
-func (c *Collector) WriterMetrics() *writer.Metrics {
-	return &c.writer.Metrics
-}
-
 // Run starts all collector components. It blocks until the context is
 // cancelled and the pipeline has drained, or the shutdown timeout expired.
 func (c *Collector) Run(ctx context.Context) error {

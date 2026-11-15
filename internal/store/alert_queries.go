@@ -13,7 +13,6 @@ import (
 // AlertViolation describes an evaluated rule violation: one target + metric value.
 type AlertViolation struct {
 	TargetIP    net.IP
-	TargetAS    uint32
 	Protocol    uint8
 	MetricValue float64
 	TopSources  []string // for amplification/port scan context
