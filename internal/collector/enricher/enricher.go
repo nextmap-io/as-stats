@@ -17,15 +17,13 @@ type linkKey struct {
 }
 
 type linkInfo struct {
-	Tag       string
-	Direction uint8 // model.DirectionInbound or model.DirectionOutbound
+	Tag string
 }
 
 // Enricher maps flows to known links and determines traffic direction.
 type Enricher struct {
 	mu        sync.RWMutex
 	links     map[linkKey]linkInfo
-	asNames   map[uint32]string
 	localAS   uint32
 	localNets []net.IPNet
 
@@ -42,8 +40,7 @@ type Enricher struct {
 // New creates a new Enricher.
 func New() *Enricher {
 	return &Enricher{
-		links:   make(map[linkKey]linkInfo),
-		asNames: make(map[uint32]string),
+		links: make(map[linkKey]linkInfo),
 	}
 }
 
@@ -63,20 +60,6 @@ func (e *Enricher) LoadLinks(links []model.Link) {
 	e.mu.Unlock()
 
 	log.Printf("enricher: loaded %d link mappings", len(newLinks))
-}
-
-// LoadASNames replaces the AS name map.
-func (e *Enricher) LoadASNames(names []model.ASInfo) {
-	newNames := make(map[uint32]string, len(names))
-	for _, n := range names {
-		newNames[n.Number] = n.Name
-	}
-
-	e.mu.Lock()
-	e.asNames = newNames
-	e.mu.Unlock()
-
-	log.Printf("enricher: loaded %d AS names", len(newNames))
 }
 
 // SetLocalAS sets the local AS number and its announced prefixes.
@@ -177,14 +160,6 @@ func (e *Enricher) Enrich(flow *model.FlowRecord) {
 			flow.DstAS = e.localAS
 		}
 	}
-}
-
-// GetASName returns the AS name for the given AS number, or empty string.
-func (e *Enricher) GetASName(asn uint32) string {
-	e.mu.RLock()
-	name := e.asNames[asn]
-	e.mu.RUnlock()
-	return name
 }
 
 func (e *Enricher) isLocalIP(ip net.IP) bool {

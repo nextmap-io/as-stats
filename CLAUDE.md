@@ -152,7 +152,7 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 | `internal/api/middleware/` | Auth (OIDC sessions), CSRF (double-submit cookie), rate limiting, in-memory cache, audit. |
 | `internal/api/router.go` | `chi` router wiring, middleware stack, security headers, feature-gated route registration. |
 | `internal/ripestat/` | RIPEstat API client: fetch AS prefixes (SQL filters are built by `store.CIDRRangeSQL`). |
-| `internal/store/store.go` | Interfaces: `FlowWriter`, `FlowReader`, `LinkStore`, `ASNameStore`. |
+| `internal/store/store.go` | `FlowWriter` interface, `QueryParams`. Consumers declare the narrow interface they need (`alerts.Store`, `bgp.Store`…). |
 | `internal/store/clickhouse.go` | Write implementation (batch INSERT). |
 | `internal/store/reader.go` | Read implementations — every aggregation query lives here. |
 | `internal/store/step.go` | Source-table + bucket-width planner (`linkSeriesPlan`, `asSeriesPlan`, `ipSeriesPlan`, `capacityPlan`) and the exported `*StepSeconds` helpers handlers put in `meta.step_seconds`. |

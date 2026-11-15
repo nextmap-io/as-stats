@@ -152,18 +152,3 @@ func TestEnrichLocalASRemap(t *testing.T) {
 		t.Errorf("public AS on a local IP was rewritten to %d", pub.SrcAS)
 	}
 }
-
-func TestASNames(t *testing.T) {
-	e := New()
-	e.LoadASNames([]model.ASInfo{
-		{Number: 13335, Name: "CLOUDFLARENET"},
-		{Number: 15169, Name: "GOOGLE"},
-	})
-
-	if name := e.GetASName(13335); name != "CLOUDFLARENET" {
-		t.Errorf("expected CLOUDFLARENET, got '%s'", name)
-	}
-	if name := e.GetASName(99999); name != "" {
-		t.Errorf("expected empty name for unknown AS, got '%s'", name)
-	}
-}

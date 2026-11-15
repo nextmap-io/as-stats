@@ -157,9 +157,6 @@ func NewService(opts Options) *Service {
 	}
 }
 
-// DryRun reports whether new blocks are dry-run.
-func (s *Service) DryRun() bool { return s.opts.DryRun }
-
 func (s *Service) daemonFor(dry bool) Daemon {
 	if dry || s.opts.Live == nil {
 		return s.dry

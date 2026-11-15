@@ -33,20 +33,6 @@ func (s *ClickHouseStore) ListHostgroups(ctx context.Context) ([]model.Hostgroup
 	return results, nil
 }
 
-// GetHostgroup returns a single hostgroup by ID.
-func (s *ClickHouseStore) GetHostgroup(ctx context.Context, id string) (model.Hostgroup, error) {
-	var h model.Hostgroup
-	row := s.conn.QueryRow(ctx, `
-		SELECT id, name, description, cidrs, created_at, updated_at
-		FROM hostgroups FINAL
-		WHERE id = @id AND deleted = 0
-	`, clickhouse.Named("id", id))
-	if err := row.Scan(&h.ID, &h.Name, &h.Description, &h.CIDRs, &h.CreatedAt, &h.UpdatedAt); err != nil {
-		return h, fmt.Errorf("get hostgroup: %w", err)
-	}
-	return h, nil
-}
-
 // UpsertHostgroup inserts or updates a hostgroup. ReplacingMergeTree dedup
 // keeps only the row with the latest updated_at for each id.
 func (s *ClickHouseStore) UpsertHostgroup(ctx context.Context, h model.Hostgroup) error {

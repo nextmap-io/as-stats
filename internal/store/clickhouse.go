@@ -13,7 +13,7 @@ import (
 	"github.com/nextmap-io/as-stats/internal/model"
 )
 
-// ClickHouseStore implements FlowWriter, FlowReader, LinkStore, and ASNameStore.
+// ClickHouseStore implements FlowWriter and every read query of the API.
 type ClickHouseStore struct {
 	conn driver.Conn
 
