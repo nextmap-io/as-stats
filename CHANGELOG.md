@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `asstats_templates_refused_total{router}`. When the whole cache (10,000) is
   full, the least recently refreshed template is evicted in constant time
   instead of a scan of the whole cache. Templates still never expire by age.
+- Validate alert ids: `POST /alerts/{id}/ack` and `/resolve` answer 400 for an
+  id that is not a UUID and 404 for an unknown alert, before any ClickHouse
+  mutation is issued.
 
 ## [3.7.0] - 2026-10-27
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/google/uuid"
 	"github.com/nextmap-io/as-stats/internal/model"
 )
 
@@ -222,6 +223,21 @@ func (s *ClickHouseStore) InsertAlert(ctx context.Context, a model.Alert) error 
 	)
 }
 
+// AlertExists reports whether an alert with this id is stored. Callers check
+// it before AcknowledgeAlert / ResolveAlert, which issue a mutation whatever
+// the id matches.
+func (s *ClickHouseStore) AlertExists(ctx context.Context, id string) (bool, error) {
+	if _, err := uuid.Parse(id); err != nil {
+		return false, nil
+	}
+	var count uint64
+	if err := s.conn.QueryRow(ctx, `SELECT count() FROM alerts AS a WHERE a.id = toUUID(@id)`,
+		clickhouse.Named("id", id)).Scan(&count); err != nil {
+		return false, fmt.Errorf("alert exists: %w", err)
+	}
+	return count > 0, nil
+}
+
 // AcknowledgeAlert marks an alert as acknowledged by a user.
 func (s *ClickHouseStore) AcknowledgeAlert(ctx context.Context, id, userEmail string) error {
 	return s.updateAlertStatus(ctx, id, "acknowledged", "acknowledged_by", userEmail, "acknowledged_at")
@@ -233,6 +249,9 @@ func (s *ClickHouseStore) ResolveAlert(ctx context.Context, id string) error {
 }
 
 func (s *ClickHouseStore) updateAlertStatus(ctx context.Context, id, newStatus, userField, userValue, tsField string) error {
+	if _, err := uuid.Parse(id); err != nil {
+		return fmt.Errorf("invalid alert id %q", id)
+	}
 	setParts := []string{fmt.Sprintf("status = '%s'", newStatus), fmt.Sprintf("%s = now()", tsField)}
 	args := []any{clickhouse.Named("id", id)}
 	if userField != "" {
