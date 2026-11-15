@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- Login: pending OAuth states are kept in their own single-use, bounded store
+  instead of the session store, and sessions must carry the `admin` or
+  `viewer` role. Upgrading is recommended.
 - ClickHouse 26.8: the tested and documented image is now
   `clickhouse/clickhouse-server:26.8.36.3-alpine`. Earlier 26.8 builds are
   affected by CVE-2026-116366 (unauthenticated remote code execution, fixed in

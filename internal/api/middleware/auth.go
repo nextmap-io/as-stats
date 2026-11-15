@@ -56,6 +56,13 @@ func NewSessionStore() *SessionStore {
 	return s
 }
 
+// validRole reports whether a session carries a role the API grants. Every
+// session the OIDC callback creates has one; anything else in the store is
+// not a login and must never authenticate a request.
+func validRole(role string) bool {
+	return role == "admin" || role == "viewer"
+}
+
 func (s *SessionStore) Set(id string, user UserInfo, ttl time.Duration) {
 	s.mu.Lock()
 	s.sessions[id] = &session{User: user, ExpiresAt: time.Now().Add(ttl)}
@@ -104,7 +111,7 @@ func AuthMiddleware(cfg *config.APIConfig, sessions *SessionStore, tokenAuth *AP
 			// Check session cookie
 			cookie, err := r.Cookie("as_stats_session")
 			if err == nil {
-				if user, ok := sessions.Get(cookie.Value); ok {
+				if user, ok := sessions.Get(cookie.Value); ok && validRole(user.Role) {
 					ctx := context.WithValue(r.Context(), userContextKey, user)
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
@@ -139,7 +146,7 @@ func AuthMiddleware(cfg *config.APIConfig, sessions *SessionStore, tokenAuth *AP
 				}
 
 				// Legacy: session id supplied as a bearer token.
-				if user, ok := sessions.Get(token); ok {
+				if user, ok := sessions.Get(token); ok && validRole(user.Role) {
 					ctx := context.WithValue(r.Context(), userContextKey, user)
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
