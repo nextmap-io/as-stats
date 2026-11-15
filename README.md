@@ -364,6 +364,7 @@ Everything is environment-variable driven. The full list lives in
 | `CLICKHOUSE_IMAGE` | `clickhouse/clickhouse-server:24.3-alpine` | ClickHouse server image used by the compose files. 26.8 LTS (`…:26.8.36.3-alpine`) is tested too; switching is a one-way data upgrade, see [Upgrading ClickHouse](#upgrading-clickhouse-243--268-lts) |
 | `COLLECTOR_LISTEN_NETFLOW` | `:2055` | NetFlow / IPFIX UDP listen address |
 | `COLLECTOR_LISTEN_SFLOW` | `:6343` | sFlow UDP listen address |
+| `COLLECTOR_ALLOWED_EXPORTERS` | *(none: any source, with a startup warning)* | Comma-separated exporter IPs / CIDRs, e.g. `192.0.2.1,198.51.100.0/28,2001:db8::1`. Datagrams from other sources are dropped before decoding and counted in `asstats_datagrams_rejected_total{listener}`. Needs the routers' real source addresses (host networking). Also firewall UDP 2055 / 6343 to the same sources |
 | `COLLECTOR_BATCH_SIZE` | `50000` | Burst ceiling per batch INSERT (flush on size or timer, whichever fires first) |
 | `COLLECTOR_FLUSH_INTERVAL` | `15s` | Flush cadence. Each INSERT creates ~21 parts across the materialised views, so fewer, larger INSERTs mean far less merge work |
 | `COLLECTOR_WORKERS` | `4` | Decoder goroutines (raise on multi-Gbps) |
@@ -741,6 +742,7 @@ The ingest counters worth alerting on:
 | `asstats_batch_write_errors_total` | Batch INSERTs that failed |
 | `asstats_flows_dropped_total` | Flows discarded because their batch failed |
 | `asstats_decode_errors_total{protocol}` | Malformed / undecodable packets |
+| `asstats_datagrams_rejected_total{listener}` | Datagrams dropped because their source is not in `COLLECTOR_ALLOWED_EXPORTERS` (`netflow`, `sflow`) |
 | `asstats_timestamps_clamped_total` | Flows whose exporter timestamp was out of range and rewritten to receive time |
 
 `rate(asstats_batch_write_errors_total[5m]) > 0` is the alert that matters: a

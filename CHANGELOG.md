@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Go dependencies: `github.com/andybalholm/brotli` v1.2.7 (GO-2026-6888) and
   `github.com/klauspost/compress` v1.20.2 (GO-2026-6865). `govulncheck ./...`
   reports no vulnerabilities.
+- Collector exporter allow-list: `COLLECTOR_ALLOWED_EXPORTERS` (comma-separated
+  IPs / CIDRs). When set, NetFlow / IPFIX / sFlow datagrams from other sources
+  are dropped before decoding and counted in
+  `asstats_datagrams_rejected_total{listener}`. Unset keeps the previous
+  behaviour (any source) and logs a warning at startup. The collector must see
+  the routers' real addresses (host networking); keep firewalling UDP
+  2055 / 6343 as well.
 
 ## [3.7.0] - 2026-10-27
 

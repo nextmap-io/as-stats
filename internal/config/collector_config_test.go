@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net"
 	"testing"
 	"time"
 )
@@ -61,5 +62,31 @@ func TestLoadCollectorRejectsNonPositiveDurations(t *testing.T) {
 				t.Fatalf("LoadCollector() accepted %s=0s", k)
 			}
 		})
+	}
+}
+
+func TestLoadCollectorAllowedExporters(t *testing.T) {
+	clearCollectorEnv(t)
+	t.Setenv("COLLECTOR_ALLOWED_EXPORTERS", "")
+	cfg, err := LoadCollector()
+	if err != nil {
+		t.Fatalf("LoadCollector() error = %v", err)
+	}
+	if cfg.AllowedExporters != nil {
+		t.Errorf("unset COLLECTOR_ALLOWED_EXPORTERS must accept any source, got %v", cfg.AllowedExporters)
+	}
+
+	t.Setenv("COLLECTOR_ALLOWED_EXPORTERS", "192.0.2.1, 2001:db8::/32")
+	cfg, err = LoadCollector()
+	if err != nil {
+		t.Fatalf("LoadCollector() error = %v", err)
+	}
+	if !cfg.AllowedExporters.Allows(net.ParseIP("192.0.2.1")) || cfg.AllowedExporters.Allows(net.ParseIP("192.0.2.2")) {
+		t.Errorf("AllowedExporters = %v", cfg.AllowedExporters)
+	}
+
+	t.Setenv("COLLECTOR_ALLOWED_EXPORTERS", "192.0.2.1,router1")
+	if _, err := LoadCollector(); err == nil {
+		t.Fatal("LoadCollector() accepted a malformed COLLECTOR_ALLOWED_EXPORTERS")
 	}
 }

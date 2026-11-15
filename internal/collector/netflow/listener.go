@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nextmap-io/as-stats/internal/collector/exporters"
 	"github.com/nextmap-io/as-stats/internal/collector/ratelog"
 	"github.com/nextmap-io/as-stats/internal/collector/udpstat"
 	"github.com/nextmap-io/as-stats/internal/metrics"
@@ -41,6 +42,8 @@ type Listener struct {
 	bufPool sync.Pool
 	workers int
 	packets chan packet
+	// allow restricts the accepted sources; nil accepts any.
+	allow *exporters.AllowList
 	// decoders tracks the decoder goroutines, which are the only senders on the
 	// flows channel — see Wait.
 	decoders sync.WaitGroup
@@ -61,6 +64,12 @@ func NewListener(addr string, workers int) *Listener {
 			},
 		},
 	}
+}
+
+// SetAllowedExporters restricts the listener to datagrams from these sources
+// (nil accepts any). Call it before Start.
+func (l *Listener) SetAllowedExporters(a *exporters.AllowList) {
+	l.allow = a
 }
 
 // Start begins listening for NetFlow packets and sending decoded flows to the output channel.
@@ -96,6 +105,14 @@ func (l *Listener) Start(ctx context.Context, flows chan<- *model.FlowRecord) er
 					return
 				}
 				readErrLog.Printf("netflow read error: %v", err)
+				continue
+			}
+
+			// Dropped before decoding: an unknown source never reaches the
+			// template cache or the sampling tables.
+			if !l.allow.Allows(remoteAddr.IP) {
+				l.bufPool.Put(bufPtr)
+				metrics.DatagramsRejected.WithLabelValues("netflow").Inc()
 				continue
 			}
 

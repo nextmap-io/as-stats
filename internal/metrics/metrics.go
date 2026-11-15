@@ -42,6 +42,15 @@ var DecodeErrors = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Total number of flow decode errors.",
 }, []string{"protocol"})
 
+// DatagramsRejected counts datagrams dropped before decoding because their
+// source is not in COLLECTOR_ALLOWED_EXPORTERS. Labelled by listener only
+// ("netflow", "sflow"): a per-source label would let spoofed traffic create
+// series without bound.
+var DatagramsRejected = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "asstats_datagrams_rejected_total",
+	Help: "Datagrams dropped before decoding because their source is not an allowed exporter.",
+}, []string{"listener"})
+
 // BatchWriteErrors and FlowsDropped make a persistent ingestion failure visible.
 // Without them a ClickHouse that refuses every INSERT (disk full, credentials,
 // schema drift) is silent: the success counters simply stop advancing, which is
