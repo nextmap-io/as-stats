@@ -449,8 +449,8 @@ Registered only when the corresponding `FEATURE_*` env var is set.
 
 | Method | Path | Feature | Notes |
 |---|---|---|---|
-| `GET` | `/flows/search` | `FLOW_SEARCH` | `?format=csv` for export, max 100k rows |
-| `GET` | `/flows/timeseries` | `FLOW_SEARCH` | drill-down |
+| `GET` | `/flows/search` | `FLOW_SEARCH` | `?format=csv` for export, max 100k rows; > 24 h needs an IP / CIDR, AS or port filter (400, `hasSelectiveFlowFilter`) |
+| `GET` | `/flows/timeseries` | `FLOW_SEARCH` | drill-down; same > 24 h rule |
 | `GET` | `/conversations` | `FLOW_SEARCH` | bidirectional top-talkers (`dim=src_dst_ip/src_dst_as/dst_port_proto`) |
 | `GET` | `/top/protocol` | `PORT_STATS` | per (protocol, direction in/out); `meta.port_history_since` while the port history is younger than the window |
 | `GET` | `/top/port` | `PORT_STATS` | service ports, `LIMIT … BY direction`; same `meta.port_history_since` (also on `/changes/movers?dimension=port`) |

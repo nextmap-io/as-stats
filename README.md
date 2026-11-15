@@ -809,7 +809,7 @@ Only registered when the corresponding `FEATURE_*` flag is set.
 
 | Feature | Endpoints |
 |---|---|
-| `FLOW_SEARCH` | `GET /flows/search` (with `?format=csv` for export, max 100k rows) · `GET /flows/timeseries` · `GET /conversations` |
+| `FLOW_SEARCH` | `GET /flows/search` (with `?format=csv` for export, max 100k rows; a window over 24 h needs an IP / prefix, AS or port filter, 400 otherwise) · `GET /flows/timeseries` (same rule) · `GET /conversations` |
 | `PORT_STATS` | `GET /top/protocol` · `GET /top/port` |
 | `ALERTS` | `GET /alerts` · `GET /alerts/summary` · `GET /threats/live` · `POST /alerts/{id}/{ack,resolve}` · `POST /alerts/{id}/block` · `GET /anomaly/explain` · `GET/POST/PUT/DELETE /admin/{rules,webhooks}` · `GET /admin/audit` |
 | `REPORTS` | `GET/POST/PUT/DELETE /admin/reports[/{id}]` · `POST /admin/reports/{id}/test` |
