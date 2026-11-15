@@ -95,6 +95,15 @@ var FlowSetsNoTemplate = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "v9/IPFIX data sets dropped because their template is unknown (sets, not flows).",
 }, []string{"router"})
 
+// TemplatesRefused counts v9/IPFIX templates not cached because their
+// exporter already holds its per-router share of the template cache. A real
+// exporter announces tens of templates; a rising value means one source is
+// sending new template IDs without end.
+var TemplatesRefused = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "asstats_templates_refused_total",
+	Help: "v9/IPFIX templates refused because the exporter reached its per-router template cap.",
+}, []string{"router"})
+
 // SamplingRate is the 1-in-N sampling rate applied to the last packet decoded
 // from each exporter. A change here changes every byte count derived from that
 // router, so it is worth graphing next to traffic.

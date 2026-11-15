@@ -127,7 +127,9 @@ UDP socket ─► [Reader, 1 goroutine] ─► packets channel (workers×64 buff
 - **Template cache**: global, keyed by `(router_ip, source_id, template_id)`.
   Templates do not expire by age — a re-send replaces the entry (an age
   expiry could drop a template just before its refresh); a size cap bounds
-  the cache. Data sets with no known template are counted per router in
+  the cache (10,000, least recently *set* evicted in O(1) via a list), and
+  each router IP holds at most 1,000 — at its cap a router can replace its
+  own templates but a new ID is refused (`asstats_templates_refused_total`). Data sets with no known template are counted per router in
   `asstats_flowsets_dropped_no_template_total`. Cisco IOS-XE with source port 0
   requires a `NOTRACK` iptables rule to bypass conntrack.
 
