@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -20,15 +21,70 @@ import (
 type AuthHandler struct {
 	cfg      *config.APIConfig
 	sessions *middleware.SessionStore
+	logins   *loginStates
 	provider *oidc.Provider
 	oauth2   *oauth2.Config
 	verifier *oidc.IDTokenVerifier
 }
 
+// loginStateTTL bounds how long a login started with /auth/login may take.
+const loginStateTTL = 5 * time.Minute
+
+// maxPendingLogins caps the logins in flight: /auth/login is unauthenticated,
+// so every hit must not grow memory without bound.
+const maxPendingLogins = 10000
+
+// loginStates holds the OAuth state -> PKCE verifier of logins in flight,
+// apart from the session store: a pending login is not a session.
+type loginStates struct {
+	mu      sync.Mutex
+	pending map[string]loginState
+}
+
+type loginState struct {
+	verifier  string
+	expiresAt time.Time
+}
+
+func newLoginStates() *loginStates {
+	return &loginStates{pending: make(map[string]loginState)}
+}
+
+// put records a new login; false when maxPendingLogins are already in flight.
+func (l *loginStates) put(state, verifier string, now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.pending) >= maxPendingLogins {
+		for k, v := range l.pending {
+			if now.After(v.expiresAt) {
+				delete(l.pending, k)
+			}
+		}
+		if len(l.pending) >= maxPendingLogins {
+			return false
+		}
+	}
+	l.pending[state] = loginState{verifier: verifier, expiresAt: now.Add(loginStateTTL)}
+	return true
+}
+
+// take returns the verifier of a pending, unexpired login and forgets it
+// (a state is single use).
+func (l *loginStates) take(state string, now time.Time) (string, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	v, ok := l.pending[state]
+	delete(l.pending, state)
+	if !ok || now.After(v.expiresAt) {
+		return "", false
+	}
+	return v.verifier, true
+}
+
 // NewAuthHandler creates a new AuthHandler.
 // If OIDC is enabled, it discovers the provider's configuration.
 func NewAuthHandler(cfg *config.APIConfig, sessions *middleware.SessionStore) *AuthHandler {
-	h := &AuthHandler{cfg: cfg, sessions: sessions}
+	h := &AuthHandler{cfg: cfg, sessions: sessions, logins: newLoginStates()}
 
 	if cfg.AuthEnabled && cfg.OIDCIssuer != "" {
 		provider, err := oidc.NewProvider(context.Background(), cfg.OIDCIssuer)
@@ -76,8 +132,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	codeChallenge := computeS256Challenge(codeVerifier)
 
-	// Store state + verifier in session (5 min TTL)
-	h.sessions.Set("oidc_state:"+state, middleware.UserInfo{Sub: codeVerifier}, 5*time.Minute)
+	if !h.logins.put(state, codeVerifier, time.Now()) {
+		writeError(w, http.StatusServiceUnavailable, "too many logins in progress")
+		return
+	}
 
 	// Build authorization URL with PKCE
 	authURL := h.oauth2.AuthCodeURL(state,
@@ -109,13 +167,11 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "missing state parameter")
 		return
 	}
-	stateSession, ok := h.sessions.Get("oidc_state:" + state)
+	codeVerifier, ok := h.logins.take(state, time.Now())
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid or expired state")
 		return
 	}
-	codeVerifier := stateSession.Sub
-	h.sessions.Delete("oidc_state:" + state)
 
 	// Exchange authorization code for tokens (with PKCE verifier)
 	code := r.URL.Query().Get("code")
@@ -244,4 +300,3 @@ func computeS256Challenge(verifier string) string {
 	h := sha256.Sum256([]byte(verifier))
 	return base64.RawURLEncoding.EncodeToString(h[:])
 }
-
