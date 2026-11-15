@@ -1,9 +1,14 @@
 package netflow
 
 import (
+	"container/list"
+	"net"
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/nextmap-io/as-stats/internal/collector/ratelog"
+	"github.com/nextmap-io/as-stats/internal/metrics"
 )
 
 // IANA field type IDs for NetFlow v9 / IPFIX.
@@ -106,17 +111,46 @@ type templateKey struct {
 }
 
 // TemplateCache stores templates keyed by (router IP, source ID, template ID).
+//
+// Templates never expire by age (unless a ttl is given): a re-send replaces
+// the entry. Two bounds keep the cache from growing without limit or being
+// taken over by one exporter:
+//
+//   - maxTemplatesPerRouter: a router at its cap may still replace its own
+//     templates, but a new template ID from it is refused and counted
+//     (asstats_templates_refused_total);
+//   - maxTemplateCacheSize overall: when full, the least recently set entry
+//     is evicted. Entries sit in a list ordered by last Set, so eviction is
+//     O(1) — never a scan of the whole cache under the write lock.
 type TemplateCache struct {
 	mu        sync.RWMutex
-	templates map[templateKey]*Template
+	templates map[templateKey]*list.Element // Value: *cacheEntry
+	order     *list.List                    // front = least recently set
+	perRouter map[[16]byte]int
 	ttl       time.Duration
+	maxTotal  int
+	maxRouter int
 }
 
-// NewTemplateCache creates a template cache with the given TTL.
+type cacheEntry struct {
+	key  templateKey
+	tmpl *Template
+}
+
+// NewTemplateCache creates a template cache with the given TTL (0 = never
+// expire by age).
 func NewTemplateCache(ttl time.Duration) *TemplateCache {
+	return newTemplateCache(ttl, maxTemplateCacheSize, maxTemplatesPerRouter)
+}
+
+func newTemplateCache(ttl time.Duration, maxTotal, maxRouter int) *TemplateCache {
 	return &TemplateCache{
-		templates: make(map[templateKey]*Template),
+		templates: make(map[templateKey]*list.Element),
+		order:     list.New(),
+		perRouter: make(map[[16]byte]int),
 		ttl:       ttl,
+		maxTotal:  maxTotal,
+		maxRouter: maxRouter,
 	}
 }
 
@@ -128,29 +162,63 @@ func makeKey(routerIP [16]byte, sourceID uint32, templateID uint16) templateKey 
 	}
 }
 
-const maxTemplateCacheSize = 10000
+const (
+	maxTemplateCacheSize = 10000
+	// maxTemplatesPerRouter bounds one exporter's share of the cache. Real
+	// exporters announce tens of templates (per source ID / observation
+	// domain), far below it.
+	maxTemplatesPerRouter = 1000
+)
+
+// templateCapLog has its own budget so a flood of refused templates cannot
+// use up the one templateLog keeps for real template announcements.
+var templateCapLog = ratelog.New(1, time.Minute)
 
 // Set stores a template in the cache and reports whether it is new or differs
 // from the cached one (exporters re-send unchanged templates periodically).
+// A new template from a router already at its cap is refused: Set returns
+// false and the template is not cached.
 func (tc *TemplateCache) Set(routerIP [16]byte, sourceID uint32, tmpl *Template) bool {
 	key := makeKey(routerIP, sourceID, tmpl.ID)
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-	prev, exists := tc.templates[key]
-	if !exists && len(tc.templates) >= maxTemplateCacheSize {
-		// Evict oldest entry to prevent unbounded growth
-		var oldestKey templateKey
-		var oldestTime time.Time
-		for k, v := range tc.templates {
-			if oldestTime.IsZero() || v.ReceivedAt.Before(oldestTime) {
-				oldestKey = k
-				oldestTime = v.ReceivedAt
-			}
-		}
-		delete(tc.templates, oldestKey)
+	if el, exists := tc.templates[key]; exists {
+		e := el.Value.(*cacheEntry)
+		prev := e.tmpl
+		e.tmpl = tmpl
+		tc.order.MoveToBack(el)
+		return !sameLayout(prev, tmpl)
 	}
-	tc.templates[key] = tmpl
-	return !exists || !sameLayout(prev, tmpl)
+	if tc.perRouter[routerIP] >= tc.maxRouter {
+		metrics.TemplatesRefused.WithLabelValues(metrics.RouterLabel(net.IP(routerIP[:]))).Inc()
+		templateCapLog.Printf("netflow: router %s is at its %d-template cap; refusing template %d (source %d)",
+			net.IP(routerIP[:]), tc.maxRouter, tmpl.ID, sourceID)
+		return false
+	}
+	if tc.order.Len() >= tc.maxTotal {
+		tc.removeLocked(tc.order.Front())
+	}
+	tc.templates[key] = tc.order.PushBack(&cacheEntry{key: key, tmpl: tmpl})
+	tc.perRouter[routerIP]++
+	return true
+}
+
+// removeLocked drops one entry; tc.mu must be held for writing.
+func (tc *TemplateCache) removeLocked(el *list.Element) {
+	e := tc.order.Remove(el).(*cacheEntry)
+	delete(tc.templates, e.key)
+	if n := tc.perRouter[e.key.RouterIP] - 1; n > 0 {
+		tc.perRouter[e.key.RouterIP] = n
+	} else {
+		delete(tc.perRouter, e.key.RouterIP)
+	}
+}
+
+// Len returns the number of cached templates.
+func (tc *TemplateCache) Len() int {
+	tc.mu.RLock()
+	defer tc.mu.RUnlock()
+	return tc.order.Len()
 }
 
 func sameLayout(a, b *Template) bool {
@@ -161,7 +229,11 @@ func sameLayout(a, b *Template) bool {
 func (tc *TemplateCache) Get(routerIP [16]byte, sourceID uint32, templateID uint16) *Template {
 	key := makeKey(routerIP, sourceID, templateID)
 	tc.mu.RLock()
-	tmpl, ok := tc.templates[key]
+	var tmpl *Template
+	el, ok := tc.templates[key]
+	if ok {
+		tmpl = el.Value.(*cacheEntry).tmpl
+	}
 	tc.mu.RUnlock()
 
 	if !ok {
@@ -170,8 +242,8 @@ func (tc *TemplateCache) Get(routerIP [16]byte, sourceID uint32, templateID uint
 	if tc.ttl > 0 && time.Since(tmpl.ReceivedAt) > tc.ttl {
 		tc.mu.Lock()
 		// Only drop the entry we judged stale, not one re-sent meanwhile.
-		if tc.templates[key] == tmpl {
-			delete(tc.templates, key)
+		if el, ok := tc.templates[key]; ok && el.Value.(*cacheEntry).tmpl == tmpl {
+			tc.removeLocked(el)
 		}
 		tc.mu.Unlock()
 		return nil

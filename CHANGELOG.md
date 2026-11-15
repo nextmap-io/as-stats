@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   behaviour (any source) and logs a warning at startup. The collector must see
   the routers' real addresses (host networking); keep firewalling UDP
   2055 / 6343 as well.
+- NetFlow v9 / IPFIX template cache: each exporter (router IP) holds at most
+  1,000 templates. At that cap it can still re-send (replace) its own, but new
+  template IDs are refused and counted in
+  `asstats_templates_refused_total{router}`. When the whole cache (10,000) is
+  full, the least recently refreshed template is evicted in constant time
+  instead of a scan of the whole cache. Templates still never expire by age.
 
 ## [3.7.0] - 2026-10-27
 
