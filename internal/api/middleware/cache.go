@@ -150,12 +150,10 @@ func Cache(ttl time.Duration) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Bypass cache
-			if r.Header.Get("Cache-Control") == "no-cache" {
-				next.ServeHTTP(w, r)
-				return
-			}
-
+			// A request's Cache-Control is deliberately ignored: honouring
+			// no-cache let any client force every heavy query to run, which is
+			// what this cache exists to absorb. The frontend never sends it;
+			// its refresh buttons get data at most one TTL old.
 			key := r.URL.RequestURI()
 
 			if entry, ok := cache.get(key); ok {

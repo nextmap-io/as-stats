@@ -41,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hours need an IP or prefix, AS or port filter" otherwise; the Flow Search
   page shows that message. Link, protocol, IP version and minimum bytes alone
   do not count as selective.
+- API response cache: a request's `Cache-Control: no-cache` no longer skips the
+  30 s cache. The UI never sent it; its refresh buttons keep working and get
+  data at most 30 s old, as before. Scripts that relied on the header now get
+  cached responses (`X-Cache: HIT`).
 
 ## [3.7.0] - 2026-10-27
 
