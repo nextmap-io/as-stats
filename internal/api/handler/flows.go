@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -339,5 +340,26 @@ func parseFlowSearchFilters(r *http.Request) (model.FlowSearchFilters, error) {
 		}
 	}
 
+	if f.To.Sub(f.From) > flowSearchUnfilteredMaxWindow && !hasSelectiveFlowFilter(f) {
+		return f, errFlowSearchNeedsFilter
+	}
+
 	return f, nil
+}
+
+// flowSearchUnfilteredMaxWindow is the longest window a flow-log read may
+// cover without a selective filter. Beyond it a search scans days of the
+// whole flow log (about 100 M rows a day in production) for one page.
+const flowSearchUnfilteredMaxWindow = 24 * time.Hour
+
+var errFlowSearchNeedsFilter = errors.New(
+	"searches over more than 24 hours need an IP or prefix, AS or port filter")
+
+// hasSelectiveFlowFilter reports whether the search narrows on an address
+// (IP or CIDR), an AS or a port. Link, protocol, IP version and min_bytes
+// keep most of the log in scope.
+func hasSelectiveFlowFilter(f model.FlowSearchFilters) bool {
+	return f.SrcIP != "" || f.DstIP != "" ||
+		f.SrcAS != 0 || f.DstAS != 0 ||
+		f.SrcPort != 0 || f.DstPort != 0 || f.Port != 0
 }

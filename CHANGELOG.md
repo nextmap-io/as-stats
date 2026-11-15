@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Validate alert ids: `POST /alerts/{id}/ack` and `/resolve` answer 400 for an
   id that is not a UUID and 404 for an unknown alert, before any ClickHouse
   mutation is issued.
+- Flow search bounds: `GET /flows/search` (JSON and CSV) and
+  `/flows/timeseries` over a window longer than 24 hours now require an IP or
+  prefix, AS or port filter, and answer 400 with "searches over more than 24
+  hours need an IP or prefix, AS or port filter" otherwise; the Flow Search
+  page shows that message. Link, protocol, IP version and minimum bytes alone
+  do not count as selective.
 
 ## [3.7.0] - 2026-10-27
 
