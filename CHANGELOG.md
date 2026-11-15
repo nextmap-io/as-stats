@@ -45,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   30 s cache. The UI never sent it; its refresh buttons keep working and get
   data at most 30 s old, as before. Scripts that relied on the header now get
   cached responses (`X-Cache: HIT`).
+- Audit log: host group create / update / delete are now recorded
+  (`hostgroup_create`, `hostgroup_update`, `hostgroup_delete`). Request bodies
+  stored in `audit_log.params` are redacted: `url` fields keep only scheme and
+  host (`https://hooks.slack.com/***`), every `headers` value becomes `***`
+  (names kept), and password / secret / token fields become `***`. A body that
+  is not a complete JSON object is no longer stored. Existing audit rows are
+  unchanged.
 
 ### Fixed
 - Revoking an API token (Admin › Tokens, `DELETE /admin/tokens/{id}`) always
