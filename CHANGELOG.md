@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   26.3.62.3 / 26.8.36.3 / 26.9.27.3 / 26.10.3.7). Sites running 26.8 should
   set `CLICKHOUSE_IMAGE` to it and recreate the `clickhouse` service.
 - Go dependencies: `github.com/andybalholm/brotli` v1.2.7 (GO-2026-6888) and
-  `github.com/klauspost/compress` v1.20.2 (GO-2026-6865). `govulncheck ./...`
+  `github.com/klauspost/compress` v1.20.3 (GO-2026-6865, via clickhouse-go 2.51). `govulncheck ./...`
   reports no vulnerabilities.
 - Collector exporter allow-list: `COLLECTOR_ALLOWED_EXPORTERS` (comma-separated
   IPs / CIDRs). When set, NetFlow / IPFIX / sFlow datagrams from other sources
