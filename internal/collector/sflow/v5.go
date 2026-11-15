@@ -13,14 +13,13 @@ import (
 const (
 	sflowVersion  = 5
 	headerLen     = 28
-	minSampleLen  = 12
 	ethHeaderLen  = 14
 	ipv4HeaderLen = 20
 
 	// Sample types
-	sampleTypeFlow        = 1
-	sampleTypeCounter     = 2
-	sampleTypeExpandFlow  = 3
+	sampleTypeFlow       = 1
+	sampleTypeCounter    = 2
+	sampleTypeExpandFlow = 3
 
 	// Record types within a flow sample
 	recordRawPacket       = 1

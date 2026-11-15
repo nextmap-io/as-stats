@@ -1281,22 +1281,6 @@ func (s *ClickHouseStore) DeleteLink(ctx context.Context, tag string) error {
 	)
 }
 
-// BulkUpsertASNames inserts or updates AS name records.
-func (s *ClickHouseStore) BulkUpsertASNames(ctx context.Context, names []model.ASInfo) error {
-	batch, err := s.conn.PrepareBatch(ctx, `INSERT INTO as_names (as_number, as_name, country)`)
-	if err != nil {
-		return fmt.Errorf("prepare AS names batch: %w", err)
-	}
-
-	for _, n := range names {
-		if err := batch.Append(n.Number, n.Name, n.Country); err != nil {
-			return err
-		}
-	}
-
-	return batch.Send()
-}
-
 // GetASName returns the name for a given AS number.
 func (s *ClickHouseStore) GetASName(ctx context.Context, asn uint32) (string, error) {
 	var name string

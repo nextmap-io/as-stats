@@ -13,52 +13,6 @@ type FlowWriter interface {
 	Close() error
 }
 
-// FlowReader reads aggregated traffic data from storage.
-type FlowReader interface {
-	TopAS(ctx context.Context, p QueryParams) ([]model.ASTraffic, uint64, error)
-	TopIP(ctx context.Context, p QueryParams) ([]model.IPTraffic, uint64, error)
-	TopPrefix(ctx context.Context, p QueryParams) ([]model.PrefixTraffic, uint64, error)
-
-	ASTimeSeries(ctx context.Context, asn uint32, p QueryParams) ([]model.TrafficPoint, error)
-	ASLinkSeries(ctx context.Context, asn uint32, p QueryParams) ([]model.LinkTimeSeries, error)
-	ASTotals(ctx context.Context, asn uint32, p QueryParams) (v4In, v4Out, v6In, v6Out uint64, err error)
-	ASPeers(ctx context.Context, asn uint32, p QueryParams) ([]model.ASTraffic, error)
-	ASAsymmetry(ctx context.Context, asn uint32, p QueryParams) (bytesIn, bytesOut uint64, ratio float64, class string, err error)
-	ASTopIPs(ctx context.Context, asn uint32, p QueryParams) ([]model.IPTraffic, error)
-	ASRemoteIPs(ctx context.Context, asn uint32, p QueryParams) ([]model.IPTraffic, error)
-
-	IPTimeSeries(ctx context.Context, ip string, p QueryParams) ([]model.TrafficPoint, error)
-	IPTopAS(ctx context.Context, ip string, p QueryParams) ([]model.ASTraffic, error)
-	IPPeerIPs(ctx context.Context, ip string, p QueryParams) ([]model.IPTraffic, error)
-	IPInfo(ctx context.Context, ip string) (asn uint32, asName string, prefix string, err error)
-
-	LinkASTimeSeries(ctx context.Context, tag string, p QueryParams) ([]model.ASTrafficDetail, error)
-	LinkList(ctx context.Context, p QueryParams) ([]model.LinkTraffic, error)
-	LinkTimeSeries(ctx context.Context, tag string, p QueryParams) ([]model.TrafficPoint, error)
-	LinkTopAS(ctx context.Context, tag string, p QueryParams) ([]model.ASTraffic, uint64, error)
-	LinksTrafficSeries(ctx context.Context, p QueryParams) ([]model.LinkTimeSeries, error)
-	TopASTrafficSeries(ctx context.Context, p QueryParams) ([]model.ASTrafficDetail, error)
-
-	Overview(ctx context.Context, p QueryParams) (*model.Overview, error)
-
-	SearchAS(ctx context.Context, query string, limit int) ([]model.ASInfo, error)
-
-	Close() error
-}
-
-// LinkStore manages known link configuration.
-type LinkStore interface {
-	ListLinks(ctx context.Context) ([]model.Link, error)
-	UpsertLink(ctx context.Context, link model.Link) error
-	DeleteLink(ctx context.Context, tag string) error
-}
-
-// ASNameStore manages AS name lookups.
-type ASNameStore interface {
-	GetASName(ctx context.Context, asn uint32) (string, error)
-	BulkUpsertASNames(ctx context.Context, names []model.ASInfo) error
-}
-
 // QueryParams holds common query parameters for all read operations.
 type QueryParams struct {
 	From          time.Time

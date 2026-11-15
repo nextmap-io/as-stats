@@ -5,27 +5,10 @@ import type { QueryFilters, ReportSchedule } from "@/lib/types"
 
 const REFETCH = 300_000 // 5 minutes
 
-export function useOverview(filters: QueryFilters) {
-  return useQuery({
-    queryKey: ["overview", filters],
-    queryFn: () => api.overview(filters),
-    refetchInterval: REFETCH,
-  })
-}
-
 export function useTopAS(filters: QueryFilters) {
   return useQuery({
     queryKey: ["top-as", filters],
     queryFn: () => api.topAS(filters),
-    refetchInterval: REFETCH,
-  })
-}
-
-export function useTopASTraffic(ipVersion: number, filters: QueryFilters) {
-  const f = { ...filters, ip_version: ipVersion, limit: 50 }
-  return useQuery({
-    queryKey: ["top-as-traffic", ipVersion, filters],
-    queryFn: () => api.topASTraffic(f),
     refetchInterval: REFETCH,
   })
 }

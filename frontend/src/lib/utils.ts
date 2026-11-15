@@ -14,13 +14,8 @@ export function formatBytes(bytes: number): string {
   return `${val.toFixed(val < 10 ? 2 : 1)} ${units[i]}`
 }
 
-export function formatBps(bytesPerInterval: number, intervalSeconds: number): string {
-  return formatBitRate(intervalSeconds > 0 ? (bytesPerInterval * 8) / intervalSeconds : 0)
-}
-
-// formatBitsPerSec formats an already-computed bits-per-second value (unlike
-// formatBps, which converts bytes-per-interval). Used by capacity/load-curve
-// data where the backend already returns bps.
+// formatBitsPerSec formats an already-computed bits-per-second value. Used by
+// capacity / load-curve data where the backend already returns bps.
 export function formatBitsPerSec(bps: number): string {
   return formatBitRate(bps || 0)
 }
